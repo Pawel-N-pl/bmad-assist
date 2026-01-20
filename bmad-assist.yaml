@@ -7,9 +7,10 @@ communication_language: English
 document_output_language: English
 user_skill_level: expert
 
-# Paths
-# output_folder: '{project-root}/docs'
-# sprint_artifacts: '{project-root}/docs/sprint-artifacts'
+# External paths (optional) - store docs/artifacts outside project root
+# paths:
+#   project_knowledge: /shared/docs/my-project    # PRD, architecture, epics
+#   output_folder: /data/bmad-output/my-project   # generated artifacts
 
 timeout: 3600
 
