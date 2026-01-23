@@ -72,11 +72,23 @@ providers:
     # - provider: opencode
     #   model: opencode/gemini-3-pro          # Gemini 3 Pro via OpenCode
 
-    # Amp providers (NEW) - Sourcegraph's Claude wrapper
+    # Amp providers - Sourcegraph's Claude wrapper
     # Note: Amp uses "modes" instead of model names
     # WARNING: Only "smart" mode works with bmad-assist (rush/free lack tool use)
     # - provider: amp
     #   model: smart                          # Claude Opus 4.5 (most capable)
+
+    # Cursor Agent providers
+    # Command: cursor-agent --print --model "<MODEL>" --force "<PROMPT>"
+    # - provider: cursor-agent
+    #   model: auto                # Default model
+    # - provider: cursor-agent
+    #   model: composer-1
+
+    # GitHub Copilot providers
+    # Command: copilot -p "<PROMPT>" --allow-all-tools --yolo --model "<MODEL>"
+    # - provider: copilot
+    #   model: claude-haiku-4.5                         # Default model
 
 # Compiler configuration
 compiler:
