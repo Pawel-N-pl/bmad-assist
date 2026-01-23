@@ -20,7 +20,7 @@ All notable changes to bmad-assist are documented in this file.
 - Auto-generate sprint-status.yaml from epic files when missing
 
 ### Fixed
-- Python 3.14+ compatibility: `Traversable` import moved to `importlib.resources.abc`
+- Python 3.14+ compatibility: `Traversable` import moved to `importlib.resources.abc` (thanks [@mattbrun](https://github.com/mattbrun))
 - Clearer error messages for outdated/incompatible cache files
 - Evidence Score calculation deduplication in code review reports
 - `webhook-relay` experiment fixture repaired (other fixtures still broken)
