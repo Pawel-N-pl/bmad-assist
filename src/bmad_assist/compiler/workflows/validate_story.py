@@ -19,6 +19,10 @@ from bmad_assist.compiler.patching import (
     load_patch,
     validate_output,
 )
+from bmad_assist.compiler.source_context import (
+    SourceContextService,
+    extract_file_paths_from_story,
+)
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
@@ -343,7 +347,31 @@ class ValidateStoryCompiler:
                 f"Suggestion: Check file permissions and encoding (UTF-8 required)"
             )
 
-        # Insert story LAST (closest to instructions per recency-bias)
+        # 9a. Source files from story's File List (before story for recency-bias)
+        file_list_paths = extract_file_paths_from_story(story_content)
+        if file_list_paths:
+            try:
+                service = SourceContextService(context, "validate_story")
+                source_files = service.collect_files(file_list_paths, None)
+                files.update(source_files)
+                if source_files:
+                    logger.debug(
+                        "Added %d source files to context for validate_story",
+                        len(source_files),
+                    )
+                else:
+                    logger.warning(
+                        "No source files collected for validate_story "
+                        "(budget=%d, candidates=%d)",
+                        service.budget,
+                        len(file_list_paths),
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to collect source files for validate_story: %s", e
+                )
+
+        # 9b. Insert story LAST (closest to instructions per recency-bias)
         files[str(story_path)] = story_content
         resolved["story_file"] = str(story_path)
         logger.debug("Added story file to context (LAST): %s", story_path)

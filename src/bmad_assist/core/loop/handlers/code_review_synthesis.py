@@ -28,6 +28,7 @@ from bmad_assist.code_review.orchestrator import (
 )
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
+from bmad_assist.core.config import get_phase_timeout
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.handlers.base import BaseHandler, check_for_edit_failures
@@ -132,7 +133,8 @@ class CodeReviewSynthesisHandler(BaseHandler):
         # Load anonymized reviews from cache
         try:
             # Story 22.7: load_reviews_for_synthesis now returns (reviews, failed_reviewers)
-            anonymized_reviews, failed_reviewers = load_reviews_for_synthesis(
+            # TIER 2: Also loads pre-calculated evidence_score
+            anonymized_reviews, failed_reviewers, _evidence_score = load_reviews_for_synthesis(
                 session_id,
                 self.project_path,
             )
@@ -218,7 +220,8 @@ class CodeReviewSynthesisHandler(BaseHandler):
             # Load reviews with proper error handling (AC10)
             try:
                 # Story 22.7: load_reviews_for_synthesis now returns (reviews, failed_reviewers)
-                anonymized_reviews, failed_reviewers = load_reviews_for_synthesis(
+                # TIER 2: Also loads pre-calculated evidence_score for synthesis context
+                anonymized_reviews, failed_reviewers, evidence_score_data = load_reviews_for_synthesis(
                     session_id,
                     self.project_path,
                 )
@@ -293,6 +296,21 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     failed_reviewers=failed_reviewers,  # Story 22.7: Include failed reviewers
                 )
 
+                # Extract antipatterns for dev-story (best-effort, non-blocking)
+                try:
+                    from bmad_assist.antipatterns import extract_and_append_antipatterns
+
+                    extract_and_append_antipatterns(
+                        synthesis_content=extracted_synthesis,
+                        epic_id=epic_num,
+                        story_id=f"{epic_num}-{story_num}",
+                        antipattern_type="code",
+                        project_path=self.project_path,
+                        config=self.config,
+                    )
+                except Exception as e:
+                    logger.warning("Antipatterns extraction failed (non-blocking): %s", e)
+
                 # Story 13.10: Extract metrics and save synthesizer record
                 # Estimate tokens from char count (~4 chars per token)
                 estimated_output_tokens = len(result.stdout) // 4 if result.stdout else 0
@@ -328,7 +346,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     result_summary=result_summary,
                     provider=self.get_provider(),
                     model=self.get_model(),
-                    timeout=self.config.timeout,
+                    timeout=get_phase_timeout(self.config, self.phase_name),
                 )
                 if not continue_execution:
                     return PhaseResult.fail("User interrupted execution")

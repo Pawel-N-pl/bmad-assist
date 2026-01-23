@@ -421,9 +421,16 @@ def _matches_metadata(
                 metadata[key.strip().lower()] = value.strip()
 
     # Check if all fields match
+    # Story metadata may be stored as "epic.story" format (e.g., "1.1") or story-only (e.g., "1")
+    # Accept both formats for backward compatibility with different workflow callers
+    story_meta = metadata.get("story")
+    story_matches = (
+        story_meta == f"{epic_num}.{story_num}"  # Full format: "2.2"
+        or story_meta == str(story_num)  # Story-only format: "2"
+    )
     return (
         metadata.get("epic") == str(epic_num)
-        and metadata.get("story") == str(story_num)
+        and story_matches
         and metadata.get("phase") == phase_name.replace("_", "-")
     )
 

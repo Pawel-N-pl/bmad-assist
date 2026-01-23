@@ -23,6 +23,7 @@ from bmad_assist.code_review.orchestrator import (
     run_code_review_phase,
     save_reviews_for_synthesis,
 )
+from bmad_assist.core.config import get_phase_timeout
 from bmad_assist.core.loop.handlers.base import BaseHandler
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import State
@@ -114,6 +115,7 @@ class CodeReviewHandler(BaseHandler):
                 self.project_path,
                 session_id=result.session_id,
                 failed_reviewers=result.failed_reviewers,
+                evidence_aggregate=result.evidence_aggregate,
             )
 
             # Save evaluation records if any were created
@@ -154,7 +156,7 @@ class CodeReviewHandler(BaseHandler):
                     result_summary=result_summary,
                     provider=self.get_provider(),
                     model=self.get_model(),
-                    timeout=self.config.timeout,
+                    timeout=get_phase_timeout(self.config, self.phase_name),
                 )
                 if not continue_execution:
                     return PhaseResult.fail("User interrupted execution")

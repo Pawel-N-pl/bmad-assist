@@ -50,15 +50,8 @@ from bmad_assist.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# Supported Amp modes (treated as "models" in config)
-# Amp uses modes instead of explicit model names
-SUPPORTED_MODES: frozenset[str] = frozenset(
-    {
-        "smart",  # Claude Opus 4.5 - most capable
-        "rush",  # Claude Haiku 4.5 - fast, cost-effective
-        "free",  # Ad-supported mix - free tier
-    }
-)
+# Note: Model/mode validation removed - Amp CLI accepts any mode string.
+# The CLI itself will validate and return an error for unknown modes.
 
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
@@ -160,13 +153,11 @@ class AmpProvider(BaseProvider):
     def supports_model(self, model: str) -> bool:
         """Check if this provider supports the given model (mode).
 
-        Validates model names against the SUPPORTED_MODES constant.
-
         Args:
-            model: Mode identifier to check (smart, rush, free).
+            model: Mode identifier to check.
 
         Returns:
-            True if provider supports the mode, False otherwise.
+            Always True - let Amp CLI validate mode names.
 
         Example:
             >>> provider = AmpProvider()
@@ -174,11 +165,12 @@ class AmpProvider(BaseProvider):
             True
             >>> provider.supports_model("rush")
             True
-            >>> provider.supports_model("gpt-4")
-            False
+            >>> provider.supports_model("any-mode")
+            True
 
         """
-        return model in SUPPORTED_MODES
+        # Always return True - let Amp CLI validate mode names
+        return True
 
     def _resolve_settings(
         self,
@@ -289,13 +281,6 @@ class AmpProvider(BaseProvider):
         # Resolve model with fallback chain: explicit -> default -> literal
         effective_model = model or self.default_model or "smart"
         effective_timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-
-        # Validate model before building command (fail-fast)
-        if not self.supports_model(effective_model):
-            raise ProviderError(
-                f"Unsupported mode '{effective_model}' for Amp provider. "
-                f"Supported: {', '.join(sorted(SUPPORTED_MODES))}"
-            )
 
         # Validate and resolve settings file
         validated_settings = self._resolve_settings(settings_file, effective_model)
@@ -439,6 +424,7 @@ class AmpProvider(BaseProvider):
                 ) -> None:
                     """Process Amp stream-json output, extracting text and logging."""
                     nonlocal session_id
+                    warned_tools: set[str] = set()  # Dedupe restricted tool warnings
                     for line in iter(stream.readline, ""):
                         stripped = line.strip()
                         if not stripped:
@@ -479,11 +465,13 @@ class AmpProvider(BaseProvider):
                                             normalized_tool_name: str = _AMP_TOOL_NAME_MAP.get(
                                                 tool_name, tool_name
                                             )
-                                            # Log warning if restricted tools are attempted
+                                            # Log warning if restricted tools are attempted (once per tool)
                                             if (
                                                 restricted_tools
                                                 and normalized_tool_name in restricted_tools
+                                                and normalized_tool_name not in warned_tools
                                             ):
+                                                warned_tools.add(normalized_tool_name)
                                                 logger.warning(
                                                     "Amp CLI: Attempted to use restricted tool '%s' "
                                                     "(normalized='%s', allowed=%s, restricted=%s). "

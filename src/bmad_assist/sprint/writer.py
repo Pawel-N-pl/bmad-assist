@@ -282,10 +282,56 @@ def _add_epic_comments(dev_status: "CommentedMap") -> None:
     Adds `# Epic X` comment before the first entry of each epic group.
     Modifies dev_status in place.
 
+    IMPORTANT: First clears any existing 'before' comments to prevent
+    duplicate comments accumulating on each write (ruamel preserves
+    comments from original file, so we must clear before re-adding).
+
     Args:
         dev_status: CommentedMap of development_status entries.
 
     """
+    # Clear existing 'before' comments to prevent duplicates
+    # ruamel stores comments in complex ways:
+    # 1. ca.comment[1] - list of CommentTokens before the FIRST key in section
+    # 2. ca.items[key][1] - list of CommentTokens before this key
+    # 3. ca.items[key][2] - CommentToken for comments AFTER this key (which appear
+    #                       visually before the NEXT key in the file)
+    #
+    # The yaml_set_comment_before_after_key() method adds to ca.items[key][1],
+    # but when ruamel loads a file, comments between keys may be stored as
+    # post-comments on the preceding key (index 2), not pre-comments on the
+    # following key (index 1). We must clear both to prevent accumulation.
+    if hasattr(dev_status, "ca"):
+        # Clear section-level "before" comment (for first key)
+        # ca.comment[1] is a list - must clear the list, not set to None
+        if hasattr(dev_status.ca, "comment") and dev_status.ca.comment:
+            if len(dev_status.ca.comment) > 1 and isinstance(dev_status.ca.comment[1], list):
+                dev_status.ca.comment[1].clear()
+
+        # Clear per-key comments (both before [1] and after [2])
+        if hasattr(dev_status.ca, "items"):
+            for key in dev_status:
+                if key in dev_status.ca.items:
+                    comment_tuple = dev_status.ca.items[key]
+                    if comment_tuple:
+                        # Convert to list for modification
+                        comment_list = list(comment_tuple)
+                        modified = False
+
+                        # Clear 'before' comments (index 1)
+                        if len(comment_list) > 1 and isinstance(comment_list[1], list):
+                            comment_list[1].clear()
+                            modified = True
+
+                        # Clear 'after/post' comments (index 2) - these appear
+                        # visually before the NEXT key, so epic comments end up here
+                        if len(comment_list) > 2 and comment_list[2] is not None:
+                            comment_list[2] = None
+                            modified = True
+
+                        if modified:
+                            dev_status.ca.items[key] = tuple(comment_list)
+
     current_epic: str | int | None = None
 
     for key in dev_status:

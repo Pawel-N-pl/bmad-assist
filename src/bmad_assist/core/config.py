@@ -399,15 +399,15 @@ class SourceContextBudgetsConfig(BaseModel):
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     validate_story: int = Field(
-        default=0,
+        default=10000,
         ge=0,
-        description="Token budget for validate_story (0 = disabled)",
+        description="Token budget for validate_story workflow",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     validate_story_synthesis: int = Field(
-        default=0,
+        default=10000,
         ge=0,
-        description="Token budget for validate_story_synthesis (0 = disabled)",
+        description="Token budget for validate_story_synthesis workflow",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     default: int = Field(
@@ -580,6 +580,101 @@ class CompilerConfig(BaseModel):
         default_factory=SourceContextConfig,
         description="Source file collection configuration",
     )
+
+
+class TimeoutsConfig(BaseModel):
+    """Per-phase timeout configuration.
+
+    Allows configuring different timeouts for different workflow phases.
+    If a phase-specific timeout is not set, falls back to default.
+
+    Attributes:
+        default: Default timeout for all phases (seconds).
+        create_story: Timeout for create_story phase.
+        validate_story: Timeout for validate_story phase.
+        validate_story_synthesis: Timeout for validate_story_synthesis phase.
+        dev_story: Timeout for dev_story phase.
+        code_review: Timeout for code_review phase.
+        code_review_synthesis: Timeout for code_review_synthesis phase.
+        retrospective: Timeout for retrospective phase.
+
+    Example:
+        >>> config = TimeoutsConfig(default=3600, validate_story=600, code_review=900)
+        >>> config.get_timeout("validate_story")
+        600
+        >>> config.get_timeout("unknown_phase")
+        3600
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    default: int = Field(
+        default=3600,
+        ge=60,
+        description="Default timeout for all phases in seconds",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    create_story: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for create_story phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    validate_story: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for validate_story phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    validate_story_synthesis: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for validate_story_synthesis phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    dev_story: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for dev_story phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    code_review: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for code_review phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    code_review_synthesis: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for code_review_synthesis phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    retrospective: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for retrospective phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+
+    def get_timeout(self, phase: str) -> int:
+        """Get timeout for a specific phase.
+
+        Args:
+            phase: Phase name (e.g., 'validate_story', 'code_review').
+                   Hyphens are normalized to underscores.
+
+        Returns:
+            Phase-specific timeout if set, otherwise default timeout.
+
+        """
+        # Normalize phase name (hyphens to underscores)
+        normalized = phase.replace("-", "_")
+        phase_timeout = getattr(self, normalized, None)
+        if phase_timeout is not None:
+            return phase_timeout
+        return self.default
 
 
 class BenchmarkingConfig(BaseModel):
@@ -930,8 +1025,12 @@ class Config(BaseModel):
     )
     timeout: int = Field(
         default=300,
-        description="Global timeout for providers in seconds",
+        description="Global timeout for providers in seconds (legacy, prefer timeouts)",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    timeouts: TimeoutsConfig | None = Field(
+        default=None,
+        description="Per-phase timeout configuration (optional, overrides timeout)",
     )
     bmad_paths: BmadPathsConfig = Field(default_factory=BmadPathsConfig)
     paths: ProjectPathsConfig = Field(default_factory=ProjectPathsConfig)
@@ -983,6 +1082,32 @@ class Config(BaseModel):
 
 # Module-level singleton for configuration
 _config: Config | None = None
+
+
+def get_phase_timeout(config: Config, phase: str) -> int:
+    """Get timeout for a specific workflow phase.
+
+    Provides backward-compatible timeout resolution:
+    1. If config.timeouts is set, use phase-specific or default timeout
+    2. Otherwise, fall back to legacy config.timeout
+
+    Args:
+        config: Application configuration.
+        phase: Phase name (e.g., 'validate_story', 'code_review').
+               Hyphens are normalized to underscores.
+
+    Returns:
+        Timeout in seconds for the specified phase.
+
+    Example:
+        >>> timeout = get_phase_timeout(config, "validate_story")
+        >>> timeout = get_phase_timeout(config, "code_review")
+        >>> # Hyphens also work: get_phase_timeout(config, "code-review")
+
+    """
+    if config.timeouts is not None:
+        return config.timeouts.get_timeout(phase)
+    return config.timeout
 
 
 def load_config(config_data: dict[str, Any]) -> Config:

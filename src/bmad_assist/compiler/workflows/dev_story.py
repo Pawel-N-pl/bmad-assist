@@ -279,6 +279,7 @@ class DevStoryCompiler:
 
         Files are ordered from general (early) to specific (late):
         1. project_context.md (general)
+        1b. code-antipatterns.md (if exists - general guidance)
         2. prd.md (full, no filtering)
         3. ux.md (if exists)
         4. architecture.md (technical)
@@ -303,6 +304,25 @@ class DevStoryCompiler:
             content = safe_read_file(project_context_path, project_root)
             if content:
                 files[str(project_context_path)] = content
+
+        # 1b. Include code antipatterns from previous code reviews (if exists)
+        # Position: early in context as general guidance (after project_context)
+        epic_num = resolved.get("epic_num")
+        if epic_num is not None:
+            from bmad_assist.core.paths import get_paths
+
+            try:
+                paths = get_paths()
+                antipatterns_path = (
+                    paths.implementation_artifacts / f"epic-{epic_num}-code-antipatterns.md"
+                )
+                if antipatterns_path.exists():
+                    files["[ANTIPATTERNS - DO NOT REPEAT]"] = antipatterns_path.read_text(
+                        encoding="utf-8"
+                    )
+                    logger.debug("Added code antipatterns to dev-story context")
+            except (RuntimeError, OSError) as e:
+                logger.debug("Could not load code antipatterns: %s", e)
 
         # 2. PRD (full, no epic-specific filtering) - search in planning_artifacts (docs/)
         prd_path = find_file_in_planning_dir(context, "*prd*.md")

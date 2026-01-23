@@ -57,12 +57,14 @@ BMAD (Brian's Methodology for AI-Driven Development) is a structured approach to
 
 ## Features
 
-- **Multi-LLM Orchestration** - Run parallel validations/reviews with Claude Code, Gemini CLI, and Codex
+- **Multi-LLM Orchestration** - Run parallel validations/reviews with Claude Code, Gemini CLI, Codex, OpenCode, Amp
+- **Evidence Score System** - Mathematical validation scoring (CRITICAL/IMPORTANT/MINOR) with anti-bias checks
 - **Workflow Compiler** - Transform BMAD workflows into optimized standalone prompts
 - **Patch System** - Customize workflows per-project without forking
 - **Bundled Workflows** - All BMAD workflows included, no extra setup needed
+- **Per-phase Timeouts** - Configurable timeout per workflow phase
 
-**TODO:**
+**TODO (not fully working yet):**
 - Real-time Dashboard
 - Experiment Framework
 - Test Architect Integration
@@ -227,6 +229,14 @@ notifications:
       chat_id: ${TELEGRAM_CHAT_ID}
     - type: discord
       webhook_url: ${DISCORD_WEBHOOK_URL}
+
+# Per-phase timeout configuration (seconds)
+timeouts:
+  default: 600
+  create_story: 900
+  dev_story: 3600       # Longer for implementation
+  code_review: 900
+  validate_story: 600
 ```
 
 ## External Documentation
@@ -312,6 +322,33 @@ bmad-assist/
 │   └── code_review/      # Code review orchestration
 ├── .bmad-assist/         # Project patches
 └── tests/                # Test suite
+```
+
+## CLI Commands
+
+```bash
+# Main development loop
+bmad-assist run -p ./project         # Run BMAD loop
+bmad-assist run -e 5 -s 3            # Start from epic 5, story 3
+bmad-assist run --phase dev_story    # Override starting phase
+
+# Project setup
+bmad-assist init -p ./project        # Initialize project
+bmad-assist init --reset-workflows   # Restore bundled workflows
+
+# Workflow compilation
+bmad-assist compile -w dev-story -e 5 -s 3    # Compile to standalone prompt
+bmad-assist compile -w retrospective -e 5     # Epic-level workflow
+
+# Patch management
+bmad-assist patch list               # Show patches and cache status
+bmad-assist patch compile -w dev-story        # Compile single patch
+bmad-assist patch compile-all        # Compile all patches without cache
+
+# Sprint management
+bmad-assist sprint generate          # Generate sprint-status from epics
+bmad-assist sprint validate          # Validate sprint-status.yaml
+bmad-assist sprint sync              # Sync with story file statuses
 ```
 
 ## Development

@@ -49,20 +49,8 @@ from bmad_assist.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# Supported Gemini CLI models
-# Based on Google Gemini CLI documentation (2025)
-SUPPORTED_MODELS: frozenset[str] = frozenset(
-    {
-        # Gemini 2.5 models (current production)
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        # Gemini 3 models (latest, Nov 2025)
-        "gemini-3-pro-preview",
-        "gemini-3-flash-preview",
-        # Gemini 2.0 experimental
-        "gemini-2.0-flash-exp",
-    }
-)
+# Note: Model validation removed - Gemini CLI accepts any model string.
+# The CLI itself will validate and return an error for unknown models.
 
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
@@ -183,11 +171,12 @@ class GeminiProvider(BaseProvider):
             True
             >>> provider.supports_model("gemini-2.5-pro")
             True
-            >>> provider.supports_model("gpt-4")
-            False
+            >>> provider.supports_model("any-model")
+            True
 
         """
-        return model in SUPPORTED_MODELS
+        # Always return True - let Gemini CLI validate model names
+        return True
 
     def _resolve_settings(
         self,
@@ -296,13 +285,6 @@ class GeminiProvider(BaseProvider):
         # Resolve model with fallback chain: explicit -> default -> literal
         effective_model = model or self.default_model or "gemini-2.5-flash"
         effective_timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-
-        # Validate model before building command (fail-fast)
-        if not self.supports_model(effective_model):
-            raise ProviderError(
-                f"Unsupported model '{effective_model}' for Gemini provider. "
-                f"Supported: {', '.join(sorted(SUPPORTED_MODELS))}"
-            )
 
         # Validate and resolve settings file
         validated_settings = self._resolve_settings(settings_file, effective_model)
@@ -459,6 +441,7 @@ class GeminiProvider(BaseProvider):
                 ) -> None:
                     """Process Gemini stream-json output, extracting text and logging."""
                     nonlocal session_id
+                    warned_tools: set[str] = set()  # Dedupe restricted tool warnings
                     for line in iter(stream.readline, ""):
                         raw_lines.append(line)
                         stripped = line.strip()
@@ -498,8 +481,13 @@ class GeminiProvider(BaseProvider):
                                 normalized_tool_name = _GEMINI_TOOL_NAME_MAP.get(
                                     tool_name, tool_name
                                 )
-                                # Log warning if restricted tools are attempted
-                                if restricted_tools and normalized_tool_name in restricted_tools:
+                                # Log warning if restricted tools are attempted (once per tool)
+                                if (
+                                    restricted_tools
+                                    and normalized_tool_name in restricted_tools
+                                    and normalized_tool_name not in warned_tools
+                                ):
+                                    warned_tools.add(normalized_tool_name)
                                     logger.warning(
                                         "Gemini CLI: Attempted to use restricted tool '%s' "
                                         "(normalized='%s', allowed=%s, restricted=%s). "

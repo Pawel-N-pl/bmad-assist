@@ -425,6 +425,7 @@ class OpenCodeProvider(BaseProvider):
                 ) -> None:
                     """Process OpenCode stream-json output, extracting text and logging."""
                     nonlocal session_id
+                    warned_tools: set[str] = set()  # Dedupe restricted tool warnings
                     for line in iter(stream.readline, ""):
                         stripped = line.strip()
                         if not stripped:
@@ -463,8 +464,13 @@ class OpenCodeProvider(BaseProvider):
                                 normalized_tool_name: str = _OPENCODE_TOOL_NAME_MAP.get(
                                     tool_name.lower(), tool_name.capitalize()
                                 )
-                                # Log warning if restricted tools are attempted
-                                if restricted_tools and normalized_tool_name in restricted_tools:
+                                # Log warning if restricted tools are attempted (once per tool)
+                                if (
+                                    restricted_tools
+                                    and normalized_tool_name in restricted_tools
+                                    and normalized_tool_name not in warned_tools
+                                ):
+                                    warned_tools.add(normalized_tool_name)
                                     logger.warning(
                                         "OpenCode CLI: Attempted to use restricted tool '%s' "
                                         "(normalized='%s', allowed=%s, restricted=%s). "

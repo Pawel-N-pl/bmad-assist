@@ -17,6 +17,7 @@ import asyncio
 import logging
 from typing import Any
 
+from bmad_assist.core.config import get_phase_timeout
 from bmad_assist.core.loop.handlers.base import BaseHandler
 from bmad_assist.core.loop.types import PhaseResult
 
@@ -108,11 +109,13 @@ class ValidateStoryHandler(BaseHandler):
             # Save validations for synthesis handler to retrieve
             # Use session_id from mapping to maintain traceability
             # Story 22.8 AC#4: Pass failed_validators for synthesis context
+            # TIER 2: Pass evidence_aggregate for Evidence Score caching
             save_validations_for_synthesis(
                 result.anonymized_validations,
                 self.project_path,
                 session_id=result.session_id,  # Use mapping session_id
                 failed_validators=result.failed_validators,
+                evidence_aggregate=result.evidence_aggregate,
             )
 
             # Save evaluation records for benchmarking (Story 13.4)
@@ -161,7 +164,7 @@ class ValidateStoryHandler(BaseHandler):
                     result_summary=result_summary,
                     provider=self.get_provider(),
                     model=self.get_model(),
-                    timeout=self.config.timeout,
+                    timeout=get_phase_timeout(self.config, self.phase_name),
                 )
                 if not continue_execution:
                     return PhaseResult.fail("User interrupted execution")

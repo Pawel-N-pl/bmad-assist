@@ -6,9 +6,19 @@ deterministically via regex parsing, not LLM judgment.
 
 Key features:
 - Extract per-validator counts (critical/enhancement/optimization issues)
-- Extract final scores from validation reports
+- Extract Evidence Score metrics (Deep Verify format)
 - Calculate aggregate statistics across all validators
 - Format metrics as markdown header for synthesis reports
+
+Evidence Score System:
+    The Evidence Score system is based on the Deep Verify methodology
+    developed by @LKrysik (https://github.com/LKrysik/BMAD-METHOD).
+    This rigorous validation framework provides:
+    - Mathematical scoring: CRITICAL (+3), IMPORTANT (+1), MINOR (+0.3), CLEAN PASS (-0.5)
+    - Deterministic verdict thresholds (≥6 REJECT, 4-6 REWORK, ≤3 READY, ≤-3 EXCELLENT)
+    - Mandatory quote requirements ("no quote, no finding")
+    - Anti-bias battery for LLM self-checks
+    Thanks @LKrysik for making validation actually rigorous! 🎯
 
 Public API:
     extract_validator_metrics: Parse single validation report
@@ -26,13 +36,18 @@ import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from bmad_assist.validation.evidence_score import (
+    EvidenceScoreReport,
+    parse_evidence_findings,
+)
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Regex Patterns for Validation Report Parsing
 # =============================================================================
 
-# Issue counts from the "Issues Overview" table
+# Issue counts from the "Issues Overview" table (legacy format, kept for compatibility)
 # | 🚨 Critical Issues | 4 |
 CRITICAL_PATTERN = re.compile(r"\|\s*🚨\s*Critical Issues\s*\|\s*(\d+)\s*\|", re.IGNORECASE)
 ENHANCEMENT_PATTERN = re.compile(r"\|\s*⚡\s*Enhancements?\s*\|\s*(\d+)\s*\|", re.IGNORECASE)
@@ -41,16 +56,33 @@ LLM_OPTIMIZATION_PATTERN = re.compile(
     r"\|\s*🤖\s*LLM Optimizations?\s*\|\s*(\d+)\s*\|", re.IGNORECASE
 )
 
-# Final score from table or heading
-# | **6/10** | **MAJOR REWORK** |
-# ### Final Score: 8.2/10
-SCORE_TABLE_PATTERN = re.compile(r"\|\s*\*?\*?(\d+(?:\.\d+)?)/10\*?\*?\s*\|", re.IGNORECASE)
-SCORE_HEADING_PATTERN = re.compile(r"###?\s*Final Score:?\s*(\d+(?:\.\d+)?)/10", re.IGNORECASE)
+# Evidence Score finding counts (Deep Verify format)
+CRITICAL_FINDING_PATTERN = re.compile(
+    r"\|\s*🔴\s*CRITICAL\s*\|\s*(\d+)\s*\|", re.IGNORECASE
+)
+IMPORTANT_FINDING_PATTERN = re.compile(
+    r"\|\s*🟠\s*IMPORTANT\s*\|\s*(\d+)\s*\|", re.IGNORECASE
+)
+MINOR_FINDING_PATTERN = re.compile(
+    r"\|\s*🟡\s*MINOR\s*\|\s*(\d+)\s*\|", re.IGNORECASE
+)
+CLEAN_PASS_PATTERN = re.compile(
+    r"\|\s*🟢\s*CLEAN PASS\s*\|\s*(\d+)\s*\|", re.IGNORECASE
+)
 
-# Verdict from table
-# | **6/10** | **MAJOR REWORK** |
-VERDICT_PATTERN = re.compile(
-    r"\|\s*\*?\*?\d+(?:\.\d+)?/10\*?\*?\s*\|\s*\*?\*?([A-Z\s]+)\*?\*?\s*\|", re.IGNORECASE
+# Evidence Score patterns (Deep Verify format)
+EVIDENCE_SCORE_TABLE_PATTERN = re.compile(
+    r"\|\s*Evidence Score\s*\|[^\|]*\|\s*\n\|[^\|]*\|\s*\*?\*?(-?\d+(?:\.\d+)?)\*?\*?\s*\|",
+    re.IGNORECASE | re.MULTILINE,
+)
+EVIDENCE_SCORE_HEADING_PATTERN = re.compile(
+    r"###?\s*Evidence Score:?\s*(-?\d+(?:\.\d+)?)", re.IGNORECASE
+)
+
+# Evidence Score verdict pattern
+EVIDENCE_VERDICT_PATTERN = re.compile(
+    r"\|\s*\*?\*?-?\d+(?:\.\d+)?\*?\*?\s*\|\s*\*?\*?(REJECT|MAJOR REWORK|READY|EXCELLENT)\*?\*?\s*\|",
+    re.IGNORECASE,
 )
 
 # INVEST violations count
@@ -67,26 +99,43 @@ class ValidatorMetrics:
     """Metrics extracted from a single validation report.
 
     All counts are from the Issues Overview table.
-    Score is the Final Score (0-10 scale).
+    Uses Evidence Score format (Deep Verify methodology).
     """
 
     validator_id: str
+    # Legacy issue counts (kept for backward compatibility with old reports)
     critical_count: int = 0
     enhancement_count: int = 0
     optimization_count: int = 0
     llm_optimization_count: int = 0
-    final_score: float | None = None
     verdict: str | None = None
     invest_violations: int = 0
+    # Evidence Score fields (Deep Verify format)
+    evidence_score: float | None = None  # Can be negative
+    critical_finding_count: int = 0  # CRITICAL (+3)
+    important_finding_count: int = 0  # IMPORTANT (+1)
+    minor_finding_count: int = 0  # MINOR (+0.3)
+    clean_pass_count: int = 0  # CLEAN PASS (-0.5)
+    # Parsed Evidence Score report (from evidence_score.py)
+    evidence_report: EvidenceScoreReport | None = None
 
     @property
     def total_findings(self) -> int:
-        """Total findings across all categories."""
+        """Total findings across all categories (legacy)."""
         return (
             self.critical_count
             + self.enhancement_count
             + self.optimization_count
             + self.llm_optimization_count
+        )
+
+    @property
+    def total_evidence_findings(self) -> int:
+        """Total findings using Evidence Score categories."""
+        return (
+            self.critical_finding_count
+            + self.important_finding_count
+            + self.minor_finding_count
         )
 
 
@@ -95,28 +144,40 @@ class AggregateMetrics:
     """Aggregate metrics across all validators.
 
     Provides statistics and consensus indicators.
+    Uses Evidence Score format exclusively.
     """
 
     validator_count: int = 0
     validators: list[ValidatorMetrics] = field(default_factory=list)
 
-    # Score statistics
-    score_min: float | None = None
-    score_max: float | None = None
-    score_avg: float | None = None
-    score_stdev: float | None = None
+    # Evidence Score statistics (Deep Verify format)
+    evidence_score_min: float | None = None
+    evidence_score_max: float | None = None
+    evidence_score_avg: float | None = None
+    evidence_score_stdev: float | None = None
 
-    # Category totals across all validators
+    # Category totals across all validators (legacy, kept for old report parsing)
     total_critical: int = 0
     total_enhancement: int = 0
     total_optimization: int = 0
     total_llm_optimization: int = 0
     total_findings: int = 0
 
+    # Evidence Score category totals (Deep Verify format)
+    total_critical_findings: int = 0  # CRITICAL (+3)
+    total_important_findings: int = 0  # IMPORTANT (+1)
+    total_minor_findings: int = 0  # MINOR (+0.3)
+    total_clean_passes: int = 0  # CLEAN PASS (-0.5)
+    total_evidence_findings: int = 0
+
     # Consensus indicators (how many validators found issues in each category)
     validators_with_critical: int = 0
     validators_with_enhancement: int = 0
     validators_with_optimization: int = 0
+
+    # Evidence Score consensus
+    validators_with_critical_findings: int = 0
+    validators_with_important_findings: int = 0
 
     # Verdicts
     verdicts: list[str] = field(default_factory=list)
@@ -134,10 +195,11 @@ def extract_validator_metrics(
     """Extract metrics from a single validation report.
 
     Parses the markdown content of a validation report to extract:
-    - Issue counts from the Issues Overview table
-    - Final score
+    - Issue counts from the Issues Overview table (legacy)
+    - Evidence Score (Deep Verify format)
     - Verdict
     - INVEST violations count
+    - Evidence Score finding counts (CRITICAL/IMPORTANT/MINOR/CLEAN PASS)
 
     Args:
         content: Markdown content of validation report.
@@ -148,23 +210,32 @@ def extract_validator_metrics(
         Missing values default to 0 or None.
 
     """
-    # Extract issue counts
+    # Extract legacy issue counts (Issues Overview table)
     critical = _extract_int(CRITICAL_PATTERN, content)
     enhancement = _extract_int(ENHANCEMENT_PATTERN, content)
     optimization = _extract_int(OPTIMIZATION_PATTERN, content)
     llm_opt = _extract_int(LLM_OPTIMIZATION_PATTERN, content)
 
-    # Extract score (try table first, then heading)
-    score = _extract_float(SCORE_TABLE_PATTERN, content)
-    if score is None:
-        score = _extract_float(SCORE_HEADING_PATTERN, content)
+    # Extract Evidence Score finding counts (Deep Verify format)
+    critical_finding = _extract_int(CRITICAL_FINDING_PATTERN, content)
+    important_finding = _extract_int(IMPORTANT_FINDING_PATTERN, content)
+    minor_finding = _extract_int(MINOR_FINDING_PATTERN, content)
+    clean_pass = _extract_int(CLEAN_PASS_PATTERN, content)
 
-    # Extract verdict
-    verdict_match = VERDICT_PATTERN.search(content)
-    verdict = verdict_match.group(1).strip() if verdict_match else None
+    # Extract Evidence Score (try heading first, then table)
+    evidence_score = _extract_float(EVIDENCE_SCORE_HEADING_PATTERN, content)
+    if evidence_score is None:
+        evidence_score = _extract_float(EVIDENCE_SCORE_TABLE_PATTERN, content)
+
+    # Extract verdict (Evidence Score format)
+    verdict_match = EVIDENCE_VERDICT_PATTERN.search(content)
+    verdict = verdict_match.group(1).strip().upper() if verdict_match else None
 
     # Count INVEST violations (count bullet points after "### INVEST Violations")
     invest_violations = _count_invest_violations(content)
+
+    # Parse Evidence Score report using evidence_score.py module
+    evidence_report = parse_evidence_findings(content, validator_id)
 
     return ValidatorMetrics(
         validator_id=validator_id,
@@ -172,9 +243,14 @@ def extract_validator_metrics(
         enhancement_count=enhancement,
         optimization_count=optimization,
         llm_optimization_count=llm_opt,
-        final_score=score,
         verdict=verdict,
         invest_violations=invest_violations,
+        evidence_score=evidence_score,
+        critical_finding_count=critical_finding,
+        important_finding_count=important_finding,
+        minor_finding_count=minor_finding,
+        clean_pass_count=clean_pass,
+        evidence_report=evidence_report,
     )
 
 
@@ -231,7 +307,7 @@ def calculate_aggregate_metrics(
     """Calculate aggregate metrics across multiple validators.
 
     Computes:
-    - Score statistics (min, max, avg, stdev)
+    - Score statistics (min, max, avg, stdev) for Evidence Score
     - Category totals
     - Consensus indicators
 
@@ -245,26 +321,43 @@ def calculate_aggregate_metrics(
     if not validators:
         return AggregateMetrics()
 
-    # Collect scores (excluding None)
-    scores = [v.final_score for v in validators if v.final_score is not None]
+    # Collect Evidence Scores (excluding None)
+    evidence_scores = [v.evidence_score for v in validators if v.evidence_score is not None]
 
-    # Calculate score statistics
-    score_min = min(scores) if scores else None
-    score_max = max(scores) if scores else None
-    score_avg = statistics.mean(scores) if scores else None
-    score_stdev = statistics.stdev(scores) if len(scores) >= 2 else None
+    # Calculate Evidence Score statistics
+    evidence_score_min = min(evidence_scores) if evidence_scores else None
+    evidence_score_max = max(evidence_scores) if evidence_scores else None
+    evidence_score_avg = statistics.mean(evidence_scores) if evidence_scores else None
+    evidence_score_stdev = (
+        statistics.stdev(evidence_scores) if len(evidence_scores) >= 2 else None
+    )
 
-    # Sum category totals
+    # Sum legacy category totals
     total_critical = sum(v.critical_count for v in validators)
     total_enhancement = sum(v.enhancement_count for v in validators)
     total_optimization = sum(v.optimization_count for v in validators)
     total_llm_optimization = sum(v.llm_optimization_count for v in validators)
     total_findings = sum(v.total_findings for v in validators)
 
-    # Count validators with findings in each category
+    # Sum Evidence Score category totals
+    total_critical_findings = sum(v.critical_finding_count for v in validators)
+    total_important_findings = sum(v.important_finding_count for v in validators)
+    total_minor_findings = sum(v.minor_finding_count for v in validators)
+    total_clean_passes = sum(v.clean_pass_count for v in validators)
+    total_evidence_findings = sum(v.total_evidence_findings for v in validators)
+
+    # Count validators with findings in each category (legacy)
     validators_with_critical = sum(1 for v in validators if v.critical_count > 0)
     validators_with_enhancement = sum(1 for v in validators if v.enhancement_count > 0)
     validators_with_optimization = sum(1 for v in validators if v.optimization_count > 0)
+
+    # Count validators with Evidence Score findings
+    validators_with_critical_findings = sum(
+        1 for v in validators if v.critical_finding_count > 0
+    )
+    validators_with_important_findings = sum(
+        1 for v in validators if v.important_finding_count > 0
+    )
 
     # Collect verdicts
     verdicts = [v.verdict for v in validators if v.verdict]
@@ -272,18 +365,25 @@ def calculate_aggregate_metrics(
     return AggregateMetrics(
         validator_count=len(validators),
         validators=validators,
-        score_min=score_min,
-        score_max=score_max,
-        score_avg=score_avg,
-        score_stdev=score_stdev,
+        evidence_score_min=evidence_score_min,
+        evidence_score_max=evidence_score_max,
+        evidence_score_avg=evidence_score_avg,
+        evidence_score_stdev=evidence_score_stdev,
         total_critical=total_critical,
         total_enhancement=total_enhancement,
         total_optimization=total_optimization,
         total_llm_optimization=total_llm_optimization,
         total_findings=total_findings,
+        total_critical_findings=total_critical_findings,
+        total_important_findings=total_important_findings,
+        total_minor_findings=total_minor_findings,
+        total_clean_passes=total_clean_passes,
+        total_evidence_findings=total_evidence_findings,
         validators_with_critical=validators_with_critical,
         validators_with_enhancement=validators_with_enhancement,
         validators_with_optimization=validators_with_optimization,
+        validators_with_critical_findings=validators_with_critical_findings,
+        validators_with_important_findings=validators_with_important_findings,
         verdicts=verdicts,
     )
 
@@ -300,6 +400,7 @@ def format_deterministic_metrics_header(
 
     Creates a structured markdown section to prepend to synthesis output.
     This provides deterministic metrics calculated from validation reports.
+    Uses Evidence Score format.
 
     Args:
         aggregate: AggregateMetrics to format.
@@ -321,46 +422,51 @@ def format_deterministic_metrics_header(
         f"| Validators | {aggregate.validator_count} |",
     ]
 
-    # Score statistics
-    if aggregate.score_avg is not None:
-        lines.append(f"| Score (avg) | {aggregate.score_avg:.1f}/10 |")
-    if aggregate.score_min is not None and aggregate.score_max is not None:
-        lines.append(f"| Score (range) | {aggregate.score_min:.1f} - {aggregate.score_max:.1f} |")
-    if aggregate.score_stdev is not None:
-        lines.append(f"| Score (stdev) | {aggregate.score_stdev:.2f} |")
+    # Evidence Score statistics (Deep Verify format)
+    if aggregate.evidence_score_avg is not None:
+        lines.append(f"| Evidence Score (avg) | {aggregate.evidence_score_avg:.2f} |")
+    if aggregate.evidence_score_min is not None and aggregate.evidence_score_max is not None:
+        lines.append(
+            f"| Evidence Score (range) | {aggregate.evidence_score_min:.2f} - "
+            f"{aggregate.evidence_score_max:.2f} |"
+        )
+    if aggregate.evidence_score_stdev is not None:
+        lines.append(f"| Evidence Score (stdev) | {aggregate.evidence_score_stdev:.2f} |")
 
     # Helper for category rows
     vc = aggregate.validator_count
-    crit = f"{aggregate.validators_with_critical}/{vc}"
-    enh = f"{aggregate.validators_with_enhancement}/{vc}"
-    opt = f"{aggregate.validators_with_optimization}/{vc}"
+
+    # Evidence Score format findings
+    crit_ev = f"{aggregate.validators_with_critical_findings}/{vc}"
+    imp_ev = f"{aggregate.validators_with_important_findings}/{vc}"
 
     lines.extend(
         [
-            f"| Total findings | {aggregate.total_findings} |",
+            f"| Total findings | {aggregate.total_evidence_findings} |",
             "",
-            "### Findings by Category",
+            "### Evidence Score Findings by Severity",
             "",
-            "| Category | Total | Validators Reporting |",
-            "|----------|-------|---------------------|",
-            f"| 🚨 Critical | {aggregate.total_critical} | {crit} |",
-            f"| ⚡ Enhancement | {aggregate.total_enhancement} | {enh} |",
-            f"| ✨ Optimization | {aggregate.total_optimization} | {opt} |",
-            f"| 🤖 LLM Optimization | {aggregate.total_llm_optimization} | - |",
+            "| Severity | Score Impact | Total | Validators Reporting |",
+            "|----------|--------------|-------|---------------------|",
+            f"| 🔴 CRITICAL | +3 | {aggregate.total_critical_findings} | {crit_ev} |",
+            f"| 🟠 IMPORTANT | +1 | {aggregate.total_important_findings} | {imp_ev} |",
+            f"| 🟡 MINOR | +0.3 | {aggregate.total_minor_findings} | - |",
+            f"| 🟢 CLEAN PASS | -0.5 | {aggregate.total_clean_passes} | - |",
             "",
-            "### Per-Validator Breakdown",
+            "### Per-Validator Breakdown (Evidence Score)",
             "",
-            "| Validator | Score | Critical | Enhancement | Optimization | LLM Opt | Total |",
-            "|-----------|-------|----------|-------------|--------------|---------|-------|",
+            "| Validator | E-Score | CRITICAL | IMPORTANT | MINOR | CLEAN | Verdict |",
+            "|-----------|---------|----------|-----------|-------|-------|---------|",
         ]
     )
 
     for v in aggregate.validators:
-        score_str = f"{v.final_score:.1f}" if v.final_score is not None else "-"
+        score_str = f"{v.evidence_score:.2f}" if v.evidence_score is not None else "-"
+        verdict_str = v.verdict or "-"
         lines.append(
-            f"| {v.validator_id} | {score_str} | {v.critical_count} | "
-            f"{v.enhancement_count} | {v.optimization_count} | "
-            f"{v.llm_optimization_count} | {v.total_findings} |"
+            f"| {v.validator_id} | {score_str} | {v.critical_finding_count} | "
+            f"{v.important_finding_count} | {v.minor_finding_count} | "
+            f"{v.clean_pass_count} | {verdict_str} |"
         )
 
     # Verdicts summary
@@ -433,11 +539,11 @@ def extract_metrics_from_validation_files(
             validators.append(metrics)
 
             logger.debug(
-                "Extracted metrics from %s: score=%s, critical=%d, total=%d",
+                "Extracted metrics from %s: evidence_score=%s, critical=%d, total=%d",
                 file_path.name,
-                metrics.final_score,
-                metrics.critical_count,
-                metrics.total_findings,
+                metrics.evidence_score,
+                metrics.critical_finding_count,
+                metrics.total_evidence_findings,
             )
 
         except Exception as e:

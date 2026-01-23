@@ -7,6 +7,7 @@ This module provides functionality to:
 - Persist validation and synthesis reports with YAML frontmatter
 - Integrate benchmarking metrics collection (Story 13.4)
 - Extract structured metrics from synthesis output (Story 13.6)
+- Calculate deterministic Evidence Score (TIER 2)
 
 Public API:
     Anonymizer:
@@ -38,6 +39,22 @@ Public API:
     - SynthesisMetrics: Dataclass for extracted quality and consensus metrics
     - extract_synthesis_metrics(): Extract structured metrics from synthesis output
     - create_synthesizer_record(): Create evaluation record for synthesizer
+
+    Evidence Score (TIER 2):
+    - Severity: Enum for CRITICAL/IMPORTANT/MINOR severity levels
+    - Verdict: Enum for REJECT/MAJOR_REWORK/PASS/EXCELLENT verdicts
+    - EvidenceFinding: Dataclass for individual findings
+    - EvidenceScoreReport: Per-validator Evidence Score report
+    - EvidenceScoreAggregate: Aggregate across multiple validators
+    - calculate_evidence_score(): Calculate score from findings
+    - determine_verdict(): Map score to verdict
+    - parse_evidence_findings(): Parse Evidence Score from report content
+    - aggregate_evidence_scores(): Aggregate multiple validator reports
+    - format_evidence_score_context(): Format for synthesis prompt injection
+    - EvidenceScoreError: Base exception for Evidence Score module
+    - AllValidatorsFailedError: All validators failed to produce reports
+    - CacheVersionError: Cache version incompatible
+    - CacheFormatError: Cache structure invalid
 """
 
 from bmad_assist.validation.anonymizer import (
@@ -70,6 +87,22 @@ from bmad_assist.validation.synthesis_parser import (
     SynthesisMetrics,
     extract_synthesis_metrics,
 )
+from bmad_assist.validation.evidence_score import (
+    AllValidatorsFailedError,
+    CacheFormatError,
+    CacheVersionError,
+    EvidenceFinding,
+    EvidenceScoreAggregate,
+    EvidenceScoreError,
+    EvidenceScoreReport,
+    Severity,
+    Verdict,
+    aggregate_evidence_scores,
+    calculate_evidence_score,
+    determine_verdict,
+    format_evidence_score_context,
+    parse_evidence_findings,
+)
 
 __all__ = [
     # Anonymizer
@@ -97,4 +130,19 @@ __all__ = [
     "SynthesisMetrics",
     "extract_synthesis_metrics",
     "create_synthesizer_record",
+    # Evidence Score (TIER 2)
+    "Severity",
+    "Verdict",
+    "EvidenceFinding",
+    "EvidenceScoreReport",
+    "EvidenceScoreAggregate",
+    "calculate_evidence_score",
+    "determine_verdict",
+    "parse_evidence_findings",
+    "aggregate_evidence_scores",
+    "format_evidence_score_context",
+    "EvidenceScoreError",
+    "AllValidatorsFailedError",
+    "CacheVersionError",
+    "CacheFormatError",
 ]

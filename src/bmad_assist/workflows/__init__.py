@@ -1,8 +1,14 @@
 """Bundled workflow templates for bmad-assist."""
 
-from importlib.abc import Traversable
+import sys
 from importlib.resources import files
 from pathlib import Path
+
+# Python 3.14+ moved Traversable to importlib.resources.abc
+if sys.version_info >= (3, 14):
+    from importlib.resources.abc import Traversable
+else:
+    from importlib.abc import Traversable
 
 
 def get_bundled_workflow_dir(workflow_name: str) -> Path | None:

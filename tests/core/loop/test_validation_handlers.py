@@ -326,9 +326,26 @@ class TestValidateStorySynthesisHandler:
         cache_file.write_text(
             json.dumps(
                 {
+                    "cache_version": 2,  # TIER 2: Required for v2 format
                     "session_id": "test-session-abc123",
                     "timestamp": datetime.now(UTC).isoformat(),
                     "validations": [],
+                    "failed_validators": [],
+                    "evidence_score": {
+                        "total_score": 0.0,
+                        "verdict": "PASS",
+                        "per_validator": {},
+                        "findings_summary": {
+                            "CRITICAL": 0,
+                            "IMPORTANT": 0,
+                            "MINOR": 0,
+                            "CLEAN_PASS": 0,
+                        },
+                        "consensus_ratio": 0.0,
+                        "total_findings": 0,
+                        "consensus_count": 0,
+                        "unique_count": 0,
+                    },
                 }
             )
         )
@@ -381,6 +398,7 @@ class TestValidateStorySynthesisHandler:
         cache_file.write_text(
             json.dumps(
                 {
+                    "cache_version": 2,  # TIER 2: Required for v2 format
                     "session_id": "test-session-xyz",
                     "timestamp": datetime.now(UTC).isoformat(),
                     "validations": [
@@ -395,6 +413,25 @@ class TestValidateStorySynthesisHandler:
                             "original_ref": "ref-2",
                         },
                     ],
+                    "failed_validators": [],
+                    "evidence_score": {
+                        "total_score": 1.5,
+                        "verdict": "PASS",
+                        "per_validator": {
+                            "Validator A": {"score": 2.0, "verdict": "PASS"},
+                            "Validator B": {"score": 1.0, "verdict": "PASS"},
+                        },
+                        "findings_summary": {
+                            "CRITICAL": 0,
+                            "IMPORTANT": 1,
+                            "MINOR": 1,
+                            "CLEAN_PASS": 4,
+                        },
+                        "consensus_ratio": 0.5,
+                        "total_findings": 2,
+                        "consensus_count": 1,
+                        "unique_count": 1,
+                    },
                 }
             )
         )

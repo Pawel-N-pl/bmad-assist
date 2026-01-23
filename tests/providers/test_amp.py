@@ -5,8 +5,8 @@ Tests cover the Popen-based Amp provider for Multi-LLM validation with JSON stre
 Tests cover:
 - AC1: AmpProvider extends BaseProvider
 - AC2: provider_name returns "amp"
-- AC3: default_model returns valid mode from SUPPORTED_MODES
-- AC4: supports_model() validates Amp modes
+- AC3: default_model returns a valid default mode
+- AC4: supports_model() always returns True (CLI validates modes)
 - AC5: invoke() builds correct command with -x --stream-json
 - AC6: invoke() returns ProviderResult on success
 - AC7: invoke() raises ProviderTimeoutError on timeout
@@ -32,7 +32,6 @@ from bmad_assist.providers import AmpProvider, BaseProvider, ProviderResult
 from bmad_assist.providers.amp import (
     DEFAULT_TIMEOUT,
     PROMPT_TRUNCATE_LENGTH,
-    SUPPORTED_MODES,
     _truncate_prompt,
 )
 from .conftest import create_amp_mock_process, make_amp_json_output
@@ -57,10 +56,11 @@ class TestAmpProviderStructure:
         assert provider.provider_name == "amp"
 
     def test_default_model_returns_valid_mode(self) -> None:
-        """Test AC3: default_model returns a mode from SUPPORTED_MODES."""
+        """Test AC3: default_model returns a non-empty string."""
         provider = AmpProvider()
         assert provider.default_model is not None
-        assert provider.default_model in SUPPORTED_MODES
+        assert isinstance(provider.default_model, str)
+        assert len(provider.default_model) > 0
 
     def test_default_model_returns_smart(self) -> None:
         """Test AC3: default_model returns 'smart'."""
@@ -69,57 +69,30 @@ class TestAmpProviderStructure:
 
 
 class TestAmpProviderModels:
-    """Test AC4: supports_model() validation."""
+    """Test AC4: supports_model() always returns True (CLI validates modes)."""
 
     @pytest.fixture
     def provider(self) -> AmpProvider:
         """Create AmpProvider instance."""
         return AmpProvider()
 
-    def test_supported_modes_constant_is_frozenset(self) -> None:
-        """Test SUPPORTED_MODES is a frozenset."""
-        assert isinstance(SUPPORTED_MODES, frozenset)
-
-    def test_supported_modes_contains_smart(self) -> None:
-        """Test SUPPORTED_MODES includes smart."""
-        assert "smart" in SUPPORTED_MODES
-
-    def test_supported_modes_contains_rush(self) -> None:
-        """Test SUPPORTED_MODES includes rush."""
-        assert "rush" in SUPPORTED_MODES
-
-    def test_supported_modes_contains_free(self) -> None:
-        """Test SUPPORTED_MODES includes free."""
-        assert "free" in SUPPORTED_MODES
-
-    def test_supports_model_smart(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('smart') returns True."""
+    def test_supports_model_always_returns_true(self, provider: AmpProvider) -> None:
+        """Test AC4: supports_model() always returns True - CLI validates modes."""
+        # Any mode string should return True - validation is delegated to CLI
         assert provider.supports_model("smart") is True
-
-    def test_supports_model_rush(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('rush') returns True."""
         assert provider.supports_model("rush") is True
-
-    def test_supports_model_free(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('free') returns True."""
         assert provider.supports_model("free") is True
+        assert provider.supports_model("any-future-mode") is True
+        assert provider.supports_model("gpt-4") is True  # Even non-Amp modes
+        assert provider.supports_model("opus") is True
 
-    def test_supports_model_gpt4_returns_false(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('gpt-4') returns False."""
-        assert provider.supports_model("gpt-4") is False
-
-    def test_supports_model_opus_returns_false(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('opus') returns False."""
-        assert provider.supports_model("opus") is False
-
-    def test_supports_model_empty_string_returns_false(self, provider: AmpProvider) -> None:
-        """Test AC4: supports_model('') returns False."""
-        assert provider.supports_model("") is False
+    def test_supports_model_empty_string_returns_true(self, provider: AmpProvider) -> None:
+        """Test AC4: supports_model('') returns True - CLI will reject if invalid."""
+        assert provider.supports_model("") is True
 
     def test_supports_model_has_docstring(self) -> None:
         """Test supports_model() has docstring."""
         assert AmpProvider.supports_model.__doc__ is not None
-        assert "mode" in AmpProvider.supports_model.__doc__.lower()
 
 
 class TestAmpProviderInvoke:
@@ -351,16 +324,16 @@ class TestAmpProviderErrors:
             assert exc_info.value.__cause__ is not None
             assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
-    def test_invoke_raises_providererror_on_unsupported_mode(
-        self, provider: AmpProvider
-    ) -> None:
-        """Test invoke() validates mode and raises ProviderError for unsupported modes."""
-        with pytest.raises(ProviderError) as exc_info:
-            provider.invoke("Hello", model="turbo")
-
-        error_msg = str(exc_info.value).lower()
-        assert "unsupported mode" in error_msg
-        assert "turbo" in error_msg
+    def test_invoke_accepts_any_mode(self, provider: AmpProvider) -> None:
+        """Test invoke() accepts any mode - CLI validates modes."""
+        with patch("bmad_assist.providers.amp.Popen") as mock_popen:
+            mock_popen.return_value = create_amp_mock_process(
+                response_text="response",
+                returncode=0,
+            )
+            # Any mode should be accepted - CLI validates
+            result = provider.invoke("Hello", model="turbo")
+            assert result.model == "turbo"
 
     def test_invoke_raises_valueerror_on_negative_timeout(self, provider: AmpProvider) -> None:
         """Test invoke() raises ValueError for negative timeout."""

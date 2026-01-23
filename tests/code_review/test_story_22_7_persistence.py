@@ -33,6 +33,11 @@ from bmad_assist.validation.anonymizer import (
     AnonymizationMapping,
     ValidationOutput,
 )
+from bmad_assist.validation.evidence_score import (
+    EvidenceScoreAggregate,
+    Severity,
+    Verdict,
+)
 
 
 # ============================================================================
@@ -419,6 +424,25 @@ class TestPartialSuccessHandling:
         assert "claude-sonnet-timeout" in content
         assert "gpt-4-error" in content
 
+    def _make_mock_evidence_aggregate(self) -> EvidenceScoreAggregate:
+        """Create a mock EvidenceScoreAggregate for testing."""
+        return EvidenceScoreAggregate(
+            total_score=1.5,
+            verdict=Verdict.PASS,
+            per_validator_scores={"validator-a": 1.5},
+            per_validator_verdicts={"validator-a": Verdict.PASS},
+            findings_by_severity={
+                Severity.CRITICAL: 0,
+                Severity.IMPORTANT: 1,
+                Severity.MINOR: 0,
+            },
+            total_findings=1,
+            total_clean_passes=3,
+            consensus_findings=(),
+            unique_findings=(),
+            consensus_ratio=0.0,
+        )
+
     def test_save_and_load_with_failed_reviewers(self, tmp_path: Path) -> None:
         """Test AC #4: save_reviews_for_synthesis includes failed_reviewers."""
         reviews = [
@@ -430,21 +454,25 @@ class TestPartialSuccessHandling:
         ]
 
         failed_reviewers = ["gemini-flash-timeout"]
+        evidence = self._make_mock_evidence_aggregate()
 
-        # Save with failed reviewers
+        # Save with failed reviewers and evidence score (v2 cache)
         session_id = save_reviews_for_synthesis(
             reviews,
             tmp_path,
             session_id="test-partial-success",
             failed_reviewers=failed_reviewers,
+            evidence_aggregate=evidence,
         )
 
         # Load and verify failed reviewers are preserved
-        loaded, loaded_failed = load_reviews_for_synthesis(session_id, tmp_path)
+        # TIER 2: returns (reviews, failed_reviewers, evidence_score)
+        loaded, loaded_failed, evidence_data = load_reviews_for_synthesis(session_id, tmp_path)
 
         assert len(loaded) == 1
         assert loaded[0].validator_id == "validator-a"
         assert loaded_failed == failed_reviewers
+        assert evidence_data is not None
 
 
 # ============================================================================

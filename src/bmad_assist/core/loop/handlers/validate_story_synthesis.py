@@ -24,6 +24,7 @@ from typing import Any
 
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
+from bmad_assist.core.config import get_phase_timeout
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.handlers.base import BaseHandler, check_for_edit_failures
@@ -146,8 +147,9 @@ class ValidateStorySynthesisHandler(BaseHandler):
 
         # Load anonymized validations from cache
         # Story 22.8 AC#4: Unpack tuple with failed_validators
+        # TIER 2: Also loads pre-calculated evidence_score
         try:
-            anonymized_validations, _ = load_validations_for_synthesis(
+            anonymized_validations, _, _evidence_score = load_validations_for_synthesis(
                 session_id,
                 self.project_path,
             )
@@ -230,7 +232,8 @@ class ValidateStorySynthesisHandler(BaseHandler):
                 )
 
             # Story 22.8 AC#4: Unpack tuple with failed_validators
-            anonymized_validations, failed_validators = load_validations_for_synthesis(
+            # TIER 2: Also loads pre-calculated evidence_score for synthesis context
+            anonymized_validations, failed_validators, evidence_score_data = load_validations_for_synthesis(
                 session_id,
                 self.project_path,
             )
@@ -301,6 +304,21 @@ class ValidateStorySynthesisHandler(BaseHandler):
                     failed_validators=failed_validators,
                 )
 
+                # Extract antipatterns for create-story (best-effort, non-blocking)
+                try:
+                    from bmad_assist.antipatterns import extract_and_append_antipatterns
+
+                    extract_and_append_antipatterns(
+                        synthesis_content=synthesis_content,
+                        epic_id=epic_num,
+                        story_id=f"{epic_num}-{story_num}",
+                        antipattern_type="story",
+                        project_path=self.project_path,
+                        config=self.config,
+                    )
+                except Exception as e:
+                    logger.warning("Antipatterns extraction failed (non-blocking): %s", e)
+
                 # Story 13.6: Extract metrics and save synthesizer record
                 # Estimate tokens from char count (~4 chars per token)
                 # Consistent with code_review_synthesis.py token estimation
@@ -337,7 +355,7 @@ class ValidateStorySynthesisHandler(BaseHandler):
                     result_summary=result_summary,
                     provider=self.get_provider(),
                     model=self.get_model(),
-                    timeout=self.config.timeout,
+                    timeout=get_phase_timeout(self.config, self.phase_name),
                 )
                 if not continue_execution:
                     return PhaseResult.fail("User interrupted execution")
@@ -382,9 +400,9 @@ class ValidateStorySynthesisHandler(BaseHandler):
             header = format_deterministic_metrics_header(aggregate)
 
             logger.info(
-                "Extracted deterministic metrics: %d validators, avg score %.1f",
+                "Extracted deterministic metrics: %d validators, avg evidence score %.1f",
                 aggregate.validator_count,
-                aggregate.score_avg or 0,
+                aggregate.evidence_score_avg or 0,
             )
 
             return header

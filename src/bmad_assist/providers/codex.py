@@ -47,35 +47,8 @@ from bmad_assist.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-# Supported Codex CLI models
-# Based on OpenAI Codex CLI documentation (December 2025)
-# Note: With ChatGPT subscription, use gpt-5.x models. API key required for o3/o4.
-SUPPORTED_MODELS: frozenset[str] = frozenset(
-    {
-        # GPT-5.x Codex models (ChatGPT subscription compatible)
-        "gpt-5.2",
-        "gpt-5.1-codex-max",  # Default for ChatGPT users, optimized for agentic coding
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-mini",
-        "gpt-5-codex",
-        "gpt-5",
-        "gpt-5-mini",
-        "gpt-5-nano",
-        # OpenAI reasoning models (require API key)
-        "o3",
-        "o3-mini",
-        "o4-mini",
-        # GPT-4 variants (require API key)
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
-        "gpt-4o",
-        "gpt-4o-mini",
-        # Legacy models
-        "gpt-4-turbo",
-        "gpt-4",
-    }
-)
+# Note: Model validation removed - Codex CLI accepts any model string.
+# The CLI itself will validate and return an error for unknown models.
 
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
@@ -159,13 +132,11 @@ class CodexProvider(BaseProvider):
     def supports_model(self, model: str) -> bool:
         """Check if this provider supports the given model.
 
-        Validates model names against the SUPPORTED_MODELS constant.
-
         Args:
             model: Model identifier to check.
 
         Returns:
-            True if provider supports the model, False otherwise.
+            Always True - let Codex CLI validate model names.
 
         Example:
             >>> provider = CodexProvider()
@@ -173,11 +144,12 @@ class CodexProvider(BaseProvider):
             True
             >>> provider.supports_model("gpt-5.2")
             True
-            >>> provider.supports_model("claude-sonnet")
-            False
+            >>> provider.supports_model("any-model")
+            True
 
         """
-        return model in SUPPORTED_MODELS
+        # Always return True - let Codex CLI validate model names
+        return True
 
     def _resolve_settings(
         self,
@@ -279,13 +251,6 @@ class CodexProvider(BaseProvider):
         # Resolve model with fallback chain: explicit -> default -> literal
         effective_model = model or self.default_model or "gpt-5.1-codex-max"
         effective_timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
-
-        # Validate model before building command (fail-fast)
-        if not self.supports_model(effective_model):
-            raise ProviderError(
-                f"Unsupported model '{effective_model}' for Codex provider. "
-                f"Supported: {', '.join(sorted(SUPPORTED_MODELS))}"
-            )
 
         # Validate and resolve settings file
         validated_settings = self._resolve_settings(settings_file, effective_model)

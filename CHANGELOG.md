@@ -2,6 +2,39 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.6] - 2026-01-23
+
+### Added
+- **Evidence Score System** for validation and code review workflows - replaces 1-10 scoring with mathematical model
+  - CRITICAL (+3), IMPORTANT (+1), MINOR (+0.3), CLEAN PASS (-0.5)
+  - Deterministic verdict thresholds: ≥6 REJECT, 4-6 REWORK, ≤3 READY/APPROVE, ≤-3 EXCELLENT/EXEMPLARY
+  - Mandatory evidence enforcement ("no quote, no finding" for stories; "no code snippet, no finding" for code review)
+  - Anti-Bias Battery with 5 self-checks (Devil's Advocate, Ego Check, Context Check, Best Intent, Pattern Recognition)
+  - Based on Deep Verify methodology by [@LKrysik](https://github.com/LKrysik/BMAD-METHOD) 🎯
+- Evidence Score extraction in `validation_metrics.py` with backward compatibility
+- New regex patterns for Evidence Score report parsing
+- `bmad-assist patch compile-all` command for batch compilation of all patches without valid cache
+- Per-phase timeout configuration via `timeouts:` section in bmad-assist.yaml
+- Antipatterns extraction from synthesis reports for organizational learning
+- Source context support for validation workflows (story file, epic context)
+- Auto-generate sprint-status.yaml from epic files when missing
+
+### Fixed
+- Python 3.14+ compatibility: `Traversable` import moved to `importlib.resources.abc`
+- Clearer error messages for outdated/incompatible cache files
+- Evidence Score calculation deduplication in code review reports
+- `webhook-relay` experiment fixture repaired (other fixtures still broken)
+
+### Changed
+- `validate-story` workflow now uses Evidence Score instead of 1-10 severity
+- `validate-story-synthesis` workflow updated for CRITICAL/IMPORTANT/MINOR terminology
+- `code-review` workflow now uses Evidence Score with mandatory code snippet enforcement
+- `code-review-synthesis` workflow updated for CRITICAL/IMPORTANT/MINOR terminology
+- `ValidatorMetrics` dataclass extended with Evidence Score fields
+- `AggregateMetrics` with auto-detection of report format (legacy vs Evidence Score)
+- `format_deterministic_metrics_header()` dynamically switches output format
+- Providers now accept any model format without hardcoded restrictions
+
 ## [0.4.5] - 2026-01-21
 
 ### Added

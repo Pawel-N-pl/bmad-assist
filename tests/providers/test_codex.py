@@ -5,8 +5,8 @@ Tests cover the Popen-based Codex provider for Multi-LLM validation with JSON st
 Tests cover:
 - AC1: CodexProvider extends BaseProvider
 - AC2: provider_name returns "codex"
-- AC3: default_model returns valid model from SUPPORTED_MODELS
-- AC4: supports_model() validates Codex models
+- AC3: default_model returns a valid default model
+- AC4: supports_model() always returns True (CLI validates models)
 - AC5: invoke() builds correct command with --json flag
 - AC6: invoke() returns ProviderResult on success
 - AC7: invoke() raises ProviderTimeoutError on timeout
@@ -32,7 +32,6 @@ from bmad_assist.providers import BaseProvider, CodexProvider, ProviderResult
 from bmad_assist.providers.codex import (
     DEFAULT_TIMEOUT,
     PROMPT_TRUNCATE_LENGTH,
-    SUPPORTED_MODELS,
     _truncate_prompt,
 )
 from .conftest import create_codex_mock_process, make_codex_json_output
@@ -57,10 +56,11 @@ class TestCodexProviderStructure:
         assert provider.provider_name == "codex"
 
     def test_default_model_returns_valid_model(self) -> None:
-        """Test AC3: default_model returns a model from SUPPORTED_MODELS."""
+        """Test AC3: default_model returns a non-empty string."""
         provider = CodexProvider()
         assert provider.default_model is not None
-        assert provider.default_model in SUPPORTED_MODELS
+        assert isinstance(provider.default_model, str)
+        assert len(provider.default_model) > 0
 
     def test_default_model_returns_gpt_5_1_codex_max(self) -> None:
         """Test AC3: default_model returns 'gpt-5.1-codex-max'."""
@@ -80,93 +80,30 @@ class TestCodexProviderStructure:
 
 
 class TestCodexProviderModels:
-    """Test AC4: supports_model() validation."""
+    """Test AC4: supports_model() always returns True (CLI validates models)."""
 
     @pytest.fixture
     def provider(self) -> CodexProvider:
         """Create CodexProvider instance."""
         return CodexProvider()
 
-    def test_supported_models_constant_is_frozenset(self) -> None:
-        """Test SUPPORTED_MODELS is a frozenset."""
-        assert isinstance(SUPPORTED_MODELS, frozenset)
-
-    def test_supported_models_contains_o3(self) -> None:
-        """Test SUPPORTED_MODELS includes o3."""
-        assert "o3" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_o3_mini(self) -> None:
-        """Test SUPPORTED_MODELS includes o3-mini."""
-        assert "o3-mini" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_o4_mini(self) -> None:
-        """Test SUPPORTED_MODELS includes o4-mini."""
-        assert "o4-mini" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gpt41(self) -> None:
-        """Test SUPPORTED_MODELS includes gpt-4.1."""
-        assert "gpt-4.1" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gpt41_mini(self) -> None:
-        """Test SUPPORTED_MODELS includes gpt-4.1-mini."""
-        assert "gpt-4.1-mini" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gpt4o(self) -> None:
-        """Test SUPPORTED_MODELS includes gpt-4o."""
-        assert "gpt-4o" in SUPPORTED_MODELS
-
-    def test_supports_model_o3(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('o3') returns True."""
+    def test_supports_model_always_returns_true(self, provider: CodexProvider) -> None:
+        """Test AC4: supports_model() always returns True - CLI validates models."""
+        # Any model string should return True - validation is delegated to CLI
         assert provider.supports_model("o3") is True
-
-    def test_supports_model_o3_mini(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('o3-mini') returns True."""
         assert provider.supports_model("o3-mini") is True
-
-    def test_supports_model_o4_mini(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('o4-mini') returns True."""
-        assert provider.supports_model("o4-mini") is True
-
-    def test_supports_model_gpt41(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4.1') returns True."""
         assert provider.supports_model("gpt-4.1") is True
+        assert provider.supports_model("any-future-model") is True
+        assert provider.supports_model("claude-sonnet") is True  # Even non-OpenAI models
+        assert provider.supports_model("unknown") is True
 
-    def test_supports_model_gpt41_mini(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4.1-mini') returns True."""
-        assert provider.supports_model("gpt-4.1-mini") is True
-
-    def test_supports_model_gpt4o(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4o') returns True."""
-        assert provider.supports_model("gpt-4o") is True
-
-    def test_supports_model_gpt4o_mini(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4o-mini') returns True."""
-        assert provider.supports_model("gpt-4o-mini") is True
-
-    def test_supports_model_gpt4_turbo(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4-turbo') returns True."""
-        assert provider.supports_model("gpt-4-turbo") is True
-
-    def test_supports_model_gpt4(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('gpt-4') returns True."""
-        assert provider.supports_model("gpt-4") is True
-
-    def test_supports_model_claude_returns_false(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('claude-sonnet') returns False."""
-        assert provider.supports_model("claude-sonnet") is False
-
-    def test_supports_model_unknown_returns_false(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('unknown') returns False."""
-        assert provider.supports_model("unknown") is False
-
-    def test_supports_model_empty_string_returns_false(self, provider: CodexProvider) -> None:
-        """Test AC4: supports_model('') returns False."""
-        assert provider.supports_model("") is False
+    def test_supports_model_empty_string_returns_true(self, provider: CodexProvider) -> None:
+        """Test AC4: supports_model('') returns True - CLI will reject if invalid."""
+        assert provider.supports_model("") is True
 
     def test_supports_model_has_docstring(self) -> None:
         """Test supports_model() has docstring."""
         assert CodexProvider.supports_model.__doc__ is not None
-        assert "model" in CodexProvider.supports_model.__doc__.lower()
 
 
 class TestCodexProviderInvoke:
@@ -460,36 +397,16 @@ class TestCodexProviderErrors:
             assert exc_info.value.__cause__ is not None
             assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
-    def test_invoke_raises_providererror_on_unsupported_model(
-        self, provider: CodexProvider
-    ) -> None:
-        """Test invoke() validates model and raises ProviderError for unsupported models."""
-        with pytest.raises(ProviderError) as exc_info:
-            provider.invoke("Hello", model="claude-sonnet")
-
-        error_msg = str(exc_info.value).lower()
-        assert "unsupported model" in error_msg
-        assert "claude-sonnet" in error_msg
-
-    def test_invoke_raises_providererror_on_unknown_model(self, provider: CodexProvider) -> None:
-        """Test invoke() raises ProviderError for unknown model names."""
-        with pytest.raises(ProviderError) as exc_info:
-            provider.invoke("Hello", model="gemini-pro")
-
-        error_msg = str(exc_info.value).lower()
-        assert "unsupported model" in error_msg
-        assert "gemini-pro" in error_msg
-
-    def test_invoke_accepts_valid_model(self, provider: CodexProvider) -> None:
-        """Test invoke() accepts valid model names without error."""
+    def test_invoke_accepts_any_model(self, provider: CodexProvider) -> None:
+        """Test invoke() accepts any model name - CLI validates models."""
         with patch("bmad_assist.providers.codex.Popen") as mock_popen:
             mock_popen.return_value = create_codex_mock_process(
                 response_text="response",
                 returncode=0,
             )
-            # Should not raise
-            result = provider.invoke("Hello", model="o3")
-            assert result.model == "o3"
+            # Any model should be accepted - CLI validates
+            result = provider.invoke("Hello", model="o5-turbo")
+            assert result.model == "o5-turbo"
 
     def test_invoke_raises_valueerror_on_negative_timeout(self, provider: CodexProvider) -> None:
         """Test invoke() raises ValueError for negative timeout."""

@@ -5,8 +5,8 @@ Tests cover the Popen-based Gemini provider for Multi-LLM validation with JSON s
 Tests cover:
 - AC1: GeminiProvider extends BaseProvider
 - AC2: provider_name returns "gemini"
-- AC3: default_model returns valid model from SUPPORTED_MODELS
-- AC4: supports_model() validates Gemini models
+- AC3: default_model returns a valid default model
+- AC4: supports_model() always returns True (CLI validates models)
 - AC5: invoke() builds correct command with --output-format stream-json
 - AC6: invoke() returns ProviderResult on success
 - AC7: invoke() raises ProviderTimeoutError on timeout
@@ -33,7 +33,6 @@ from bmad_assist.providers import BaseProvider, GeminiProvider, ProviderResult
 from bmad_assist.providers.gemini import (
     DEFAULT_TIMEOUT,
     PROMPT_TRUNCATE_LENGTH,
-    SUPPORTED_MODELS,
     _truncate_prompt,
 )
 from .conftest import create_gemini_mock_process, make_gemini_json_output
@@ -58,10 +57,11 @@ class TestGeminiProviderStructure:
         assert provider.provider_name == "gemini"
 
     def test_default_model_returns_valid_model(self) -> None:
-        """Test AC3: default_model returns a model from SUPPORTED_MODELS."""
+        """Test AC3: default_model returns a non-empty string."""
         provider = GeminiProvider()
         assert provider.default_model is not None
-        assert provider.default_model in SUPPORTED_MODELS
+        assert isinstance(provider.default_model, str)
+        assert len(provider.default_model) > 0
 
     def test_default_model_returns_gemini_25_flash(self) -> None:
         """Test AC3: default_model returns 'gemini-2.5-flash'."""
@@ -81,69 +81,30 @@ class TestGeminiProviderStructure:
 
 
 class TestGeminiProviderModels:
-    """Test AC4: supports_model() validation."""
+    """Test AC4: supports_model() always returns True (CLI validates models)."""
 
     @pytest.fixture
     def provider(self) -> GeminiProvider:
         """Create GeminiProvider instance."""
         return GeminiProvider()
 
-    def test_supported_models_constant_is_frozenset(self) -> None:
-        """Test SUPPORTED_MODELS is a frozenset."""
-        assert isinstance(SUPPORTED_MODELS, frozenset)
-
-    def test_supported_models_contains_gemini_25_pro(self) -> None:
-        """Test SUPPORTED_MODELS includes gemini-2.5-pro."""
-        assert "gemini-2.5-pro" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gemini_25_flash(self) -> None:
-        """Test SUPPORTED_MODELS includes gemini-2.5-flash."""
-        assert "gemini-2.5-flash" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gemini_3_pro_preview(self) -> None:
-        """Test SUPPORTED_MODELS includes gemini-3-pro-preview."""
-        assert "gemini-3-pro-preview" in SUPPORTED_MODELS
-
-    def test_supported_models_contains_gemini_20_flash_exp(self) -> None:
-        """Test SUPPORTED_MODELS includes gemini-2.0-flash-exp."""
-        assert "gemini-2.0-flash-exp" in SUPPORTED_MODELS
-
-    def test_supports_model_gemini_25_pro(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('gemini-2.5-pro') returns True."""
+    def test_supports_model_always_returns_true(self, provider: GeminiProvider) -> None:
+        """Test AC4: supports_model() always returns True - CLI validates models."""
+        # Any model string should return True - validation is delegated to CLI
         assert provider.supports_model("gemini-2.5-pro") is True
-
-    def test_supports_model_gemini_25_flash(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('gemini-2.5-flash') returns True."""
         assert provider.supports_model("gemini-2.5-flash") is True
+        assert provider.supports_model("gemini-2.5-flash-lite") is True
+        assert provider.supports_model("any-future-model") is True
+        assert provider.supports_model("gpt-4") is True  # Even non-Gemini models
+        assert provider.supports_model("unknown") is True
 
-    def test_supports_model_gemini_3_pro_preview(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('gemini-3-pro-preview') returns True."""
-        assert provider.supports_model("gemini-3-pro-preview") is True
-
-    def test_supports_model_gemini_20_flash_exp(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('gemini-2.0-flash-exp') returns True."""
-        assert provider.supports_model("gemini-2.0-flash-exp") is True
-
-    def test_supports_model_gpt4_returns_false(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('gpt-4') returns False."""
-        assert provider.supports_model("gpt-4") is False
-
-    def test_supports_model_claude_sonnet_returns_false(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('claude-sonnet') returns False."""
-        assert provider.supports_model("claude-sonnet") is False
-
-    def test_supports_model_unknown_returns_false(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('unknown') returns False."""
-        assert provider.supports_model("unknown") is False
-
-    def test_supports_model_empty_string_returns_false(self, provider: GeminiProvider) -> None:
-        """Test AC4: supports_model('') returns False."""
-        assert provider.supports_model("") is False
+    def test_supports_model_empty_string_returns_true(self, provider: GeminiProvider) -> None:
+        """Test AC4: supports_model('') returns True - CLI will reject if invalid."""
+        assert provider.supports_model("") is True
 
     def test_supports_model_has_docstring(self) -> None:
         """Test supports_model() has docstring."""
         assert GeminiProvider.supports_model.__doc__ is not None
-        assert "model" in GeminiProvider.supports_model.__doc__.lower()
 
 
 class TestGeminiProviderInvoke:
@@ -473,36 +434,16 @@ class TestGeminiProviderErrors:
             assert exc_info.value.__cause__ is not None
             assert isinstance(exc_info.value.__cause__, FileNotFoundError)
 
-    def test_invoke_raises_providererror_on_unsupported_model(
-        self, provider: GeminiProvider
-    ) -> None:
-        """Test invoke() validates model and raises ProviderError for unsupported models."""
-        with pytest.raises(ProviderError) as exc_info:
-            provider.invoke("Hello", model="gpt-4")
-
-        error_msg = str(exc_info.value).lower()
-        assert "unsupported model" in error_msg
-        assert "gpt-4" in error_msg
-
-    def test_invoke_raises_providererror_on_unknown_model(self, provider: GeminiProvider) -> None:
-        """Test invoke() raises ProviderError for unknown model names."""
-        with pytest.raises(ProviderError) as exc_info:
-            provider.invoke("Hello", model="claude-sonnet")
-
-        error_msg = str(exc_info.value).lower()
-        assert "unsupported model" in error_msg
-        assert "claude-sonnet" in error_msg
-
-    def test_invoke_accepts_valid_model(self, provider: GeminiProvider) -> None:
-        """Test invoke() accepts valid model names without error."""
+    def test_invoke_accepts_any_model(self, provider: GeminiProvider) -> None:
+        """Test invoke() accepts any model name - CLI validates models."""
         with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
             mock_popen.return_value = create_gemini_mock_process(
                 response_text="response",
                 returncode=0,
             )
-            # Should not raise
-            result = provider.invoke("Hello", model="gemini-2.5-pro")
-            assert result.model == "gemini-2.5-pro"
+            # Any model should be accepted - CLI validates
+            result = provider.invoke("Hello", model="gemini-2.5-flash-lite")
+            assert result.model == "gemini-2.5-flash-lite"
 
     def test_invoke_raises_valueerror_on_negative_timeout(self, provider: GeminiProvider) -> None:
         """Test invoke() raises ValueError for negative timeout."""

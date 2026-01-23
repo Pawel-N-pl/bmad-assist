@@ -448,16 +448,49 @@ def run(
             if no_interactive:
                 _info("Run interactively or use 'bmad-assist init --reset-workflows' to update")
 
-        # Validate sprint-status.yaml exists (CRITICAL: fail early with clear error)
+        # Validate sprint-status.yaml exists - auto-generate if missing
         sprint_path = project_paths.find_sprint_status()
         if sprint_path is None:
-            _error("sprint-status.yaml not found!")
-            _error("Checked locations:")
-            for loc in project_paths.get_sprint_status_search_locations():
-                _error(f"  - {loc}")
-            _error("")
-            _error("To fix: Create sprint-status.yaml or run /bmad:bmm:workflows:sprint-planning")
-            raise typer.Exit(code=EXIT_ERROR)
+            # Auto-generate sprint-status from epic files
+            _warning("sprint-status.yaml not found - generating from epic files...")
+            try:
+                from bmad_assist.sprint import (
+                    ArtifactIndex,
+                    SprintStatus,
+                    generate_from_epics,
+                    reconcile,
+                    write_sprint_status,
+                )
+
+                # Create empty sprint-status
+                existing = SprintStatus.empty(project=project_path.name)
+
+                # Generate entries from epic files
+                generated = generate_from_epics(project_path, auto_exclude_legacy=True)
+
+                if generated.entries:
+                    # Reconcile and write
+                    index = ArtifactIndex()
+                    reconciliation = reconcile(existing, generated, index)
+                    output_path = project_paths.sprint_status_file
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    write_sprint_status(reconciliation.status, output_path, preserve_comments=True)
+                    _success(
+                        f"Generated sprint-status.yaml with {len(reconciliation.status.entries)} entries"
+                    )
+                    console.print(f"  Output: {output_path}")
+                    # Re-find the sprint path now that it exists
+                    sprint_path = project_paths.find_sprint_status()
+                else:
+                    _error("No epic files found to generate sprint-status!")
+                    _error("Ensure your project has epic files in docs/epics/")
+                    raise typer.Exit(code=EXIT_ERROR)
+            except ImportError as e:
+                _error(f"Failed to import sprint module: {e}")
+                raise typer.Exit(code=EXIT_ERROR) from None
+            except Exception as e:
+                _error(f"Failed to generate sprint-status: {e}")
+                raise typer.Exit(code=EXIT_ERROR) from None
 
         # Initialize notification dispatcher (optional - only if config.notifications set)
         from bmad_assist.notifications.dispatcher import init_dispatcher

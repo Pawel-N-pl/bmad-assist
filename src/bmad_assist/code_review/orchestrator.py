@@ -45,7 +45,7 @@ from bmad_assist.benchmarking import (
 )
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
-from bmad_assist.core.config import Config
+from bmad_assist.core.config import Config, get_phase_timeout
 from bmad_assist.core.exceptions import BmadAssistError
 from bmad_assist.core.extraction import CODE_REVIEW_MARKERS, extract_report
 from bmad_assist.core.io import get_original_cwd, save_prompt
@@ -93,9 +93,6 @@ __all__ = [
 # Minimum reviewers required for synthesis
 _MIN_REVIEWERS = 2
 
-# Default timeout for reviewers in seconds
-_DEFAULT_TIMEOUT = 300
-
 # Tools allowed for reviewers (read-only access to codebase)
 # Code reviewers need to read files to perform meaningful review, but must NOT modify anything
 _REVIEWER_ALLOWED_TOOLS: list[str] = ["TodoWrite", "Read", "Glob", "Grep"]
@@ -131,6 +128,57 @@ class InsufficientReviewsError(CodeReviewError):
         )
 
 
+def _calculate_evidence_aggregate(
+    anonymized: list[AnonymizedValidation],
+) -> "EvidenceScoreAggregate | None":
+    """Calculate Evidence Score aggregate from anonymized reviews.
+
+    Parses evidence scores from each review output and aggregates them.
+    Failures are logged but don't break the code review phase.
+
+    Args:
+        anonymized: List of anonymized review outputs.
+
+    Returns:
+        EvidenceScoreAggregate if at least one report could be parsed, None otherwise.
+
+    """
+    try:
+        from bmad_assist.validation.evidence_score import (
+            EvidenceScoreAggregate,
+            aggregate_evidence_scores,
+            parse_evidence_findings,
+        )
+
+        evidence_reports = []
+        for av in anonymized:
+            report = parse_evidence_findings(av.content, av.validator_id)
+            if report is not None:
+                evidence_reports.append(report)
+                logger.debug(
+                    "Parsed evidence report for %s: score=%.1f",
+                    av.validator_id,
+                    report.total_score,
+                )
+
+        if evidence_reports:
+            aggregate = aggregate_evidence_scores(evidence_reports)
+            logger.info(
+                "Evidence Score aggregate: total=%.1f, verdict=%s, reviewers=%d",
+                aggregate.total_score,
+                aggregate.verdict.value,
+                len(evidence_reports),
+            )
+            return aggregate
+        else:
+            logger.warning("No valid Evidence Score reports found in reviews")
+            return None
+    except Exception as e:
+        # Don't fail code review phase if evidence scoring fails
+        logger.warning("Evidence Score calculation failed: %s", e)
+        return None
+
+
 @dataclass
 class CodeReviewPhaseResult:
     """Result of the code review phase.
@@ -144,6 +192,7 @@ class CodeReviewPhaseResult:
         reviewers: List of reviewer IDs that completed successfully.
         failed_reviewers: List of reviewers that timed out/failed.
         evaluation_records: Benchmarking records, one per successful reviewer.
+        evidence_aggregate: Aggregated Evidence Score from all reviewers (TIER 2).
 
     """
 
@@ -153,6 +202,7 @@ class CodeReviewPhaseResult:
     reviewers: list[str] = field(default_factory=list)
     failed_reviewers: list[str] = field(default_factory=list)
     evaluation_records: list["LLMEvaluationRecord"] = field(default_factory=list)
+    evidence_aggregate: "EvidenceScoreAggregate | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for PhaseResult.outputs.
@@ -487,7 +537,7 @@ async def run_code_review_phase(
     save_prompt(project_path, epic_num, story_num, "code-review", prompt)
 
     # Step 2: Build list of reviewers (multi + master)
-    timeout = config.timeout or _DEFAULT_TIMEOUT
+    timeout = get_phase_timeout(config, "code_review")
     benchmarking_enabled = should_collect_benchmarking(config)
     if benchmarking_enabled:
         logger.debug("Benchmarking enabled - will collect metrics")
@@ -741,6 +791,9 @@ async def run_code_review_phase(
         mapping.session_id,
     )
 
+    # TIER 2: Calculate Evidence Score aggregate from reviewer outputs
+    evidence_aggregate = _calculate_evidence_aggregate(anonymized)
+
     return CodeReviewPhaseResult(
         anonymized_reviews=anonymized,
         session_id=mapping.session_id,
@@ -748,6 +801,7 @@ async def run_code_review_phase(
         reviewers=successful_reviewers,
         failed_reviewers=failed_reviewers,
         evaluation_records=evaluation_records,
+        evidence_aggregate=evidence_aggregate,
     )
 
 
@@ -894,10 +948,12 @@ def save_reviews_for_synthesis(
     session_id: str | None = None,
     run_timestamp: datetime | None = None,
     failed_reviewers: list[str] | None = None,
+    evidence_aggregate: "EvidenceScoreAggregate | None" = None,
 ) -> str:
     """Save anonymized reviews for synthesis phase retrieval.
 
     Uses file-based storage at .bmad-assist/cache/code-reviews-{session_id}.json
+    Cache version 2 includes Evidence Score aggregate data.
 
     Story 22.7: Include failed_reviewers metadata for synthesis context.
 
@@ -907,12 +963,14 @@ def save_reviews_for_synthesis(
         session_id: Optional session ID to use. If None, generates new UUID.
         run_timestamp: Unified timestamp for this review run. If None, uses now().
         failed_reviewers: Optional list of failed reviewer IDs for synthesis context.
+        evidence_aggregate: Pre-calculated Evidence Score aggregate (TIER 2).
 
     Returns:
         Session ID for later retrieval.
 
     """
     from bmad_assist.core.io import atomic_write
+    from bmad_assist.validation.evidence_score import EvidenceScoreAggregate, Severity
 
     if session_id is None:
         session_id = str(uuid.uuid4())
@@ -923,7 +981,8 @@ def save_reviews_for_synthesis(
 
     timestamp = run_timestamp or datetime.now(UTC)
 
-    data = {
+    data: dict[str, Any] = {
+        "cache_version": 2,  # ADR-4: Cache versioning for Evidence Score
         "session_id": session_id,
         "timestamp": timestamp.isoformat(),
         "reviews": [
@@ -938,10 +997,34 @@ def save_reviews_for_synthesis(
         "failed_reviewers": failed_reviewers or [],
     }
 
+    # TIER 2: Store Evidence Score aggregate
+    if evidence_aggregate is not None:
+        data["evidence_score"] = {
+            "total_score": evidence_aggregate.total_score,
+            "verdict": evidence_aggregate.verdict.value,
+            "per_validator": {
+                vid: {
+                    "score": evidence_aggregate.per_validator_scores[vid],
+                    "verdict": evidence_aggregate.per_validator_verdicts[vid].value,
+                }
+                for vid in evidence_aggregate.per_validator_scores
+            },
+            "findings_summary": {
+                "CRITICAL": evidence_aggregate.findings_by_severity.get(Severity.CRITICAL, 0),
+                "IMPORTANT": evidence_aggregate.findings_by_severity.get(Severity.IMPORTANT, 0),
+                "MINOR": evidence_aggregate.findings_by_severity.get(Severity.MINOR, 0),
+                "CLEAN_PASS": evidence_aggregate.total_clean_passes,
+            },
+            "consensus_ratio": evidence_aggregate.consensus_ratio,
+            "total_findings": evidence_aggregate.total_findings,
+            "consensus_count": len(evidence_aggregate.consensus_findings),
+            "unique_count": len(evidence_aggregate.unique_findings),
+        }
+
     # Use centralized atomic_write with PID collision protection (Story 22.7)
     content = json.dumps(data, indent=2)
     atomic_write(file_path, content)
-    logger.info("Saved reviews for synthesis: %s", file_path)
+    logger.info("Saved reviews for synthesis (v2): %s", file_path)
 
     return session_id
 
@@ -949,7 +1032,7 @@ def save_reviews_for_synthesis(
 def load_reviews_for_synthesis(
     session_id: str,
     project_root: Path,
-) -> tuple[list[AnonymizedValidation], list[str]]:
+) -> tuple[list[AnonymizedValidation], list[str], dict[str, Any] | None]:
     """Load anonymized reviews by session ID.
 
     Story 22.7: Also returns failed reviewer metadata for synthesis context.
@@ -959,12 +1042,19 @@ def load_reviews_for_synthesis(
         project_root: Project root directory.
 
     Returns:
-        Tuple of (list of AnonymizedValidation objects, list of failed reviewer IDs).
+        Tuple of (reviews, failed_reviewers, evidence_score):
+        - reviews: List of AnonymizedValidation objects.
+        - failed_reviewers: List of reviewers that failed/timed out.
+        - evidence_score: Pre-calculated Evidence Score dict (TIER 2) or None.
 
     Raises:
         CodeReviewError: If file not found or invalid.
+        CacheVersionError: If cache version is v1 (requires re-run).
+        CacheFormatError: If v2 cache is missing required keys.
 
     """
+    from bmad_assist.validation.evidence_score import CacheFormatError, CacheVersionError
+
     cache_dir = project_root / ".bmad-assist" / "cache"
     file_path = cache_dir / f"code-reviews-{session_id}.json"
 
@@ -978,6 +1068,27 @@ def load_reviews_for_synthesis(
         raise CodeReviewError(f"Invalid review cache file: {e}") from e
     except OSError as e:
         raise CodeReviewError(f"Cannot read review cache: {e}") from e
+
+    # ADR-4: Check cache version
+    cache_version = data.get("cache_version")
+    if cache_version is None or cache_version < 2:
+        raise CacheVersionError(
+            found_version=cache_version,
+            required_version=2,
+            message=(
+                f"Code review cache version {cache_version or 'missing'} is incompatible. "
+                "Evidence Score TIER 2 requires cache version 2. "
+                "Re-run code review phase to generate new cache."
+            ),
+        )
+
+    # Validate v2 cache has evidence_score key
+    evidence_score = data.get("evidence_score")
+    if evidence_score is None:
+        raise CacheFormatError(
+            "Cache version 2 is missing required 'evidence_score' key. "
+            "Re-run code review phase to generate valid cache."
+        )
 
     reviews = []
     for v in data.get("reviews", []):
@@ -993,9 +1104,10 @@ def load_reviews_for_synthesis(
     failed_reviewers = data.get("failed_reviewers", [])
 
     logger.debug(
-        "Loaded %d reviews for session %s (failed: %d)",
+        "Loaded %d reviews, %d failed reviewers, evidence_score=%s for session %s",
         len(reviews),
-        session_id,
         len(failed_reviewers),
+        evidence_score.get("total_score") if evidence_score else None,
+        session_id,
     )
-    return reviews, failed_reviewers
+    return reviews, failed_reviewers, evidence_score

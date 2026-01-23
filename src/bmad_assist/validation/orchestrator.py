@@ -47,7 +47,7 @@ from bmad_assist.benchmarking import (
 )
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
-from bmad_assist.core.config import Config
+from bmad_assist.core.config import Config, get_phase_timeout
 from bmad_assist.core.exceptions import BmadAssistError
 from bmad_assist.core.io import get_original_cwd, save_prompt
 
@@ -73,6 +73,7 @@ from bmad_assist.validation.reports import extract_validation_report, save_valid
 
 if TYPE_CHECKING:
     from bmad_assist.benchmarking import LLMEvaluationRecord
+    from bmad_assist.validation.evidence_score import EvidenceScoreAggregate
 
 logger = logging.getLogger(__name__)
 
@@ -90,9 +91,6 @@ __all__ = [
 
 # Minimum validators required for synthesis
 _MIN_VALIDATORS = 2
-
-# Default timeout for validators in seconds
-_DEFAULT_TIMEOUT = 300
 
 # Tools allowed for validators (read-only + organization tools)
 # Write/Edit/Bash restricted to prevent file modification
@@ -147,6 +145,7 @@ class ValidationPhaseResult:
         validators: List of validator IDs that completed successfully.
         failed_validators: List of validators that timed out/failed.
         evaluation_records: Benchmarking records (Story 13.4), one per successful validator.
+        evidence_aggregate: Pre-calculated Evidence Score aggregate (TIER 2).
 
     """
 
@@ -156,6 +155,7 @@ class ValidationPhaseResult:
     validators: list[str] = field(default_factory=list)
     failed_validators: list[str] = field(default_factory=list)
     evaluation_records: list["LLMEvaluationRecord"] = field(default_factory=list)
+    evidence_aggregate: "EvidenceScoreAggregate | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for PhaseResult.outputs.
@@ -175,6 +175,56 @@ class ValidationPhaseResult:
             "failed_validators": self.failed_validators,
             # Records passed separately to storage layer
         }
+
+
+def _calculate_evidence_aggregate(
+    anonymized: list[AnonymizedValidation],
+) -> "EvidenceScoreAggregate | None":
+    """Calculate Evidence Score aggregate from anonymized validations.
+
+    Parses evidence scores from each validation output and aggregates them.
+    Failures are logged but don't break the validation phase.
+
+    Args:
+        anonymized: List of anonymized validation outputs.
+
+    Returns:
+        EvidenceScoreAggregate if at least one report could be parsed, None otherwise.
+
+    """
+    try:
+        from bmad_assist.validation.evidence_score import (
+            aggregate_evidence_scores,
+            parse_evidence_findings,
+        )
+
+        evidence_reports = []
+        for av in anonymized:
+            report = parse_evidence_findings(av.content, av.validator_id)
+            if report is not None:
+                evidence_reports.append(report)
+                logger.debug(
+                    "Parsed evidence report for %s: score=%.1f",
+                    av.validator_id,
+                    report.total_score,
+                )
+
+        if evidence_reports:
+            aggregate = aggregate_evidence_scores(evidence_reports)
+            logger.info(
+                "Evidence Score aggregate: total=%.1f, verdict=%s, validators=%d",
+                aggregate.total_score,
+                aggregate.verdict.value,
+                len(evidence_reports),
+            )
+            return aggregate
+        else:
+            logger.warning("No valid Evidence Score reports found in validations")
+            return None
+    except Exception as e:
+        # Don't fail validation phase if evidence scoring fails
+        logger.warning("Evidence Score calculation failed: %s", e)
+        return None
 
 
 def _estimate_tokens(text: str) -> int:
@@ -414,7 +464,7 @@ async def run_validation_phase(
     save_prompt(project_path, epic_num, story_num, "validate-story", prompt)
 
     # Step 2: Build list of validators (multi + master)
-    timeout = config.timeout or _DEFAULT_TIMEOUT
+    timeout = get_phase_timeout(config, "validate_story")
     # AC7: Check if benchmarking is enabled
     benchmarking_enabled = should_collect_benchmarking(config)
     if benchmarking_enabled:
@@ -689,6 +739,9 @@ async def run_validation_phase(
         mapping.session_id,
     )
 
+    # TIER 2: Calculate Evidence Score aggregate from anonymized validations
+    evidence_aggregate = _calculate_evidence_aggregate(anonymized)
+
     # AC5: Return evaluation_records in ValidationPhaseResult
     return ValidationPhaseResult(
         anonymized_validations=anonymized,
@@ -697,6 +750,7 @@ async def run_validation_phase(
         validators=successful_validators,
         failed_validators=failed_validators,
         evaluation_records=evaluation_records,
+        evidence_aggregate=evidence_aggregate,
     )
 
 
@@ -711,10 +765,12 @@ def save_validations_for_synthesis(
     session_id: str | None = None,
     run_timestamp: datetime | None = None,
     failed_validators: list[str] | None = None,
+    evidence_aggregate: "EvidenceScoreAggregate | None" = None,
 ) -> str:
     """Save anonymized validations for synthesis phase retrieval.
 
     Uses file-based storage at .bmad-assist/cache/validations-{session_id}.json
+    Cache version 2 includes Evidence Score aggregate data.
 
     Args:
         anonymized: List of anonymized validations.
@@ -723,11 +779,15 @@ def save_validations_for_synthesis(
             Pass mapping.session_id to maintain traceability with anonymizer.
         run_timestamp: Unified timestamp for this validation run. If None, uses now().
         failed_validators: List of validators that failed/timed out (Story 22.8 AC#4).
+        evidence_aggregate: Pre-calculated Evidence Score aggregate (TIER 2).
 
     Returns:
         Session ID for later retrieval.
 
     """
+    # Import here to avoid circular dependency
+    from bmad_assist.validation.evidence_score import EvidenceScoreAggregate, Severity
+
     if session_id is None:
         session_id = str(uuid.uuid4())
     cache_dir = project_root / ".bmad-assist" / "cache"
@@ -740,6 +800,7 @@ def save_validations_for_synthesis(
     timestamp = run_timestamp or datetime.now(UTC)
 
     data: dict[str, Any] = {
+        "cache_version": 2,  # ADR-4: Cache versioning for Evidence Score
         "session_id": session_id,
         "timestamp": timestamp.isoformat(),
         "validations": [
@@ -756,11 +817,35 @@ def save_validations_for_synthesis(
     if failed_validators:
         data["failed_validators"] = failed_validators
 
+    # TIER 2: Store Evidence Score aggregate
+    if evidence_aggregate is not None:
+        data["evidence_score"] = {
+            "total_score": evidence_aggregate.total_score,
+            "verdict": evidence_aggregate.verdict.value,
+            "per_validator": {
+                vid: {
+                    "score": evidence_aggregate.per_validator_scores[vid],
+                    "verdict": evidence_aggregate.per_validator_verdicts[vid].value,
+                }
+                for vid in evidence_aggregate.per_validator_scores
+            },
+            "findings_summary": {
+                "CRITICAL": evidence_aggregate.findings_by_severity.get(Severity.CRITICAL, 0),
+                "IMPORTANT": evidence_aggregate.findings_by_severity.get(Severity.IMPORTANT, 0),
+                "MINOR": evidence_aggregate.findings_by_severity.get(Severity.MINOR, 0),
+                "CLEAN_PASS": evidence_aggregate.total_clean_passes,
+            },
+            "consensus_ratio": evidence_aggregate.consensus_ratio,
+            "total_findings": evidence_aggregate.total_findings,
+            "consensus_count": len(evidence_aggregate.consensus_findings),
+            "unique_count": len(evidence_aggregate.unique_findings),
+        }
+
     try:
         with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(temp_path, file_path)
-        logger.info("Saved validations for synthesis: %s", file_path)
+        logger.info("Saved validations for synthesis (v2): %s", file_path)
     except OSError:
         if temp_path.exists():
             temp_path.unlink()
@@ -772,7 +857,7 @@ def save_validations_for_synthesis(
 def load_validations_for_synthesis(
     session_id: str,
     project_root: Path,
-) -> tuple[list[AnonymizedValidation], list[str]]:
+) -> tuple[list[AnonymizedValidation], list[str], dict[str, Any] | None]:
     """Load anonymized validations by session ID.
 
     Args:
@@ -780,15 +865,21 @@ def load_validations_for_synthesis(
         project_root: Project root directory.
 
     Returns:
-        Tuple of (validations, failed_validators):
+        Tuple of (validations, failed_validators, evidence_score):
         - validations: List of AnonymizedValidation objects.
         - failed_validators: List of validators that failed/timed out (Story 22.8 AC#4).
             Empty list for backward compatibility with old cache files.
+        - evidence_score: Pre-calculated Evidence Score dict (TIER 2) or None.
 
     Raises:
         ValidationError: If file not found or invalid.
+        CacheVersionError: If cache version is v1 (requires re-run).
+        CacheFormatError: If v2 cache is missing required keys.
 
     """
+    # Import here to avoid circular dependency
+    from bmad_assist.validation.evidence_score import CacheFormatError, CacheVersionError
+
     cache_dir = project_root / ".bmad-assist" / "cache"
     file_path = cache_dir / f"validations-{session_id}.json"
 
@@ -802,6 +893,30 @@ def load_validations_for_synthesis(
         raise ValidationError(f"Invalid validation cache file: {e}") from e
     except OSError as e:
         raise ValidationError(f"Cannot read validation cache: {e}") from e
+
+    # ADR-4: Check cache version
+    cache_version = data.get("cache_version")
+    if cache_version is None or cache_version < 2:
+        raise CacheVersionError(
+            found_version=cache_version,
+            required_version=2,
+            message=(
+                f"Validation cache version {cache_version or 'missing'} is incompatible. "
+                "Evidence Score TIER 2 requires cache version 2. "
+                "Re-run validation phase to generate new cache."
+            ),
+        )
+
+    # Load evidence_score (optional - may be None if validators use old report format)
+    evidence_score = data.get("evidence_score")
+    if evidence_score is None:
+        # TIER 2 evidence_score is optional - validators may use Story Quality Verdict
+        # format instead of Evidence Score format. Log warning but continue.
+        logger.warning(
+            "Cache file %s has no evidence_score - validators may use incompatible report format. "
+            "Synthesis will proceed without Evidence Score context.",
+            file_path.name,
+        )
 
     validations = []
     for v in data.get("validations", []):
@@ -818,9 +933,10 @@ def load_validations_for_synthesis(
     failed_validators = data.get("failed_validators") or []
 
     logger.debug(
-        "Loaded %d validations and %d failed validators for session %s",
+        "Loaded %d validations, %d failed validators, evidence_score=%s for session %s",
         len(validations),
         len(failed_validators),
+        evidence_score.get("total_score") if evidence_score else None,
         session_id,
     )
-    return validations, failed_validators
+    return validations, failed_validators, evidence_score

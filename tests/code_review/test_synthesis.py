@@ -20,6 +20,11 @@ from bmad_assist.code_review.orchestrator import (
     CodeReviewError,
 )
 from bmad_assist.validation.anonymizer import AnonymizedValidation
+from bmad_assist.validation.evidence_score import (
+    EvidenceScoreAggregate,
+    Severity,
+    Verdict,
+)
 
 
 # ============================================================================
@@ -29,6 +34,28 @@ from bmad_assist.validation.anonymizer import AnonymizedValidation
 
 class TestReviewsForSynthesis:
     """Test review caching for synthesis phase."""
+
+    def _make_mock_evidence_aggregate(self) -> EvidenceScoreAggregate:
+        """Create a mock EvidenceScoreAggregate for testing."""
+        return EvidenceScoreAggregate(
+            total_score=1.5,
+            verdict=Verdict.PASS,
+            per_validator_scores={"validator-a": 2.0, "validator-b": 1.0},
+            per_validator_verdicts={
+                "validator-a": Verdict.PASS,
+                "validator-b": Verdict.PASS,
+            },
+            findings_by_severity={
+                Severity.CRITICAL: 0,
+                Severity.IMPORTANT: 1,
+                Severity.MINOR: 1,
+            },
+            total_findings=2,
+            total_clean_passes=4,
+            consensus_findings=(),
+            unique_findings=(),
+            consensus_ratio=0.0,
+        )
 
     def test_save_and_load_reviews(self, tmp_path: Path) -> None:
         """Test round-trip of saving and loading reviews."""
@@ -45,11 +72,13 @@ class TestReviewsForSynthesis:
             ),
         ]
 
-        # Save reviews
+        # Save reviews with Evidence Score (required for v2 cache)
+        evidence = self._make_mock_evidence_aggregate()
         session_id = save_reviews_for_synthesis(
             reviews,
             tmp_path,
             session_id="test-session-123",
+            evidence_aggregate=evidence,
         )
 
         assert session_id == "test-session-123"
@@ -58,14 +87,17 @@ class TestReviewsForSynthesis:
         cache_file = tmp_path / ".bmad-assist" / "cache" / "code-reviews-test-session-123.json"
         assert cache_file.exists()
 
-        # Load reviews back - Story 22.7: returns (reviews, failed_reviewers)
-        loaded, failed_reviewers = load_reviews_for_synthesis("test-session-123", tmp_path)
+        # Load reviews back - TIER 2: returns (reviews, failed_reviewers, evidence_score)
+        loaded, failed_reviewers, evidence_data = load_reviews_for_synthesis(
+            "test-session-123", tmp_path
+        )
 
         assert len(loaded) == 2
         assert loaded[0].validator_id == "validator-a"
         assert loaded[1].validator_id == "validator-b"
         assert "Review A" in loaded[0].content
         assert failed_reviewers == []  # No failed reviewers in this test
+        assert evidence_data is not None
 
     def test_load_nonexistent_session_raises_error(self, tmp_path: Path) -> None:
         """Test that loading a nonexistent session raises CodeReviewError."""

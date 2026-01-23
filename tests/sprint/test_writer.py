@@ -1165,3 +1165,62 @@ class TestAddEpicComments:
 
         # Should have string epic separator comment
         assert "# Epic testarch" in content
+
+    def test_multiple_writes_no_duplicate_epic_comments(
+        self,
+        tmp_path: Path,
+    ):
+        """Multiple write cycles don't duplicate epic comments (regression test).
+
+        This tests the bug fix where each write was adding `# Epic X` comments
+        without clearing existing ones, causing accumulation like:
+        # Epic 1
+        # Epic 1
+        # Epic 1
+        """
+        if not has_ruamel():
+            pytest.skip("ruamel.yaml not available")
+
+        meta = SprintStatusMetadata(
+            generated=datetime.now(UTC).replace(tzinfo=None),
+            project="regression-test",
+        )
+        entries = {
+            "epic-1": SprintStatusEntry(
+                key="epic-1",
+                status="in-progress",
+                entry_type=EntryType.EPIC_META,
+            ),
+            "1-1-setup": SprintStatusEntry(
+                key="1-1-setup",
+                status="done",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+            "epic-2": SprintStatusEntry(
+                key="epic-2",
+                status="backlog",
+                entry_type=EntryType.EPIC_META,
+            ),
+            "2-1-start": SprintStatusEntry(
+                key="2-1-start",
+                status="backlog",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+        }
+        status = SprintStatus(metadata=meta, entries=entries)
+
+        target = tmp_path / "multi-write.yaml"
+
+        # Write multiple times with preserve_comments=True
+        for i in range(5):
+            status.metadata.generated = datetime.now(UTC).replace(tzinfo=None)
+            write_sprint_status(status, target, preserve_comments=True)
+
+        content = target.read_text(encoding="utf-8")
+
+        # Count occurrences of "# Epic 1" - should be exactly 1
+        epic_1_count = content.count("# Epic 1")
+        epic_2_count = content.count("# Epic 2")
+
+        assert epic_1_count == 1, f"Expected 1 '# Epic 1', found {epic_1_count}"
+        assert epic_2_count == 1, f"Expected 1 '# Epic 2', found {epic_2_count}"

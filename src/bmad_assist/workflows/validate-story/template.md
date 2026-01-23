@@ -13,12 +13,6 @@
 
 ## Executive Summary
 
-### 🎯 Story Quality Verdict
-
-| Final Score | Verdict |
-|-------------|---------|
-| **{{final_score}}/10** | **{{verdict}}** |
-
 ### Issues Overview
 
 | Category | Found | Applied |
@@ -29,6 +23,27 @@
 | 🤖 LLM Optimizations | {{llm_opt_count}} | {{llm_opts_applied}} |
 
 **Overall Assessment:** {{overall_assessment}}
+
+---
+
+<!-- evidence_score_summary -->
+
+## Evidence Score Summary
+
+| Severity | Description | Source | Score |
+|----------|-------------|--------|-------|
+{{#each evidence_findings}}
+| {{severity_icon}} {{severity}} | {{description}} | {{source}} | +{{score}} |
+{{/each}}
+{{#if clean_pass_count}}
+| 🟢 CLEAN PASS | {{clean_pass_count}} |
+{{/if}}
+
+### Evidence Score: {{evidence_score}}
+
+| Score | Verdict |
+|-------|---------|
+| **{{evidence_score}}** | **{{evidence_verdict}}** |
 
 ---
 
@@ -101,9 +116,7 @@
 ✅ Story aligns with architecture.md patterns.
 {{/if}}
 
-### Final Score: {{final_score}}/10
-
-### Verdict: {{verdict}}
+### Evidence Score: {{evidence_score}} → {{evidence_verdict}}
 
 ---
 

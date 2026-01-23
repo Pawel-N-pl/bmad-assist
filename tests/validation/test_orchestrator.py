@@ -549,10 +549,35 @@ class TestAnonymizationIntegration:
 
 
 class TestInterHandlerDataPassing:
-    """Tests for save/load validations for synthesis."""
+    """Tests for save/load validations for synthesis (cache v2 with Evidence Score)."""
+
+    def _make_mock_evidence_aggregate(self):
+        """Create a mock EvidenceScoreAggregate for testing."""
+        from bmad_assist.validation.evidence_score import (
+            EvidenceScoreAggregate,
+            Severity,
+            Verdict,
+        )
+
+        return EvidenceScoreAggregate(
+            total_score=2.5,
+            verdict=Verdict.PASS,
+            per_validator_scores={"Validator A": 2.5},
+            per_validator_verdicts={"Validator A": Verdict.PASS},
+            findings_by_severity={
+                Severity.CRITICAL: 0,
+                Severity.IMPORTANT: 1,
+                Severity.MINOR: 2,
+            },
+            total_findings=3,
+            total_clean_passes=5,
+            consensus_findings=(),
+            unique_findings=(),
+            consensus_ratio=0.5,
+        )
 
     def test_save_validations_creates_file(self, tmp_path: Path) -> None:
-        """save_validations_for_synthesis creates cache file."""
+        """save_validations_for_synthesis creates cache file with v2 format."""
         from bmad_assist.validation import AnonymizedValidation
         from bmad_assist.validation.orchestrator import save_validations_for_synthesis
 
@@ -564,14 +589,27 @@ class TestInterHandlerDataPassing:
             ),
         ]
 
-        session_id = save_validations_for_synthesis(validations, tmp_path)
+        session_id = save_validations_for_synthesis(
+            validations,
+            tmp_path,
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
+        )
 
         # Check file was created
         cache_file = tmp_path / ".bmad-assist" / "cache" / f"validations-{session_id}.json"
         assert cache_file.exists()
 
+        # Verify v2 format
+        import json
+
+        with open(cache_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        assert data.get("cache_version") == 2
+        assert "evidence_score" in data
+
     def test_load_validations_round_trip(self, tmp_path: Path) -> None:
-        """Round trip: save then load returns same data."""
+        """Round trip: save then load returns same data (v2 format)."""
         from bmad_assist.validation import AnonymizedValidation
         from bmad_assist.validation.orchestrator import (
             load_validations_for_synthesis,
@@ -591,15 +629,21 @@ class TestInterHandlerDataPassing:
             ),
         ]
 
-        session_id = save_validations_for_synthesis(original, tmp_path)
-        # Story 22.8: Now returns tuple (validations, failed_validators)
-        loaded, failed = load_validations_for_synthesis(session_id, tmp_path)
+        session_id = save_validations_for_synthesis(
+            original,
+            tmp_path,
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
+        )
+        # TIER 2: Now returns tuple (validations, failed_validators, evidence_score)
+        loaded, failed, evidence_score = load_validations_for_synthesis(session_id, tmp_path)
 
         assert len(loaded) == 2
         assert loaded[0].validator_id == "Validator A"
         assert loaded[0].content == "Content A"
         assert loaded[1].validator_id == "Validator B"
         assert failed == []  # No failed validators in this test
+        assert evidence_score is not None
+        assert evidence_score["total_score"] == 2.5
 
     def test_load_validations_not_found(self, tmp_path: Path) -> None:
         """load_validations_for_synthesis raises ValidationError if not found."""
@@ -610,6 +654,38 @@ class TestInterHandlerDataPassing:
 
         with pytest.raises(ValidationError, match="not found"):
             load_validations_for_synthesis("nonexistent-session", tmp_path)
+
+    def test_load_validations_rejects_v1_cache(self, tmp_path: Path) -> None:
+        """load_validations_for_synthesis raises CacheVersionError for v1 cache."""
+        import json
+
+        from bmad_assist.validation.evidence_score import CacheVersionError
+        from bmad_assist.validation.orchestrator import load_validations_for_synthesis
+
+        # Create v1-format cache file (without cache_version)
+        cache_dir = tmp_path / ".bmad-assist" / "cache"
+        cache_dir.mkdir(parents=True)
+
+        session_id = "v1-session-123"
+        v1_format_data = {
+            "session_id": session_id,
+            "timestamp": "2026-01-20T12:00:00Z",
+            "validations": [
+                {
+                    "validator_id": "Validator A",
+                    "content": "V1 content",
+                    "original_ref": "ref-v1",
+                }
+            ],
+        }
+
+        cache_file = cache_dir / f"validations-{session_id}.json"
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(v1_format_data, f)
+
+        # Should raise CacheVersionError
+        with pytest.raises(CacheVersionError, match="version"):
+            load_validations_for_synthesis(session_id, tmp_path)
 
     def test_save_uses_atomic_write(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """save_validations_for_synthesis uses atomic write pattern."""
@@ -635,7 +711,11 @@ class TestInterHandlerDataPassing:
             ),
         ]
 
-        save_validations_for_synthesis(validations, tmp_path)
+        save_validations_for_synthesis(
+            validations,
+            tmp_path,
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
+        )
 
         assert len(replace_calls) == 1
         src, dst = replace_calls[0]
@@ -970,7 +1050,32 @@ class TestStory22_8ValidationSynthesisSaving:
 
 
 class TestStory22_8FailedValidatorsInCache:
-    """Story 22.8 AC #4: failed_validators passed through cache for synthesis context."""
+    """Story 22.8 AC #4: failed_validators passed through cache for synthesis context (v2 format)."""
+
+    def _make_mock_evidence_aggregate(self):
+        """Create a mock EvidenceScoreAggregate for testing."""
+        from bmad_assist.validation.evidence_score import (
+            EvidenceScoreAggregate,
+            Severity,
+            Verdict,
+        )
+
+        return EvidenceScoreAggregate(
+            total_score=2.5,
+            verdict=Verdict.PASS,
+            per_validator_scores={"Validator A": 2.5},
+            per_validator_verdicts={"Validator A": Verdict.PASS},
+            findings_by_severity={
+                Severity.CRITICAL: 0,
+                Severity.IMPORTANT: 1,
+                Severity.MINOR: 2,
+            },
+            total_findings=3,
+            total_clean_passes=5,
+            consensus_findings=(),
+            unique_findings=(),
+            consensus_ratio=0.5,
+        )
 
     def test_save_validations_with_failed_validators(self, tmp_path: Path) -> None:
         """save_validations_for_synthesis persists failed_validators in cache."""
@@ -991,6 +1096,7 @@ class TestStory22_8FailedValidatorsInCache:
             validations,
             tmp_path,
             failed_validators=["claude-haiku", "gemini-flash"],
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
         )
 
         # Verify cache file contains failed_validators
@@ -1000,6 +1106,7 @@ class TestStory22_8FailedValidatorsInCache:
 
         assert "failed_validators" in data
         assert data["failed_validators"] == ["claude-haiku", "gemini-flash"]
+        assert data.get("cache_version") == 2
 
     def test_save_validations_empty_failed_validators(self, tmp_path: Path) -> None:
         """save_validations_for_synthesis handles empty failed_validators list (omits from cache)."""
@@ -1020,6 +1127,7 @@ class TestStory22_8FailedValidatorsInCache:
             validations,
             tmp_path,
             failed_validators=[],  # Empty list - treated same as None
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
         )
 
         cache_file = tmp_path / ".bmad-assist" / "cache" / f"validations-{session_id}.json"
@@ -1049,56 +1157,21 @@ class TestStory22_8FailedValidatorsInCache:
             original,
             tmp_path,
             failed_validators=["failed-provider-1", "failed-provider-2"],
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
         )
 
-        # Load returns tuple: (validations, failed_validators)
-        loaded_validations, loaded_failed = load_validations_for_synthesis(
+        # TIER 2: Load returns tuple: (validations, failed_validators, evidence_score)
+        loaded_validations, loaded_failed, evidence_score = load_validations_for_synthesis(
             session_id, tmp_path
         )
 
         assert len(loaded_validations) == 1
         assert loaded_validations[0].validator_id == "Validator A"
         assert loaded_failed == ["failed-provider-1", "failed-provider-2"]
-
-    def test_load_validations_backward_compat_no_failed_validators(
-        self, tmp_path: Path
-    ) -> None:
-        """load_validations_for_synthesis returns empty list for old cache files without failed_validators."""
-        import json
-
-        from bmad_assist.validation.orchestrator import load_validations_for_synthesis
-
-        # Create old-format cache file (without failed_validators)
-        cache_dir = tmp_path / ".bmad-assist" / "cache"
-        cache_dir.mkdir(parents=True)
-
-        session_id = "legacy-session-123"
-        old_format_data = {
-            "validations": [
-                {
-                    "validator_id": "Validator A",
-                    "content": "Legacy content",
-                    "original_ref": "ref-legacy",
-                }
-            ]
-            # Note: no 'failed_validators' key
-        }
-
-        cache_file = cache_dir / f"validations-{session_id}.json"
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(old_format_data, f)
-
-        # Load should return empty list for failed_validators (backward compat)
-        loaded_validations, loaded_failed = load_validations_for_synthesis(
-            session_id, tmp_path
-        )
-
-        assert len(loaded_validations) == 1
-        assert loaded_validations[0].validator_id == "Validator A"
-        assert loaded_failed == []  # Empty list for backward compatibility
+        assert evidence_score is not None
 
     def test_save_load_round_trip_with_failed_validators(self, tmp_path: Path) -> None:
-        """Complete round-trip test for failed_validators through cache."""
+        """Complete round-trip test for failed_validators through cache (v2 format)."""
         from bmad_assist.validation import AnonymizedValidation
         from bmad_assist.validation.orchestrator import (
             load_validations_for_synthesis,
@@ -1120,9 +1193,13 @@ class TestStory22_8FailedValidatorsInCache:
         failed = ["timeout-validator", "error-validator"]
 
         session_id = save_validations_for_synthesis(
-            original, tmp_path, failed_validators=failed
+            original,
+            tmp_path,
+            failed_validators=failed,
+            evidence_aggregate=self._make_mock_evidence_aggregate(),
         )
-        loaded_validations, loaded_failed = load_validations_for_synthesis(
+        # TIER 2: Load returns 3-element tuple
+        loaded_validations, loaded_failed, evidence_score = load_validations_for_synthesis(
             session_id, tmp_path
         )
 
@@ -1131,6 +1208,7 @@ class TestStory22_8FailedValidatorsInCache:
         assert loaded_validations[0].validator_id == "Validator A"
         assert loaded_validations[1].validator_id == "Validator B"
         assert loaded_failed == ["timeout-validator", "error-validator"]
+        assert evidence_score is not None
 
 
 class TestStory22_8SessionIdInValidationReports:

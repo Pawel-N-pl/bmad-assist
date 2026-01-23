@@ -65,8 +65,8 @@ class TestSourceContextBudgetsConfig:
         assert config.code_review_synthesis == 15000
         assert config.create_story == 20000
         assert config.dev_story == 20000
-        assert config.validate_story == 0  # Disabled
-        assert config.validate_story_synthesis == 0  # Disabled
+        assert config.validate_story == 10000
+        assert config.validate_story_synthesis == 10000
         assert config.default == 20000
 
     def test_get_budget_by_name(self) -> None:
@@ -215,10 +215,25 @@ class TestSourceContextService:
         assert service.budget == 15000
         assert service.is_enabled()
 
-    def test_is_enabled_with_low_budget(self, tmp_project: Path) -> None:
+    def test_is_enabled_with_low_budget(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """is_enabled returns False for budget < 100."""
+        # Create custom budgets config with a disabled workflow
+        custom_budgets = SourceContextBudgetsConfig(
+            code_review=15000,
+            code_review_synthesis=15000,
+            create_story=20000,
+            dev_story=20000,
+            validate_story=0,  # Explicitly disabled for this test
+            validate_story_synthesis=0,
+            default=20000,
+        )
+
+        # Patch the service to use our custom budget
         context = create_test_context(tmp_project)
-        service = SourceContextService(context, "validate_story")  # Default 0
+        service = SourceContextService(context, "validate_story")
+        monkeypatch.setattr(service, "budget", custom_budgets.validate_story)
 
         assert service.budget == 0
         assert service.is_enabled() is False
@@ -280,13 +295,17 @@ class TestSourceContextService:
         paths = list(result.keys())
         assert "in_both.py" in paths[0]
 
-    def test_disabled_returns_empty(self, tmp_project: Path) -> None:
+    def test_disabled_returns_empty(
+        self, tmp_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Returns empty when budget is disabled."""
         src = tmp_project / "src"
         (src / "main.py").write_text("content")
 
         context = create_test_context(tmp_project)
-        service = SourceContextService(context, "validate_story")
+        service = SourceContextService(context, "dev_story")  # Use any workflow
+        # Disable the service by setting budget to 0
+        monkeypatch.setattr(service, "budget", 0)
 
         result = service.collect_files(["src/main.py"], None)
 

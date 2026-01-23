@@ -330,3 +330,109 @@ def patch_list(
         )
 
     console.print(table)
+
+
+@patch_app.command("compile-all")
+def patch_compile_all(
+    project: str = typer.Option(
+        ".",
+        "--project",
+        "-p",
+        help="Path to project directory",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help="Enable verbose output and JSONL debug logging",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Recompile all patches even if cache is valid",
+    ),
+) -> None:
+    """Compile all patches that don't have a valid cache.
+
+    Discovers all patches in project and global directories, checks their
+    cache status, and compiles those with missing or stale cache.
+    """
+    # Validate project path
+    project_path = _validate_project_path(project)
+
+    # Enable debug logging if requested
+    if debug:
+        _setup_logging(verbose=True, quiet=False)
+        console.print("[dim]Debug mode enabled - logs saved to ~/.bmad-assist/debug/json/[/dim]")
+
+    # Load configuration (required for provider access)
+    try:
+        loaded_config = load_config_with_project(project_path=project_path)
+        # Initialize project paths singleton
+        paths_config = {
+            "output_folder": loaded_config.paths.output_folder,
+            "planning_artifacts": loaded_config.paths.planning_artifacts,
+            "implementation_artifacts": loaded_config.paths.implementation_artifacts,
+            "project_knowledge": loaded_config.paths.project_knowledge,
+        }
+        init_paths(project_path, paths_config)
+    except ConfigError as e:
+        console.print(f"[red]Config error:[/red] {e}")
+        raise typer.Exit(code=EXIT_ERROR) from None
+
+    # Get all patches with their status
+    patches = list_patches(project_path)
+
+    if not patches:
+        console.print("No patches found.")
+        return
+
+    # Filter patches that need compilation
+    if force:
+        to_compile = patches
+    else:
+        to_compile = [p for p in patches if p["status"] in ("missing", "stale")]
+
+    if not to_compile:
+        console.print("[green]All patches are up to date.[/green]")
+        return
+
+    console.print(f"Found {len(to_compile)} patch(es) to compile:")
+    for p in to_compile:
+        console.print(f"  - {p['workflow']} ({p['status']})")
+    console.print()
+
+    # Compile each patch
+    compiled = 0
+    errors: list[tuple[str, str]] = []
+
+    for p in to_compile:
+        workflow = p["workflow"]
+        if workflow is None:
+            continue  # Skip entries without workflow name
+        console.print(f"Compiling [cyan]{workflow}[/cyan]...", end=" ")
+
+        try:
+            _, _, warnings = compile_patch(workflow, project_path, debug)
+
+            if warnings > 0:
+                console.print(f"[yellow]done[/yellow] (warnings: {warnings})")
+            else:
+                console.print("[green]done[/green]")
+            compiled += 1
+
+        except PatchError as e:
+            console.print("[red]error[/red]")
+            errors.append((workflow, str(e)))
+
+    # Summary
+    console.print()
+    console.print("[bold]Summary:[/bold]")
+    console.print(f"  Compiled: [green]{compiled}[/green]")
+    if errors:
+        console.print(f"  Errors:   [red]{len(errors)}[/red]")
+        for workflow, error in errors:
+            console.print(f"    - {workflow}: {error[:80]}...")
+
+    if errors:
+        raise typer.Exit(code=EXIT_PATCH_ERROR)

@@ -119,6 +119,7 @@ def cached_reviews(project_with_story: Path) -> str:
     cache_file.write_text(
         json.dumps(
             {
+                "cache_version": 2,  # TIER 2: Required for v2 format
                 "session_id": session_id,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "reviews": [
@@ -133,6 +134,26 @@ def cached_reviews(project_with_story: Path) -> str:
                         "original_ref": "ref-2",
                     },
                 ],
+                "failed_reviewers": [],
+                # TIER 2: Required evidence_score data
+                "evidence_score": {
+                    "total_score": 1.5,
+                    "verdict": "PASS",
+                    "per_validator": {
+                        "Reviewer A": {"score": 2.0, "verdict": "PASS"},
+                        "Reviewer B": {"score": 1.0, "verdict": "PASS"},
+                    },
+                    "findings_summary": {
+                        "CRITICAL": 0,
+                        "IMPORTANT": 1,
+                        "MINOR": 1,
+                        "CLEAN_PASS": 4,
+                    },
+                    "consensus_ratio": 0.5,
+                    "total_findings": 2,
+                    "consensus_count": 1,
+                    "unique_count": 1,
+                },
             }
         )
     )
@@ -774,7 +795,7 @@ This is a synthesis of code reviews.
 
         handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
 
-        # Create cache file with empty reviews
+        # Create cache file with empty reviews (v2 format)
         cache_dir = project_with_story / ".bmad-assist" / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -783,9 +804,26 @@ This is a synthesis of code reviews.
         cache_file.write_text(
             json.dumps(
                 {
+                    "cache_version": 2,
                     "session_id": session_id,
                     "timestamp": datetime.now(UTC).isoformat(),
                     "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": {
+                        "total_score": 0.0,
+                        "verdict": "PASS",
+                        "per_validator": {},
+                        "findings_summary": {
+                            "CRITICAL": 0,
+                            "IMPORTANT": 0,
+                            "MINOR": 0,
+                            "CLEAN_PASS": 0,
+                        },
+                        "consensus_ratio": 0.0,
+                        "total_findings": 0,
+                        "consensus_count": 0,
+                        "unique_count": 0,
+                    },
                 }
             )
         )
@@ -857,8 +895,13 @@ class TestCodeReviewSynthesisIntegration:
             save_reviews_for_synthesis,
         )
         from bmad_assist.validation.anonymizer import AnonymizedValidation
+        from bmad_assist.validation.evidence_score import (
+            EvidenceScoreAggregate,
+            Severity,
+            Verdict,
+        )
 
-        # Save reviews
+        # Save reviews with evidence score (required for v2 cache)
         reviews = [
             AnonymizedValidation(
                 validator_id="Reviewer A",
@@ -872,10 +915,34 @@ class TestCodeReviewSynthesisIntegration:
             ),
         ]
 
-        session_id = save_reviews_for_synthesis(reviews, project_with_story)
+        evidence = EvidenceScoreAggregate(
+            total_score=1.5,
+            verdict=Verdict.PASS,
+            per_validator_scores={"Reviewer A": 2.0, "Reviewer B": 1.0},
+            per_validator_verdicts={
+                "Reviewer A": Verdict.PASS,
+                "Reviewer B": Verdict.PASS,
+            },
+            findings_by_severity={
+                Severity.CRITICAL: 0,
+                Severity.IMPORTANT: 1,
+                Severity.MINOR: 0,
+            },
+            total_findings=1,
+            total_clean_passes=4,
+            consensus_findings=(),
+            unique_findings=(),
+            consensus_ratio=0.0,
+        )
 
-        # Load reviews - returns tuple of (reviews, failed_reviewer_ids)
-        loaded, failed_ids = load_reviews_for_synthesis(session_id, project_with_story)
+        session_id = save_reviews_for_synthesis(
+            reviews, project_with_story, evidence_aggregate=evidence
+        )
+
+        # Load reviews - TIER 2: returns tuple of (reviews, failed_reviewer_ids, evidence_data)
+        loaded, failed_ids, evidence_data = load_reviews_for_synthesis(
+            session_id, project_with_story
+        )
 
         assert len(loaded) == 2
         assert loaded[0].validator_id == "Reviewer A"
@@ -883,3 +950,4 @@ class TestCodeReviewSynthesisIntegration:
         assert loaded[1].validator_id == "Reviewer B"
         assert loaded[1].content == "Test content 2"
         assert failed_ids == []  # No failures in this test
+        assert evidence_data is not None

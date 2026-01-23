@@ -30,7 +30,7 @@ from typing import Any
 import yaml
 from jinja2 import Template
 
-from bmad_assist.core.config import Config
+from bmad_assist.core.config import Config, get_phase_timeout
 from bmad_assist.core.exceptions import ConfigError, ProviderExitCodeError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.types import PhaseResult
@@ -546,7 +546,7 @@ class BaseHandler(ABC):
         provider = self.get_provider()
         display_model = self.get_model()  # For logging (prefers model_name)
         cli_model = self.get_cli_model()  # For actual CLI invocation (always model)
-        timeout = self.config.timeout
+        timeout = get_phase_timeout(self.config, self.phase_name)
 
         # Resolve settings file from provider config
         settings_file = None
@@ -698,7 +698,7 @@ class BaseHandler(ABC):
                     result_summary=result_summary,
                     provider=self.get_provider(),
                     model=self.get_model(),
-                    timeout=self.config.timeout,
+                    timeout=get_phase_timeout(self.config, self.phase_name),
                 )
                 if not continue_execution:
                     # User requested quit - mark as interrupted

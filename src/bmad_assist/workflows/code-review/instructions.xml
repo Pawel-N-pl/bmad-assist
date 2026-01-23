@@ -223,23 +223,39 @@
       <action>Store as {{security_vulnerabilities}}</action>
     </substep>
 
-    <substep n="4j" title="Calculate Final Score and Verdict">
-      <action>Calculate Final Score (1-10) based on:
-        - Critical issues count (security, correctness): heavy weight
-        - SOLID violations severity
-        - Test quality assessment
-        - Performance impact
-        - Maintainability concerns
-        Higher score = better code quality
+    <substep n="4j" title="Calculate Evidence Score">
+      <critical>🔥 CRITICAL: You MUST calculate and output the Evidence Score for synthesis!</critical>
+
+      <action>Map each finding to Evidence Score severity:
+        - **🔴 CRITICAL** (+3 points): Security vulnerabilities, data corruption, blocking bugs, task completion lies
+        - **🟠 IMPORTANT** (+1 point): SOLID violations, performance issues, missing tests, AC gaps
+        - **🟡 MINOR** (+0.3 points): Style violations, documentation issues, minor refactoring
       </action>
 
-      <action>Determine Verdict:
-        - **APPROVE** (Score 7-10): Code is production-ready, minor issues only
-        - **MAJOR REWORK** (Score 4-6): Significant issues must be addressed
-        - **REJECT** (Score 1-3): Fundamental problems, needs complete rewrite
+      <action>Count CLEAN PASS categories - areas with NO issues found:
+        - Each clean category: -0.5 points
+        - Categories: SOLID, Hidden Bugs, Abstraction, Lying Tests, Performance, Tech Debt, Style, Type Safety, Security
       </action>
 
-      <action>Store {{final_score}} and {{verdict}}</action>
+      <action>Calculate Evidence Score:
+        {{evidence_score}} = SUM(finding_scores) + (clean_pass_count × -0.5)
+
+        Example: 2 CRITICAL (+6) + 3 IMPORTANT (+3) + 4 CLEAN PASSES (-2) = 7.0
+      </action>
+
+      <action>Determine Evidence Verdict:
+        - **EXEMPLARY** (score ≤ -3): Many clean passes, minimal issues
+        - **APPROVED** (score &lt; 3): Acceptable quality, minor issues only
+        - **MAJOR REWORK** (3 ≤ score &lt; 7): Significant issues require attention
+        - **REJECT** (score ≥ 7): Critical problems, needs complete rewrite
+      </action>
+
+      <action>Store for output:
+        - {{evidence_findings}}: List of findings with severity_icon, severity, description, source, score
+        - {{clean_pass_count}}: Number of clean categories
+        - {{evidence_score}}: Calculated total score
+        - {{evidence_verdict}}: EXEMPLARY/APPROVED/MAJOR REWORK/REJECT
+      </action>
     </substep>
   </step>
 
@@ -251,8 +267,6 @@
     <o>**🔥 ADVERSARIAL CODE REVIEW COMPLETE, {user_name}!**
 
 **Story:** {{story_file}}
-**Final Score:** {{final_score}}/10
-**Verdict:** **{{verdict}}**
 
 ---
 
@@ -268,6 +282,25 @@
 | Performance Footguns | {{perf_count}} |
 | Security Vulnerabilities | {{security_count}} |
 | **Total Issues** | **{{total_issues}}** |
+
+---
+
+## Evidence Score Summary
+
+| Severity | Description | Source | Score |
+|----------|-------------|--------|-------|
+{{#each evidence_findings}}
+| {{severity_icon}} {{severity}} | {{description}} | {{source}} | +{{score}} |
+{{/each}}
+{{#if clean_pass_count}}
+| 🟢 CLEAN PASS | {{clean_pass_count}} |
+{{/if}}
+
+### Evidence Score: {{evidence_score}}
+
+| Score | Verdict |
+|-------|---------|
+| **{{evidence_score}}** | **{{evidence_verdict}}** |
 
 ---
 
@@ -384,12 +417,6 @@
 
 {{/each}}
 
----
-
-## 🎯 Final Score: {{final_score}}/10
-
-## Verdict: {{verdict}}
-
     </o>
 
     <ask>What should I do with these issues?
@@ -431,11 +458,11 @@ Choose [1], [2], [3], or [4]:</ask>
 
   <step n="6" goal="Update story status and sync sprint tracking">
     <!-- Determine new status based on review outcome -->
-    <check if="{{verdict}} == 'APPROVE' AND ({{fixed_count}} > 0 OR no HIGH issues remaining)">
+    <check if="{{evidence_verdict}} == 'APPROVED' AND ({{fixed_count}} > 0 OR no CRITICAL issues remaining)">
       <action>Set {{new_status}} = "done"</action>
       <action>Update story Status field to "done"</action>
     </check>
-    <check if="{{verdict}} != 'APPROVE' OR HIGH issues remain unfixed">
+    <check if="{{evidence_verdict}} != 'APPROVED' OR CRITICAL issues remain unfixed">
       <action>Set {{new_status}} = "in-progress"</action>
       <action>Update story Status field to "in-progress"</action>
     </check>
@@ -445,8 +472,7 @@ Choose [1], [2], [3], or [4]:</ask>
       ```
       ### Review: {{date}}
       - **Reviewer:** AI Code Review Engine
-      - **Final Score:** {{final_score}}/10
-      - **Verdict:** {{verdict}}
+      - **Evidence Score:** {{evidence_score}} → {{evidence_verdict}}
       - **Issues Found:** {{total_issues}}
       - **Issues Fixed:** {{fixed_count}}
       - **Action Items Created:** {{action_count}}
@@ -492,8 +518,7 @@ Choose [1], [2], [3], or [4]:</ask>
     <o>**✅ CODE REVIEW FINALIZED, {user_name}!**
 
 **Story:** {{story_file}}
-**Final Score:** {{final_score}}/10
-**Verdict:** {{verdict}}
+**Evidence Score:** {{evidence_score}} → **{{evidence_verdict}}**
 **Story Status:** {{new_status}}
 
 **Review Actions:**
@@ -501,13 +526,16 @@ Choose [1], [2], [3], or [4]:</ask>
 - Issues Fixed: {{fixed_count}}
 - Action Items Created: {{action_count}}
 
-{{#if verdict == "APPROVE"}}
-🎉 Code is approved and ready for deployment!
+{{#if evidence_verdict == "EXEMPLARY"}}
+🎉 Exemplary code quality!
 {{/if}}
-{{#if verdict == "MAJOR REWORK"}}
+{{#if evidence_verdict == "APPROVED"}}
+✅ Code is approved and ready for deployment!
+{{/if}}
+{{#if evidence_verdict == "MAJOR REWORK"}}
 ⚠️ Address the identified issues before proceeding.
 {{/if}}
-{{#if verdict == "REJECT"}}
+{{#if evidence_verdict == "REJECT"}}
 🚫 Code requires significant rework. Review action items carefully.
 {{/if}}
     </o>

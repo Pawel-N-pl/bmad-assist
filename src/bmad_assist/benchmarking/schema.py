@@ -306,6 +306,7 @@ class FindingsExtracted(BaseModel):
     """Extracted findings from validation output.
 
     Mix of deterministic counts and LLM-extracted categorizations.
+    Updated for Evidence Score system (TIER 2).
     """
 
     total_count: int = Field(
@@ -313,7 +314,7 @@ class FindingsExtracted(BaseModel):
         json_schema_extra=_src(MetricSource.LLM_EXTRACTED),
     )
     by_severity: dict[str, int] = Field(
-        description="Counts by severity (critical, major, minor, nit)",
+        description="Counts by severity (CRITICAL, IMPORTANT, MINOR for Evidence Score)",
         json_schema_extra=_src(MetricSource.LLM_EXTRACTED),
     )
     by_category: dict[str, int] = Field(
@@ -329,7 +330,23 @@ class FindingsExtracted(BaseModel):
         json_schema_extra=_src(MetricSource.LLM_EXTRACTED),
     )
     has_evidence_count: int = Field(
-        description="Findings with supporting evidence",
+        description="Findings with supporting evidence (quotes)",
+        json_schema_extra=_src(MetricSource.LLM_EXTRACTED),
+    )
+    # Evidence Score fields (TIER 2)
+    evidence_score: float | None = Field(
+        default=None,
+        description="Calculated Evidence Score for this validator",
+        json_schema_extra=_src(MetricSource.DETERMINISTIC),
+    )
+    evidence_verdict: str | None = Field(
+        default=None,
+        description="Evidence Score verdict (REJECT/MAJOR_REWORK/PASS/EXCELLENT)",
+        json_schema_extra=_src(MetricSource.DETERMINISTIC),
+    )
+    clean_pass_count: int = Field(
+        default=0,
+        description="Number of CLEAN PASS categories (-0.5 each)",
         json_schema_extra=_src(MetricSource.LLM_EXTRACTED),
     )
 
@@ -440,14 +457,15 @@ class ConsensusData(BaseModel):
     """Cross-evaluator agreement metrics.
 
     Populated by synthesizer during multi-LLM validation.
+    Updated for Evidence Score system (TIER 2).
     """
 
     agreed_findings: int = Field(
-        description="Findings agreed by majority",
+        description="Findings agreed by 2+ validators (consensus)",
         json_schema_extra=_src(MetricSource.SYNTHESIZER),
     )
     unique_findings: int = Field(
-        description="Findings from single validator",
+        description="Findings from single validator only",
         json_schema_extra=_src(MetricSource.SYNTHESIZER),
     )
     disputed_findings: int = Field(
@@ -467,6 +485,22 @@ class ConsensusData(BaseModel):
         default=0,
         description="False positives identified in review",
         json_schema_extra=_src(MetricSource.POST_HOC),
+    )
+    # Evidence Score aggregate fields (TIER 2)
+    aggregate_evidence_score: float | None = Field(
+        default=None,
+        description="Average Evidence Score across all validators",
+        json_schema_extra=_src(MetricSource.DETERMINISTIC),
+    )
+    aggregate_evidence_verdict: str | None = Field(
+        default=None,
+        description="Aggregate Evidence Score verdict",
+        json_schema_extra=_src(MetricSource.DETERMINISTIC),
+    )
+    consensus_ratio: float | None = Field(
+        default=None,
+        description="Ratio of consensus to total findings (0-1)",
+        json_schema_extra=_src(MetricSource.DETERMINISTIC),
     )
 
 

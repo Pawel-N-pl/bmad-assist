@@ -398,6 +398,24 @@ class CreateStoryCompiler:
         files: dict[str, str] = {}
         epic_entries: dict[str, str] = {}
 
+        # Include story antipatterns from previous validations (if exists)
+        # Position: early in context as general guidance (before stories/epic files)
+        if epic_num is not None:
+            from bmad_assist.core.paths import get_paths
+
+            try:
+                paths = get_paths()
+                antipatterns_path = (
+                    paths.implementation_artifacts / f"epic-{epic_num}-story-antipatterns.md"
+                )
+                if antipatterns_path.exists():
+                    files["[ANTIPATTERNS - DO NOT REPEAT]"] = antipatterns_path.read_text(
+                        encoding="utf-8"
+                    )
+                    logger.debug("Added story antipatterns to create-story context")
+            except (RuntimeError, OSError) as e:
+                logger.debug("Could not load story antipatterns: %s", e)
+
         # Pattern to identify epic files: /epics/ directory or epic-{num/id}-*.md pattern
         epic_file_pattern = re.compile(r"(/epics/|/epic-[a-zA-Z0-9]+-)")
 
