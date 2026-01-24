@@ -122,14 +122,17 @@ class TestListProviders:
         assert isinstance(result, frozenset)
 
     def test_list_providers_contains_all_default_providers(self, reset_registry: None) -> None:
-        """AC4: list_providers() contains exactly 6 default providers."""
+        """AC4: list_providers() contains exactly 8 default providers."""
         from bmad_assist.providers.registry import list_providers
 
         result = list_providers()
 
-        expected = frozenset({"amp", "claude", "claude-subprocess", "codex", "gemini", "opencode"})
+        expected = frozenset({
+            "amp", "claude", "claude-subprocess", "codex",
+            "copilot", "cursor-agent", "gemini", "opencode"
+        })
         assert result == expected
-        assert len(result) == 6
+        assert len(result) == 8
 
     def test_list_providers_is_immutable(self, reset_registry: None) -> None:
         """AC4: Result is immutable (frozenset, not set)."""
@@ -461,8 +464,8 @@ class TestLazyInitialization:
         providers = list_providers()
 
         # Now registry has providers
-        assert len(_REGISTRY) == 6
-        assert len(providers) == 6
+        assert len(_REGISTRY) == 8
+        assert len(providers) == 8
 
         # Clean up
         _REGISTRY.clear()
@@ -483,7 +486,7 @@ class TestLazyInitialization:
         provider = get_provider("claude")
 
         # Now registry has providers
-        assert len(_REGISTRY) == 6
+        assert len(_REGISTRY) == 8
         assert isinstance(provider, ClaudeSDKProvider)
 
         # Clean up
@@ -504,7 +507,7 @@ class TestLazyInitialization:
         result = is_valid_provider("claude")
 
         # Now registry has providers
-        assert len(_REGISTRY) == 6
+        assert len(_REGISTRY) == 8
         assert result is True
 
         # Clean up
@@ -526,8 +529,8 @@ class TestLazyInitialization:
         # register_provider triggers initialization before adding custom
         register_provider("test-lazy-init", custom_provider_class)
 
-        # Now registry has default providers + custom
-        assert len(_REGISTRY) == 7
+        # Now registry has default providers + custom (8 default + 1 custom)
+        assert len(_REGISTRY) == 9
         assert "test-lazy-init" in _REGISTRY
 
         # Clean up
