@@ -1,0 +1,21 @@
+current_epic: 1
+current_story: '1.1'
+current_phase: atdd
+completed_stories: []
+completed_epics: []
+started_at: null
+updated_at: '2026-01-25T13:58:22.943546'
+story_started_at: null
+phase_started_at: null
+epic_started_at: null
+project_started_at: null
+anomalies: []
+testarch_preflight:
+  completed_at: '2026-01-25T13:58:22.943546'
+  test_design: not_found
+  framework: not_found
+  ci: not_found
+atdd_ran_for_story: false
+atdd_ran_in_epic: false
+qa_category: A
+epic_setup_complete: false

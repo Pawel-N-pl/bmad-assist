@@ -28,6 +28,15 @@ Settings Loading:
     - resolve_settings_file(): Resolves paths from config (relative, tilde, absolute)
     - validate_settings_file(): Validates file exists and logs warnings if missing
 
+Shared Retry Helpers:
+    Common retry logic for subprocess-based providers:
+    - MAX_RETRIES: Maximum number of retry attempts (5)
+    - RETRY_BASE_DELAY: Base delay for exponential backoff (2.0 seconds)
+    - RETRY_MAX_DELAY: Maximum delay between retries (30.0 seconds)
+    - calculate_retry_delay(): Calculate exponential backoff delay
+    - is_transient_error(): Check if error is transient and suitable for retry
+    - start_stream_reader_threads(): Start threads for reading stdout/stderr concurrently
+
 Example:
     >>> from bmad_assist.providers import BaseProvider, ProviderResult, ExitStatus
     >>> from bmad_assist.providers import ClaudeProvider  # Alias for ClaudeSDKProvider
@@ -43,10 +52,16 @@ Example:
 
 from .amp import AmpProvider
 from .base import (
+    MAX_RETRIES,
+    RETRY_BASE_DELAY,
+    RETRY_MAX_DELAY,
     BaseProvider,
     ExitStatus,
     ProviderResult,
+    calculate_retry_delay,
+    is_transient_error,
     resolve_settings_file,
+    start_stream_reader_threads,
     validate_settings_file,
 )
 from .claude import ClaudeSubprocessProvider
@@ -82,6 +97,13 @@ __all__ = [
     "GeminiProvider",
     "OpenCodeProvider",
     "ProviderResult",
+    # Retry constants and helpers
+    "MAX_RETRIES",
+    "RETRY_BASE_DELAY",
+    "RETRY_MAX_DELAY",
+    "calculate_retry_delay",
+    "is_transient_error",
+    "start_stream_reader_threads",
     # Registry functions
     "denormalize_model_name",
     "get_provider",

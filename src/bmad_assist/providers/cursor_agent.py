@@ -14,7 +14,8 @@ Output Format:
     Response is captured directly from stdout.
 
 Command Format:
-    cursor-agent --print --model "<MODEL>" --force "<PROMPT>"
+    Writes prompt to temp file and uses shell to read it, avoiding ARG_MAX limits:
+    cursor-agent --print --model "<MODEL>" --force "$(cat /tmp/prompt_xxx.txt)"
 
 Example:
     >>> from bmad_assist.providers import CursorAgentProvider
@@ -26,22 +27,28 @@ Example:
 
 import logging
 import os
-import threading
 import time
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
-from typing import Any
 
 from bmad_assist.core.exceptions import (
     ProviderError,
     ProviderExitCodeError,
     ProviderTimeoutError,
 )
+from bmad_assist.core.platform_command import (
+    build_cross_platform_command,
+    cleanup_temp_file,
+)
 from bmad_assist.providers.base import (
+    MAX_RETRIES,
     BaseProvider,
     ExitStatus,
     ProviderResult,
+    calculate_retry_delay,
     format_tag,
+    is_transient_error,
+    start_stream_reader_threads,
     validate_settings_file,
     write_progress,
 )
@@ -51,9 +58,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT: int = 300
 PROMPT_TRUNCATE_LENGTH: int = 100
 STDERR_TRUNCATE_LENGTH: int = 200
-MAX_RETRIES: int = 5
-RETRY_BASE_DELAY: float = 2.0
-RETRY_MAX_DELAY: float = 30.0
 
 
 def _truncate_prompt(prompt: str) -> str:
@@ -181,14 +185,17 @@ class CursorAgentProvider(BaseProvider):
             cwd,
         )
 
-        command: list[str] = [
-            "cursor-agent",
-            "--print",
-            "--model",
-            effective_model,
-            "--force",
-            prompt,
-        ]
+        # Build command using cross-platform approach to handle ARG_MAX limits
+        # On POSIX: Uses temp file + shell for large prompts
+        # On Windows: Uses direct arguments (no ARG_MAX in same way)
+        args = ["--print", "--model", effective_model, "--force"]
+
+        command, temp_file_path = build_cross_platform_command(
+            "cursor-agent", args, prompt, use_shell=False
+        )
+
+        def _cleanup_prompt_file() -> None:
+            cleanup_temp_file(temp_file_path)
 
         last_error: ProviderExitCodeError | None = None
         returncode: int = 0
@@ -198,7 +205,7 @@ class CursorAgentProvider(BaseProvider):
 
         for attempt in range(MAX_RETRIES):
             if attempt > 0:
-                delay = min(RETRY_BASE_DELAY * (2 ** (attempt - 1)), RETRY_MAX_DELAY)
+                delay = calculate_retry_delay(attempt - 1)
                 logger.warning(
                     "Cursor Agent CLI retry %d/%d after %.1fs delay (previous: %s)",
                     attempt + 1,
@@ -233,46 +240,9 @@ class CursorAgentProvider(BaseProvider):
                 if process.stdin:
                     process.stdin.close()
 
-                def read_stdout(
-                    stream: Any,
-                    chunks: list[str],
-                    print_lines: bool,
-                    color_idx: int | None,
-                ) -> None:
-                    """Read stdout stream."""
-                    for line in iter(stream.readline, ""):
-                        chunks.append(line)
-                        if print_lines:
-                            stripped = line.rstrip()
-                            tag = format_tag("OUT", color_idx)
-                            write_progress(f"{tag} {stripped}")
-                    stream.close()
-
-                def read_stderr(
-                    stream: Any,
-                    chunks: list[str],
-                    print_lines: bool,
-                    color_idx: int | None,
-                ) -> None:
-                    """Read stderr stream."""
-                    for line in iter(stream.readline, ""):
-                        chunks.append(line)
-                        if print_lines:
-                            stripped = line.rstrip()
-                            tag = format_tag("ERR", color_idx)
-                            write_progress(f"{tag} {stripped}")
-                    stream.close()
-
-                stdout_thread = threading.Thread(
-                    target=read_stdout,
-                    args=(process.stdout, stdout_chunks, print_output, color_index),
+                stdout_thread, stderr_thread = start_stream_reader_threads(
+                    process, stdout_chunks, stderr_chunks, print_output, color_index
                 )
-                stderr_thread = threading.Thread(
-                    target=read_stderr,
-                    args=(process.stderr, stderr_chunks, print_output, color_index),
-                )
-                stdout_thread.start()
-                stderr_thread.start()
 
                 if print_output:
                     shown_model = display_model or effective_model
@@ -297,6 +267,7 @@ class CursorAgentProvider(BaseProvider):
                         command=tuple(command),
                     )
 
+                    _cleanup_prompt_file()
                     raise ProviderTimeoutError(
                         f"Cursor Agent CLI timeout after {effective_timeout}s: {truncated}",
                         partial_result=partial_result,
@@ -307,6 +278,7 @@ class CursorAgentProvider(BaseProvider):
 
             except FileNotFoundError as e:
                 logger.error("Cursor Agent CLI not found in PATH")
+                _cleanup_prompt_file()
                 raise ProviderError("Cursor Agent CLI not found. Is 'cursor-agent' in PATH?") from e
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -336,14 +308,17 @@ class CursorAgentProvider(BaseProvider):
                     command=tuple(command),
                 )
 
-                is_transient = not stderr_content.strip() and exit_status == ExitStatus.ERROR
+                is_transient = is_transient_error(stderr_content, exit_status)
                 if is_transient and attempt < MAX_RETRIES - 1:
                     last_error = error
                     continue
 
+                _cleanup_prompt_file()
                 raise error
 
             break
+
+        _cleanup_prompt_file()
 
         logger.info(
             "Cursor Agent CLI completed: duration=%dms, exit_code=%d, text_len=%d",

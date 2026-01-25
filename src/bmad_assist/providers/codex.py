@@ -24,6 +24,8 @@ Example:
 
 import json
 import logging
+import os
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -31,6 +33,10 @@ from subprocess import PIPE, Popen, TimeoutExpired
 from typing import Any
 
 from bmad_assist.core.debug_logger import DebugJsonLogger
+from bmad_assist.core.platform_command import (
+    build_cross_platform_command,
+    cleanup_temp_file,
+)
 from bmad_assist.core.exceptions import (
     ProviderError,
     ProviderExitCodeError,
@@ -273,27 +279,20 @@ class CodexProvider(BaseProvider):
         )
 
         # Build command with --json for JSONL streaming
+        # Use cross-platform command builder to handle ARG_MAX limits
+        # On POSIX: Uses temp file + shell for large prompts
+        # On Windows: Uses direct arguments (no ARG_MAX in same way)
         if use_sandbox:
-            command: list[str] = [
-                "codex",
-                "exec",
-                prompt,
-                "--json",
-                "--sandbox",
-                "read-only",
-                "-m",
-                effective_model,
-            ]
+            args = ["exec", "--json", "--sandbox", "read-only", "-m", effective_model]
         else:
-            command = [
-                "codex",
-                "exec",
-                prompt,
-                "--json",
-                "--full-auto",
-                "-m",
-                effective_model,
-            ]
+            args = ["exec", "--json", "--full-auto", "-m", effective_model]
+
+        command, temp_file_path = build_cross_platform_command(
+            "codex", args, prompt, use_shell=False
+        )
+
+        def _cleanup_prompt_file() -> None:
+            cleanup_temp_file(temp_file_path)
 
         if validated_settings is not None:
             logger.debug(
@@ -457,6 +456,7 @@ class CodexProvider(BaseProvider):
                     truncated,
                 )
 
+                _cleanup_prompt_file()
                 raise ProviderTimeoutError(
                     f"Codex CLI timeout after {effective_timeout}s: {truncated}",
                     partial_result=partial_result,
@@ -468,6 +468,7 @@ class CodexProvider(BaseProvider):
 
         except FileNotFoundError as e:
             logger.error("Codex CLI not found in PATH")
+            _cleanup_prompt_file()
             raise ProviderError("Codex CLI not found. Is 'codex' in PATH?") from e
         finally:
             debug_json_logger.close()
@@ -508,6 +509,7 @@ class CodexProvider(BaseProvider):
             else:
                 message = f"Codex CLI failed with exit code {returncode}: {stderr_truncated}"
 
+            _cleanup_prompt_file()
             raise ProviderExitCodeError(
                 message,
                 exit_code=returncode,
@@ -515,6 +517,8 @@ class CodexProvider(BaseProvider):
                 stderr=stderr_content,
                 command=tuple(command),
             )
+
+        _cleanup_prompt_file()
 
         # Combine extracted text parts
         response_text = "\n".join(response_text_parts)

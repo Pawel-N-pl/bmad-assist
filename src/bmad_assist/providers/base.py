@@ -37,6 +37,8 @@ Example:
 
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import threading
@@ -102,6 +104,19 @@ PROVIDER_COLORS: tuple[str, ...] = (
 )
 RESET_COLOR = "\033[0m"
 
+# =============================================================================
+# Shared Retry Constants
+# =============================================================================
+
+# Maximum number of retry attempts for transient failures
+MAX_RETRIES: int = 5
+
+# Base delay in seconds for exponential backoff
+RETRY_BASE_DELAY: float = 2.0
+
+# Maximum delay between retries in seconds
+RETRY_MAX_DELAY: float = 30.0
+
 
 def format_tag(tag: str, color_index: int | None) -> str:
     """Format a tag like [ASSISTANT] with optional color.
@@ -161,6 +176,116 @@ def write_progress(line: str) -> None:
         # Fire-and-forget: suppress all errors from hook
         with contextlib.suppress(Exception):
             hook(line, provider)
+
+
+# =============================================================================
+# Shared Stream Reading Helpers
+# =============================================================================
+
+
+def read_stream_lines(
+    stream: Any,
+    chunks: list[str],
+    print_lines: bool,
+    color_idx: int | None,
+    tag_prefix: str = "OUT",
+) -> None:
+    """Read lines from a stream into chunks, optionally printing progress.
+
+    This is a shared helper for reading stdout/stderr from subprocess
+    in a threaded manner. Used by subprocess-based providers.
+
+    Args:
+        stream: The stream to read from (process.stdout or process.stderr).
+        chunks: List to accumulate lines into.
+        print_lines: If True, print each line with write_progress().
+        color_idx: Color index for terminal output differentiation.
+        tag_prefix: Prefix for the progress tag (e.g., "OUT" or "ERR").
+
+    """
+    for line in iter(stream.readline, ""):
+        chunks.append(line)
+        if print_lines:
+            stripped = line.rstrip()
+            tag = format_tag(tag_prefix, color_idx)
+            write_progress(f"{tag} {stripped}")
+    stream.close()
+
+
+def start_stream_reader_threads(
+    process: Any,
+    stdout_chunks: list[str],
+    stderr_chunks: list[str],
+    print_output: bool,
+    color_index: int | None,
+) -> tuple[threading.Thread, threading.Thread]:
+    """Start threads for reading stdout and stderr concurrently.
+
+    This is a shared helper for subprocess-based providers that need to
+    read both streams simultaneously to avoid blocking.
+
+    Args:
+        process: The subprocess.Popen process with stdout/stderr pipes.
+        stdout_chunks: List to accumulate stdout lines into.
+        stderr_chunks: List to accumulate stderr lines into.
+        print_output: If True, print lines with write_progress().
+        color_index: Color index for terminal output differentiation.
+
+    Returns:
+        Tuple of (stdout_thread, stderr_thread) that have been started.
+        Caller is responsible for joining the threads.
+
+    """
+    stdout_thread = threading.Thread(
+        target=read_stream_lines,
+        args=(process.stdout, stdout_chunks, print_output, color_index, "OUT"),
+    )
+    stderr_thread = threading.Thread(
+        target=read_stream_lines,
+        args=(process.stderr, stderr_chunks, print_output, color_index, "ERR"),
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+    return stdout_thread, stderr_thread
+
+
+# =============================================================================
+# Shared Retry Helpers
+# =============================================================================
+
+
+def calculate_retry_delay(attempt: int) -> float:
+    """Calculate exponential backoff delay for retry attempts.
+
+    Args:
+        attempt: Current retry attempt number (0-indexed).
+
+    Returns:
+        Delay in seconds using exponential backoff with jitter ceiling.
+
+    """
+    return min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
+
+
+def is_transient_error(
+    stderr_content: str,
+    exit_status: ExitStatus,
+) -> bool:
+    """Check if an error is transient and suitable for retry.
+
+    Transient errors are those that may succeed on retry, such as
+    temporary network issues or CLI internal errors.
+
+    Args:
+        stderr_content: The stderr output from the failed invocation.
+        exit_status: The ExitStatus classification of the exit code.
+
+    Returns:
+        True if the error appears transient and retry is warranted.
+
+    """
+    # Empty stderr with ERROR status is often a transient CLI issue
+    return not stderr_content.strip() and exit_status == ExitStatus.ERROR
 
 
 def extract_tool_details(tool_name: str, tool_input: dict[str, Any]) -> str:
@@ -283,7 +408,7 @@ class ExitStatus(Enum):
     SIGNAL = auto()  # Exit codes 129+ (killed by signal)
 
     @classmethod
-    def from_code(cls, exit_code: int) -> "ExitStatus":
+    def from_code(cls, exit_code: int) -> ExitStatus:
         """Classify exit code into semantic status.
 
         Args:

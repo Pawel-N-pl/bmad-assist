@@ -552,3 +552,157 @@ def mock_amp_popen_not_found():
     with patch("bmad_assist.providers.amp.Popen") as mock:
         mock.side_effect = FileNotFoundError("amp")
         yield mock
+
+
+# =============================================================================
+# Copilot Provider Popen Fixtures
+# =============================================================================
+
+
+def create_copilot_mock_process(
+    stdout_content: str | None = None,
+    stderr_content: str = "",
+    returncode: int = 0,
+    wait_side_effect: Exception | None = None,
+    response_text: str = "Mock response",
+) -> MagicMock:
+    """Create a mock Popen process for Copilot testing.
+
+    Copilot outputs plain text to stdout (no JSON streaming).
+
+    Args:
+        stdout_content: Raw content for stdout. If None, uses response_text.
+        stderr_content: Content to return from stderr.readline()
+        returncode: Exit code to return from wait()
+        wait_side_effect: Exception to raise from wait() (e.g., TimeoutExpired)
+        response_text: Text to use as stdout (if stdout_content is None)
+
+    Returns:
+        MagicMock configured to behave like a Popen process
+    """
+    if stdout_content is None:
+        stdout_content = response_text
+    return create_mock_process(
+        stdout_content=stdout_content,
+        stderr_content=stderr_content,
+        returncode=returncode,
+        wait_side_effect=wait_side_effect,
+    )
+
+
+@pytest.fixture
+def mock_copilot_popen_success():
+    """Fixture that mocks Popen for successful Copilot invocation."""
+    with patch("bmad_assist.providers.copilot.Popen") as mock:
+        mock.return_value = create_copilot_mock_process(
+            response_text="Mock Copilot response",
+            returncode=0,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_copilot_popen_timeout():
+    """Fixture that mocks Popen for Copilot timeout."""
+    with patch("bmad_assist.providers.copilot.Popen") as mock:
+        mock.return_value = create_copilot_mock_process(
+            wait_side_effect=TimeoutExpired(cmd=["copilot"], timeout=5)
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_copilot_popen_error():
+    """Fixture that mocks Popen for non-zero Copilot exit."""
+    with patch("bmad_assist.providers.copilot.Popen") as mock:
+        mock.return_value = create_copilot_mock_process(
+            stdout_content="",
+            stderr_content="Copilot error message",
+            returncode=1,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_copilot_popen_not_found():
+    """Fixture that mocks Popen when Copilot CLI not found."""
+    with patch("bmad_assist.providers.copilot.Popen") as mock:
+        mock.side_effect = FileNotFoundError("copilot")
+        yield mock
+
+
+# =============================================================================
+# Cursor Agent Provider Popen Fixtures
+# =============================================================================
+
+
+def create_cursor_agent_mock_process(
+    stdout_content: str | None = None,
+    stderr_content: str = "",
+    returncode: int = 0,
+    wait_side_effect: Exception | None = None,
+    response_text: str = "Mock response",
+) -> MagicMock:
+    """Create a mock Popen process for Cursor Agent testing.
+
+    Cursor Agent outputs plain text to stdout (no JSON streaming).
+
+    Args:
+        stdout_content: Raw content for stdout. If None, uses response_text.
+        stderr_content: Content to return from stderr.readline()
+        returncode: Exit code to return from wait()
+        wait_side_effect: Exception to raise from wait() (e.g., TimeoutExpired)
+        response_text: Text to use as stdout (if stdout_content is None)
+
+    Returns:
+        MagicMock configured to behave like a Popen process
+    """
+    if stdout_content is None:
+        stdout_content = response_text
+    return create_mock_process(
+        stdout_content=stdout_content,
+        stderr_content=stderr_content,
+        returncode=returncode,
+        wait_side_effect=wait_side_effect,
+    )
+
+
+@pytest.fixture
+def mock_cursor_agent_popen_success():
+    """Fixture that mocks Popen for successful Cursor Agent invocation."""
+    with patch("bmad_assist.providers.cursor_agent.Popen") as mock:
+        mock.return_value = create_cursor_agent_mock_process(
+            response_text="Mock Cursor Agent response",
+            returncode=0,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_cursor_agent_popen_timeout():
+    """Fixture that mocks Popen for Cursor Agent timeout."""
+    with patch("bmad_assist.providers.cursor_agent.Popen") as mock:
+        mock.return_value = create_cursor_agent_mock_process(
+            wait_side_effect=TimeoutExpired(cmd=["cursor-agent"], timeout=5)
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_cursor_agent_popen_error():
+    """Fixture that mocks Popen for non-zero Cursor Agent exit."""
+    with patch("bmad_assist.providers.cursor_agent.Popen") as mock:
+        mock.return_value = create_cursor_agent_mock_process(
+            stdout_content="",
+            stderr_content="Cursor Agent error message",
+            returncode=1,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_cursor_agent_popen_not_found():
+    """Fixture that mocks Popen when Cursor Agent CLI not found."""
+    with patch("bmad_assist.providers.cursor_agent.Popen") as mock:
+        mock.side_effect = FileNotFoundError("cursor-agent")
+        yield mock

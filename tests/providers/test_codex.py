@@ -17,6 +17,7 @@ Tests cover:
 - AC12: Settings file handling
 """
 
+import sys
 from pathlib import Path
 from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
@@ -35,6 +36,9 @@ from bmad_assist.providers.codex import (
     _truncate_prompt,
 )
 from .conftest import create_codex_mock_process, make_codex_json_output
+
+# Platform detection for tests
+IS_WINDOWS = sys.platform == "win32"
 
 
 class TestCodexProviderStructure:
@@ -134,8 +138,13 @@ class TestCodexProviderInvoke:
         call_args = mock_popen_success.call_args
         command = call_args[0][0]
 
-        # Command should include --json for JSONL streaming
-        assert command == ["codex", "exec", "Review code", "--json", "--full-auto", "-m", "o3-mini"]
+        # For short prompts, uses direct command passing (cross-platform)
+        assert command[0] == "codex"
+        assert "exec" in command
+        assert "--json" in command
+        assert "--full-auto" in command
+        assert "-m" in command
+        assert "o3-mini" in command
 
     def test_invoke_uses_default_model_when_none(
         self, provider: CodexProvider, mock_popen_success: MagicMock
@@ -144,15 +153,11 @@ class TestCodexProviderInvoke:
         provider.invoke("Hello", model=None)
 
         command = mock_popen_success.call_args[0][0]
-        assert command == [
-            "codex",
-            "exec",
-            "Hello",
-            "--json",
-            "--full-auto",
-            "-m",
-            "gpt-5.1-codex-max",
-        ]
+        # For short prompts, uses direct command passing
+        assert command[0] == "codex"
+        assert "-m" in command
+        model_idx = command.index("-m")
+        assert command[model_idx + 1] == "gpt-5.1-codex-max"
 
     def test_invoke_uses_default_model_when_not_specified(
         self, provider: CodexProvider, mock_popen_success: MagicMock
@@ -161,9 +166,11 @@ class TestCodexProviderInvoke:
         provider.invoke("Hello")
 
         command = mock_popen_success.call_args[0][0]
+        # For short prompts, uses direct command passing
+        assert command[0] == "codex"
         assert "-m" in command
-        model_index = command.index("-m")
-        assert command[model_index + 1] == "gpt-5.1-codex-max"
+        model_idx = command.index("-m")
+        assert command[model_idx + 1] == "gpt-5.1-codex-max"
 
     def test_invoke_returns_providerresult_on_success(
         self, provider: CodexProvider, mock_popen_success: MagicMock
@@ -230,8 +237,10 @@ class TestCodexProviderInvoke:
         result = provider.invoke("Hello", model="o3")
 
         assert isinstance(result.command, tuple)
-        # Command now includes --json flag
-        assert result.command == ("codex", "exec", "Hello", "--json", "--full-auto", "-m", "o3")
+        # For short prompts, uses direct command passing
+        assert result.command[0] == "codex"
+        assert "-m" in result.command
+        assert "o3" in result.command
 
 
 class TestCodexProviderErrors:
@@ -364,16 +373,10 @@ class TestCodexProviderErrors:
             with pytest.raises(ProviderExitCodeError) as exc_info:
                 provider.invoke("Hello", model="o3-mini")
 
-            # Command now includes --json flag
-            assert exc_info.value.command == (
-                "codex",
-                "exec",
-                "Hello",
-                "--json",
-                "--full-auto",
-                "-m",
-                "o3-mini",
-            )
+            # For short prompts, uses direct command passing
+            assert exc_info.value.command[0] == "codex"
+            assert "-m" in exc_info.value.command
+            assert "o3-mini" in exc_info.value.command
 
     def test_invoke_raises_providererror_when_cli_not_found(self, provider: CodexProvider) -> None:
         """Test AC9: invoke() raises ProviderError on FileNotFoundError."""
@@ -596,7 +599,9 @@ class TestCodexProviderUnicode:
         """Test invoke() handles emoji in prompt correctly."""
         result = provider.invoke("Review code 🔍")
 
+        # For short prompts, uses direct command passing
         command = mock_popen_success.call_args[0][0]
+        assert command[0] == "codex"
         assert "Review code 🔍" in command
         assert isinstance(result.stdout, str)
 
@@ -606,7 +611,9 @@ class TestCodexProviderUnicode:
         """Test invoke() handles Chinese characters correctly."""
         result = provider.invoke("代码审查")
 
+        # For short prompts, uses direct command passing
         command = mock_popen_success.call_args[0][0]
+        assert command[0] == "codex"
         assert "代码审查" in command
         assert isinstance(result.stdout, str)
 
@@ -616,7 +623,9 @@ class TestCodexProviderUnicode:
         """Test invoke() handles Cyrillic characters correctly."""
         result = provider.invoke("Проверка кода")
 
+        # For short prompts, uses direct command passing
         command = mock_popen_success.call_args[0][0]
+        assert command[0] == "codex"
         assert "Проверка кода" in command
         assert isinstance(result.stdout, str)
 
@@ -627,7 +636,9 @@ class TestCodexProviderUnicode:
         prompt = "Line 1\nLine 2\nLine 3"
         result = provider.invoke(prompt)
 
+        # For short prompts, uses direct command passing
         command = mock_popen_success.call_args[0][0]
+        assert command[0] == "codex"
         assert prompt in command
         assert isinstance(result.stdout, str)
 
@@ -638,7 +649,9 @@ class TestCodexProviderUnicode:
         prompt = 'Review: "code" with $pecial ch@rs & <brackets>'
         result = provider.invoke(prompt)
 
+        # For short prompts, uses direct command passing
         command = mock_popen_success.call_args[0][0]
+        assert command[0] == "codex"
         assert prompt in command
         assert isinstance(result.stdout, str)
 
