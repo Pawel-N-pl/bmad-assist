@@ -3,16 +3,18 @@
 This module implements the WorkflowCompiler protocol for the synthesis workflow,
 producing standalone prompts for Master LLM to synthesize validator findings.
 
-The synthesis context is focused but includes ground truth:
-- project_context.md (ground truth for evaluating validator claims)
-- architecture.md (technical constraints for story refinement)
+Context includes strategic docs based on config (default: project-context only).
+Synthesis workflows need minimal context as they aggregate validator outputs.
+
+The synthesis context is focused:
+- Strategic docs via StrategicContextService (default: project-context only)
 - Story file being validated (primary target)
 - Anonymized validation outputs (Validator A, B, C, D)
 - NO PRD or epic files (validators already incorporated these)
 
 This focused context allows Master to evaluate validator findings with
-access to project rules and architecture but without the noise of
-verbose requirements documents that validators already incorporated.
+access to project rules but without the noise of verbose requirements
+documents that validators already incorporated.
 
 Public API:
     ValidateStorySynthesisCompiler: Workflow compiler implementing WorkflowCompiler protocol
@@ -36,13 +38,13 @@ from bmad_assist.compiler.source_context import (
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
-    find_file_in_planning_dir,
     find_sprint_status_file,
     get_stories_dir,
     load_workflow_template,
     resolve_story_file,
     safe_read_file,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variable_utils import (
     filter_garbage_variables,
@@ -234,29 +236,14 @@ class ValidateStorySynthesisCompiler:
         epic_num = resolved.get("epic_num")
         story_num = resolved.get("story_num")
 
-        # 1. project_context.md (ground truth for evaluating validator claims - OPTIONAL)
-        # Check both naming conventions: project-context.md (new) and project_context.md (legacy)
-        project_context_paths = [
-            context.output_folder / "project-context.md",  # New naming convention
-            context.output_folder / "project_context.md",  # Legacy naming convention
-        ]
-        for pc_path in project_context_paths:
-            if pc_path.exists():
-                content = safe_read_file(pc_path, project_root)
-                if content:
-                    files[str(pc_path)] = content
-                    logger.debug("Added project_context to synthesis context: %s", pc_path)
-                break  # Use first found
+        # 1. Strategic docs via StrategicContextService
+        # Default config for validate_story_synthesis: project-context only (minimal context)
+        strategic_service = StrategicContextService(context, "validate_story_synthesis")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
+        logger.debug("Added %d strategic docs to synthesis context", len(strategic_files))
 
-        # 2. architecture.md (technical constraints for story refinement - OPTIONAL)
-        arch_path = find_file_in_planning_dir(context, "*architecture*.md")
-        if arch_path:
-            content = safe_read_file(arch_path, project_root)
-            if content:
-                files[str(arch_path)] = content
-                logger.debug("Added architecture to synthesis context: %s", arch_path)
-
-        # 3. Story file (REQUIRED)
+        # 2. Story file (REQUIRED)
         stories_dir = get_stories_dir(context)
         pattern = f"{epic_num}-{story_num}-*.md"
         story_matches = sorted(stories_dir.glob(pattern)) if stories_dir.exists() else []
@@ -298,7 +285,7 @@ class ValidateStorySynthesisCompiler:
                 f"Suggestion: Check file permissions and encoding (UTF-8 required)"
             )
 
-        # 3a. Source files from story's File List (before story for recency-bias)
+        # 2a. Source files from story's File List (before story for recency-bias)
         file_list_paths = extract_file_paths_from_story(story_content)
         if file_list_paths:
             try:
@@ -322,7 +309,7 @@ class ValidateStorySynthesisCompiler:
                     "Failed to collect source files for validate_story_synthesis: %s", e
                 )
 
-        # 3b. Story file
+        # 2b. Story file
         files[str(story_path)] = story_content
         # Log mtime at compile time for debugging content freshness (Story 22.4 AC3)
         logger.debug(

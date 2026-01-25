@@ -4,17 +4,18 @@ This module implements the WorkflowCompiler protocol for the synthesis workflow,
 producing standalone prompts for Master LLM to synthesize code review findings
 and apply source code fixes.
 
+Context includes strategic docs based on config (default: project-context only).
+Synthesis workflows need minimal strategic context as they aggregate reviewer outputs.
+
 The synthesis context includes:
-- project_context.md (ground truth for evaluating reviewer claims)
-- architecture.md (technical constraints for code fixes)
+- Strategic docs via StrategicContextService (default: project-context only)
 - Anonymized code review outputs (Reviewer A, B, C, D)
 - Git diff (what was implemented)
 - Modified source files (what to fix)
 - Story file (what was requested - positioned LAST for recency-bias)
 
 This focused context allows Master to evaluate reviewer findings with
-access to project rules, architecture constraints, implementation changes,
-and source code that needs fixing.
+access to project rules, implementation changes, and source code that needs fixing.
 
 Public API:
     CodeReviewSynthesisCompiler: Workflow compiler implementing WorkflowCompiler protocol
@@ -34,14 +35,13 @@ from bmad_assist.compiler.patching import (
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
-    find_file_in_planning_dir,
-    find_project_context_file,
     find_sprint_status_file,
     get_stories_dir,
     load_workflow_template,
     resolve_story_file,
     safe_read_file,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variable_utils import (
     filter_garbage_variables,
@@ -248,23 +248,14 @@ class CodeReviewSynthesisCompiler:
         story_num = resolved.get("story_num")
         git_diff = resolved.get("git_diff", "")
 
-        # 1. project_context.md (ground truth for evaluating reviewer claims - OPTIONAL)
-        project_context_path = find_project_context_file(context)
-        if project_context_path:
-            content = safe_read_file(project_context_path, project_root)
-            if content:
-                files[str(project_context_path)] = content
-                logger.debug("Added project_context to synthesis context: %s", project_context_path)
+        # 1. Strategic docs via StrategicContextService
+        # Default config for code_review_synthesis: project-context only (minimal context)
+        strategic_service = StrategicContextService(context, "code_review_synthesis")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
+        logger.debug("Added %d strategic docs to synthesis context", len(strategic_files))
 
-        # 2. architecture.md (technical constraints for code fixes - OPTIONAL)
-        arch_path = find_file_in_planning_dir(context, "*architecture*.md")
-        if arch_path:
-            content = safe_read_file(arch_path, project_root)
-            if content:
-                files[str(arch_path)] = content
-                logger.debug("Added architecture to synthesis context: %s", arch_path)
-
-        # 3. Reviews (each as a separate file for clean CDATA handling)
+        # 2. Reviews (each as a separate file for clean CDATA handling)
         # Sort by reviewer_id for deterministic ordering
         sorted_reviews = sorted(reviews, key=lambda r: r.validator_id)
         for r in sorted_reviews:
@@ -273,12 +264,12 @@ class CodeReviewSynthesisCompiler:
             files[review_path] = r.content
             logger.debug("Added review to synthesis context: %s", review_path)
 
-        # 4. Git diff (embedded as section)
+        # 3. Git diff (embedded as section)
         if git_diff:
             files["[git-diff]"] = git_diff
             logger.debug("Added git diff to synthesis context")
 
-        # 5. Source files using SourceContextService (File List + git diff)
+        # 4. Source files using SourceContextService (File List + git diff)
         # Get story file to extract File List
         stories_dir = get_stories_dir(context)
         pattern = f"{epic_num}-{story_num}-*.md"
@@ -304,7 +295,7 @@ class CodeReviewSynthesisCompiler:
                 "Added %d source files to synthesis context", len(source_files)
             )
 
-        # 6. Story file (LAST - closest to instructions per recency-bias, REQUIRED)
+        # 5. Story file (LAST - closest to instructions per recency-bias, REQUIRED)
         # story_matches already populated above for File List extraction
         if not story_matches:
             raise CompilerError(

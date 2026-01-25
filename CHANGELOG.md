@@ -2,6 +2,18 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.8] - 2026-01-25
+
+### Added
+- **Strategic Context Optimization** for workflow compilers - configurable loading of strategic docs (PRD, Architecture, UX, project-context)
+  - New `strategic_context` section in bmad-assist.yaml with per-workflow overrides
+  - `StrategicContextService` replaces hardcoded document loading
+  - Token budget enforcement and `main_only` flag for sharded docs
+  - Benchmark analysis showed 0% PRD usage in code-review → excluded by default
+  - `create_story`: all docs (prd, architecture, ux, project-context), indexes only
+  - `validate_story`: project-context + architecture only
+  - `dev_story`, `code_review`, synthesis workflows: project-context only
+
 ## [0.4.7] - 2026-01-23
 
 ### Added

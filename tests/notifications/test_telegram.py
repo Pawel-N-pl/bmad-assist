@@ -74,21 +74,20 @@ class TestTelegramProviderClass:
         assert "credentials not configured" in caplog.text.lower()
 
     def test_repr_masks_bot_token(self) -> None:
-        """Test __repr__ masks the bot token to prevent credential leakage."""
+        """Test __repr__ masks credentials to prevent leakage."""
         provider = TelegramProvider(
             bot_token="123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ",
             chat_id="999888777",
         )
         result = repr(provider)
         assert "TelegramProvider" in result
-        # Token should be masked with first 5 and last 5 chars visible
-        assert "12345" in result  # First 5 chars visible
-        assert "VWXYZ" in result  # Last 5 chars visible
-        assert "..." in result  # Ellipsis for masked middle
+        # Token should show only first 5 chars then ***
+        assert "12345***" in result
         # Full token should NOT be visible
         assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in result
-        # Chat ID should be visible for debugging
-        assert "999888777" in result
+        # Chat ID should be masked - only last 3 digits visible
+        assert "***777" in result
+        assert "999888777" not in result
 
     def test_repr_when_token_short(self) -> None:
         """Test __repr__ fully masks short tokens."""

@@ -20,12 +20,11 @@ from bmad_assist.compiler.output import generate_output
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
-    find_file_in_planning_dir,
-    find_project_context_file,
     find_sprint_status_file,
     resolve_story_file,
     safe_read_file,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.source_context import (
     SourceContextService,
     extract_file_paths_from_story,
@@ -480,12 +479,10 @@ class CodeReviewCompiler:
         """Build context files dict with recency-bias ordering.
 
         Files are ordered from general (early) to specific (late):
-        1. project_context.md (general)
-        2. architecture.md (technical constraints)
-        3. ux.md (if exists, UI context)
-        4. git_diff section (embedded as virtual file)
-        5. modified source files (what to review)
-        6. story file (LAST - what was requested)
+        1. Strategic docs via StrategicContextService (project-context only by default)
+        2. git_diff section (embedded as virtual file)
+        3. modified source files (what to review)
+        4. story file (LAST - what was requested)
 
         Args:
             context: Compilation context with paths.
@@ -499,32 +496,16 @@ class CodeReviewCompiler:
         files: dict[str, str] = {}
         project_root = context.project_root
 
-        # 1. Project context (general)
-        project_context_path = find_project_context_file(context)
-        if project_context_path:
-            content = safe_read_file(project_context_path, project_root)
-            if content:
-                files[str(project_context_path)] = content
+        # 1. Strategic docs (project-context only by default - 0% PRD citation in benchmarks)
+        strategic_service = StrategicContextService(context, "code_review")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
 
-        # 2. Architecture (technical constraints) - search in planning_artifacts (docs/)
-        arch_path = find_file_in_planning_dir(context, "*architecture*.md")
-        if arch_path:
-            content = safe_read_file(arch_path, project_root)
-            if content:
-                files[str(arch_path)] = content
-
-        # 3. UX (optional) - search in planning_artifacts (docs/)
-        ux_path = find_file_in_planning_dir(context, "*ux*.md")
-        if ux_path:
-            content = safe_read_file(ux_path, project_root)
-            if content:
-                files[str(ux_path)] = content
-
-        # 4. Git diff (embedded as virtual file, not in variables)
+        # 2. Git diff (embedded as virtual file, not in variables)
         if git_diff:
             files["[git-diff]"] = git_diff
 
-        # 5. Source files using SourceContextService (File List + git diff)
+        # 3. Source files using SourceContextService (File List + git diff)
         # Get File List from story file
         story_path_str = resolved.get("story_file")
         file_list_paths: list[str] = []
@@ -548,7 +529,7 @@ class CodeReviewCompiler:
         source_files = service.collect_files(file_list_paths, git_diff_files)
         files.update(source_files)
 
-        # 6. Story file (LAST - closest to instructions per recency-bias)
+        # 4. Story file (LAST - closest to instructions per recency-bias)
         story_path_str = resolved.get("story_file")
         if story_path_str:
             story_path = Path(story_path_str)

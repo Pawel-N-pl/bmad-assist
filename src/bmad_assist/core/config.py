@@ -27,7 +27,7 @@ from typing import Any, Literal, Self, cast, get_args, get_origin
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefinedType
 
@@ -556,6 +556,207 @@ class SourceContextConfig(BaseModel):
     )
 
 
+# =============================================================================
+# Strategic Context Configuration (Token Optimization for Strategic Docs)
+# =============================================================================
+
+# Valid strategic document types
+StrategicDocType = Literal["project-context", "prd", "architecture", "ux"]
+
+
+class StrategicContextDefaultsConfig(BaseModel):
+    """Default strategic context settings applied to all workflows.
+
+    Attributes:
+        include: Doc types to include by default. Order matters - files load in this order.
+        main_only: For sharded docs, load only index.md; for non-sharded, load main file.
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    include: tuple[StrategicDocType, ...] = Field(
+        default=("project-context",),
+        description="Doc types to include. Order is significant.",
+    )
+    main_only: bool = Field(
+        default=True,
+        description="For sharded: load index.md only; for non-sharded: load main .md file",
+    )
+
+    @field_validator("include", mode="before")
+    @classmethod
+    def convert_list_to_tuple(cls, v: Any) -> tuple[StrategicDocType, ...]:
+        """Convert list to tuple and deduplicate while preserving order."""
+        if isinstance(v, (list, tuple)):
+            seen: set[str] = set()
+            result: list[StrategicDocType] = []
+            for x in v:
+                if x not in seen:
+                    seen.add(x)
+                    result.append(x)
+            return tuple(result)
+        return v
+
+
+class StrategicContextWorkflowConfig(BaseModel):
+    """Per-workflow strategic context overrides.
+
+    Fields set to None inherit from defaults.
+
+    Attributes:
+        include: Doc types to include (None = use defaults).
+        main_only: Override main_only flag (None = use defaults).
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    include: tuple[StrategicDocType, ...] | None = Field(
+        default=None,
+        description="Doc types to include. None = inherit from defaults.",
+    )
+    main_only: bool | None = Field(
+        default=None,
+        description="Override main_only flag. None = inherit from defaults.",
+    )
+
+    @field_validator("include", mode="before")
+    @classmethod
+    def convert_list_to_tuple(cls, v: Any) -> tuple[StrategicDocType, ...] | None:
+        """Convert list to tuple and deduplicate while preserving order."""
+        if v is None:
+            return None
+        if isinstance(v, (list, tuple)):
+            seen: set[str] = set()
+            result: list[StrategicDocType] = []
+            for x in v:
+                if x not in seen:
+                    seen.add(x)
+                    result.append(x)
+            return tuple(result)
+        return v
+
+
+# Named factory functions for Pydantic compatibility (lambdas don't serialize)
+def _create_story_defaults() -> StrategicContextWorkflowConfig:
+    """Factory for create_story defaults (all docs, full shards)."""
+    return StrategicContextWorkflowConfig(
+        include=("project-context", "prd", "architecture", "ux"),
+        main_only=False,
+    )
+
+
+def _validate_story_defaults() -> StrategicContextWorkflowConfig:
+    """Factory for validate_story defaults (project-context + architecture)."""
+    return StrategicContextWorkflowConfig(
+        include=("project-context", "architecture"),
+    )
+
+
+def _validate_story_synthesis_defaults() -> StrategicContextWorkflowConfig:
+    """Factory for validate_story_synthesis defaults (project-context only)."""
+    return StrategicContextWorkflowConfig(
+        include=("project-context",),
+    )
+
+
+class StrategicContextConfig(BaseModel):
+    """Strategic context configuration for workflow compilers.
+
+    Controls which strategic documents (PRD, Architecture, UX, project-context)
+    are included in compiled workflow prompts and how sharded documents are handled.
+
+    Note: If this section is absent from config (None), legacy behavior is used
+    (load all docs unconditionally). Use `strategic_context: {}` to enable
+    optimized defaults.
+
+    Attributes:
+        budget: Total token cap for strategic docs. 0 = disabled (returns empty dict).
+        defaults: Default settings applied to all workflows.
+        create_story: Overrides for create_story workflow.
+        validate_story: Overrides for validate_story workflow.
+        validate_story_synthesis: Overrides for validate_story_synthesis workflow.
+
+    Example:
+        >>> config = StrategicContextConfig(budget=5000)
+        >>> include, main_only = config.get_workflow_config("dev_story")
+        >>> include
+        ('project-context',)
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    budget: int = Field(
+        default=8000,
+        ge=0,
+        description="Token budget for strategic docs. 0 = disabled.",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    defaults: StrategicContextDefaultsConfig = Field(
+        default_factory=StrategicContextDefaultsConfig,
+        description="Default settings for all workflows",
+    )
+    create_story: StrategicContextWorkflowConfig = Field(
+        default_factory=_create_story_defaults,
+        description="Overrides for create_story (all docs, full shards)",
+    )
+    validate_story: StrategicContextWorkflowConfig = Field(
+        default_factory=_validate_story_defaults,
+        description="Overrides for validate_story (project-context + architecture)",
+    )
+    validate_story_synthesis: StrategicContextWorkflowConfig = Field(
+        default_factory=_validate_story_synthesis_defaults,
+        description="Overrides for validate_story_synthesis (project-context only)",
+    )
+    # dev_story, code_review, code_review_synthesis use defaults (project-context only)
+
+    def get_workflow_config(self, workflow_name: str) -> tuple[tuple[StrategicDocType, ...], bool]:
+        """Get merged config for a workflow.
+
+        Merges workflow-specific overrides with defaults. User-specified include
+        order IS respected - files load in that order.
+
+        Args:
+            workflow_name: Workflow name (e.g., 'dev_story', 'code-review').
+                           Non-alphanumeric chars are normalized to underscores.
+
+        Returns:
+            Tuple of (include_tuple, main_only).
+
+        Example:
+            >>> config = StrategicContextConfig()
+            >>> include, main_only = config.get_workflow_config("dev_story")
+            >>> include
+            ('project-context',)
+            >>> main_only
+            True
+
+        """
+        import re
+
+        # Normalize: lowercase, replace non-alphanumeric with underscore
+        name = re.sub(r"[^a-z0-9]", "_", workflow_name.lower())
+
+        # Get workflow-specific config if exists
+        workflow_cfg: StrategicContextWorkflowConfig | None = getattr(self, name, None)
+
+        # Merge with defaults
+        include = (
+            workflow_cfg.include
+            if workflow_cfg and workflow_cfg.include is not None
+            else self.defaults.include
+        )
+        main_only = (
+            workflow_cfg.main_only
+            if workflow_cfg and workflow_cfg.main_only is not None
+            else self.defaults.main_only
+        )
+
+        return include, main_only
+
+
 class CompilerConfig(BaseModel):
     """Compiler configuration section.
 
@@ -566,6 +767,8 @@ class CompilerConfig(BaseModel):
             Relative paths are resolved from project root.
             Defaults to {project}/.bmad-assist/patches.
         source_context: Source file collection configuration.
+        strategic_context: Strategic document loading configuration.
+            If None, legacy behavior (load all docs). Use {} for optimized defaults.
 
     """
 
@@ -579,6 +782,10 @@ class CompilerConfig(BaseModel):
     source_context: SourceContextConfig = Field(
         default_factory=SourceContextConfig,
         description="Source file collection configuration",
+    )
+    strategic_context: StrategicContextConfig | None = Field(
+        default=None,
+        description="Strategic document loading config. None = legacy behavior (all docs).",
     )
 
 

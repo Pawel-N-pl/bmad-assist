@@ -29,6 +29,7 @@ from bmad_assist.compiler.source_context import (
     SourceContextService,
     extract_file_paths_from_story,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variables import resolve_variables
 from bmad_assist.core.exceptions import CompilerError
@@ -339,16 +340,15 @@ class CreateStoryCompiler:
     ) -> dict[str, str]:
         """Build context files dict with recency-bias ordering.
 
-        Uses ContextBuilder for standard context assembly with recency-bias
-        ordering, then adds create-story specific source files from File List.
+        Uses StrategicContextService for strategic docs (project-context, PRD, architecture, UX)
+        and ContextBuilder for previous stories and epic files.
 
         Files are ordered from general (early) to specific (late):
-        1. project_context.md (PRIORITY_BACKGROUND=10)
-        2. prd.md, ux.md, architecture.md (PRIORITY_PLANNING=20)
-        3. previous stories (PRIORITY_STORIES=30, oldest first)
-        4. story validations (PRIORITY_VALIDATIONS=40)
-        5. source files from File List (workflow-specific, after validations)
-        6. epic files (PRIORITY_EPIC=50)
+        1. Strategic docs via StrategicContextService (project-context, prd, architecture, ux)
+        2. story antipatterns (if exists)
+        3. previous stories (oldest first)
+        4. source files from File List
+        5. epic files (LAST)
 
         Args:
             context: Compilation context with paths.
@@ -358,47 +358,20 @@ class CreateStoryCompiler:
             Dictionary mapping file paths to content, ordered by recency-bias.
 
         """
+        files: dict[str, str] = {}
+        epic_num = resolved.get("epic_num")
+
         # Store resolved variables in context for ContextBuilder to use
         context.resolved_variables = resolved
 
-        # Use ContextBuilder for standard context (1-4, 6)
-        epic_num = resolved.get("epic_num")
-        builder = ContextBuilder(context)
-        builder = (
-            builder.add_project_context(required=False)  # Validation already checks this
-            .add_planning_docs(prd=True, architecture=True, ux=True, required=False)
-            .add_previous_stories(count=3)
-        )
-        # Add epic files if epic_num is available (validated earlier in compile())
-        if epic_num is not None:
-            builder = builder.add_epic_files(epic_num=epic_num)
-        base_files = builder.build()
+        # 1. Strategic docs via StrategicContextService
+        # Default config for create_story: all docs (project-context, prd, architecture, ux)
+        # with main_only=False (load full shards)
+        strategic_service = StrategicContextService(context, "create_story")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
 
-        # Get previous stories for source file collection using shared utility
-        prev_stories = find_previous_stories(context, resolved)
-
-        # Collect file paths from all previous stories' File Lists
-        file_list_paths: list[str] = []
-        for story_path in prev_stories:
-            try:
-                story_content = story_path.read_text(encoding="utf-8")
-                paths = extract_file_paths_from_story(story_content)
-                file_list_paths.extend(paths)
-            except (OSError, UnicodeDecodeError) as e:
-                logger.debug("Could not read story %s: %s", story_path, e)
-
-        # Add source files from File List using SourceContextService
-        # create_story uses File List only (no git diff)
-        service = SourceContextService(context, "create_story")
-        source_files = service.collect_files(file_list_paths, None)
-
-        # Merge: base_files already has proper order, insert source_files before epics
-        # Since ContextBuilder handles ordering, we just update with source files
-        # They will be added after the last story but conceptually before epics
-        files: dict[str, str] = {}
-        epic_entries: dict[str, str] = {}
-
-        # Include story antipatterns from previous validations (if exists)
+        # 2. Include story antipatterns from previous validations (if exists)
         # Position: early in context as general guidance (before stories/epic files)
         if epic_num is not None:
             from bmad_assist.core.paths import get_paths
@@ -416,21 +389,37 @@ class CreateStoryCompiler:
             except (RuntimeError, OSError) as e:
                 logger.debug("Could not load story antipatterns: %s", e)
 
-        # Pattern to identify epic files: /epics/ directory or epic-{num/id}-*.md pattern
-        epic_file_pattern = re.compile(r"(/epics/|/epic-[a-zA-Z0-9]+-)")
+        # 3. Previous stories via ContextBuilder
+        builder = ContextBuilder(context)
+        builder = builder.add_previous_stories(count=3)
+        prev_stories_files = builder.build()
+        files.update(prev_stories_files)
 
-        for path, content in base_files.items():
-            # Separate epic files (in epics/ dir or named epic-{id}-*.md) to add them last
-            if epic_file_pattern.search(path):
-                epic_entries[path] = content
-            else:
-                files[path] = content
+        # Get previous stories for source file collection using shared utility
+        prev_stories = find_previous_stories(context, resolved)
 
-        # Add source files after stories/validations
+        # Collect file paths from all previous stories' File Lists
+        file_list_paths: list[str] = []
+        for story_path in prev_stories:
+            try:
+                story_content = story_path.read_text(encoding="utf-8")
+                paths = extract_file_paths_from_story(story_content)
+                file_list_paths.extend(paths)
+            except (OSError, UnicodeDecodeError) as e:
+                logger.debug("Could not read story %s: %s", story_path, e)
+
+        # 4. Add source files from File List using SourceContextService
+        # create_story uses File List only (no git diff)
+        source_service = SourceContextService(context, "create_story")
+        source_files = source_service.collect_files(file_list_paths, None)
         files.update(source_files)
 
-        # Add epic files last
-        files.update(epic_entries)
+        # 5. Epic files (LAST - most specific context)
+        if epic_num is not None:
+            epic_builder = ContextBuilder(context)
+            epic_builder = epic_builder.add_epic_files(epic_num=epic_num)
+            epic_files = epic_builder.build()
+            files.update(epic_files)
 
         return files
 

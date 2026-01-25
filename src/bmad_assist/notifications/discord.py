@@ -150,12 +150,10 @@ class DiscordProvider(NotificationProvider):
         return bool(self._webhook_url)
 
     def __repr__(self) -> str:
-        """Return string representation with masked webhook URL."""
+        """Return string representation with fully masked webhook URL."""
         url = self._webhook_url
-        if url and len(url) > 20:
-            masked = f"***{url[-20:]}"
-        else:
-            masked = "***" if url else "(not configured)"
+        # Fully mask webhook URL - it contains sensitive token
+        masked = "***" if url else "(not configured)"
         return f"DiscordProvider(webhook_url={masked})"
 
     async def _send_with_retry(self, embed: dict[str, object]) -> bool:

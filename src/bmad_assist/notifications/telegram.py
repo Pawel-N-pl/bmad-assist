@@ -166,17 +166,23 @@ class TelegramProvider(NotificationProvider):
         return bool(self._bot_token and self._chat_id)
 
     def __repr__(self) -> str:
-        """Return string representation with masked bot token.
+        """Return string representation with masked credentials.
 
         Per project_context.md: Providers with credentials MUST implement
         __repr__ with masked values to prevent credential leakage in logs.
         """
         token = self._bot_token
         if token and len(token) > 10:
-            masked = f"{token[:5]}...{token[-5:]}"
+            masked_token = f"{token[:5]}***"
         else:
-            masked = "***" if token else "(not configured)"
-        return f"TelegramProvider(bot_token={masked}, chat_id={self._chat_id})"
+            masked_token = "***" if token else "(not configured)"
+        # Mask chat_id too - showing only last 3 digits
+        chat = self._chat_id
+        if chat and len(chat) > 3:
+            masked_chat = f"***{chat[-3:]}"
+        else:
+            masked_chat = "***" if chat else "(not configured)"
+        return f"TelegramProvider(bot_token={masked_token}, chat_id={masked_chat})"
 
     async def _send_with_retry(self, message: str) -> bool:
         """Send message with retry on transient failures.

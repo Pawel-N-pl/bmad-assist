@@ -56,10 +56,10 @@ class TestProviderConfigItem:
         assert config.bot_token == "secret-token-123"
         assert config.chat_id == "999888"
 
-    def test_env_var_missing_logs_warning_uses_empty(
+    def test_env_var_missing_logs_debug_uses_empty(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Test missing env vars log warning and substitute empty string."""
+        """Test missing env vars log debug message and substitute empty string."""
         from bmad_assist.notifications.config import ProviderConfigItem
 
         # Ensure env var doesn't exist
@@ -67,7 +67,7 @@ class TestProviderConfigItem:
 
         import logging
 
-        caplog.set_level(logging.WARNING)
+        caplog.set_level(logging.DEBUG)
 
         config = ProviderConfigItem(
             type="telegram",

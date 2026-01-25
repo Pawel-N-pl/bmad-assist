@@ -19,12 +19,11 @@ from bmad_assist.compiler.shared_utils import (
     context_snapshot,
     find_epic_file,
     find_file_in_output_folder,
-    find_file_in_planning_dir,
-    find_project_context_file,
     find_sprint_status_file,
     resolve_story_file,
     safe_read_file,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.source_context import (
     SourceContextService,
     extract_file_paths_from_story,
@@ -278,14 +277,12 @@ class DevStoryCompiler:
         """Build context files dict with recency-bias ordering.
 
         Files are ordered from general (early) to specific (late):
-        1. project_context.md (general)
+        1. Strategic docs via StrategicContextService (project-context, optionally PRD/UX/Architecture)
         1b. code-antipatterns.md (if exists - general guidance)
-        2. prd.md (full, no filtering)
-        3. ux.md (if exists)
-        4. architecture.md (technical)
-        5. epic file (current epic)
-        6. source files from File List (with token budget)
-        7. story file (LAST - closest to instructions)
+        2. epic file (current epic)
+        3. ATDD checklist (if exists)
+        4. source files from File List (with token budget)
+        5. story file (LAST - closest to instructions)
 
         Args:
             context: Compilation context with paths.
@@ -298,15 +295,14 @@ class DevStoryCompiler:
         files: dict[str, str] = {}
         project_root = context.project_root
 
-        # 1. Project context (general)
-        project_context_path = find_project_context_file(context)
-        if project_context_path:
-            content = safe_read_file(project_context_path, project_root)
-            if content:
-                files[str(project_context_path)] = content
+        # 1. Strategic docs (project-context, PRD, UX, Architecture) via service
+        # Default config for dev_story: project-context only (other docs rarely cited)
+        strategic_service = StrategicContextService(context, "dev_story")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
 
         # 1b. Include code antipatterns from previous code reviews (if exists)
-        # Position: early in context as general guidance (after project_context)
+        # Position: early in context as general guidance (after strategic docs)
         epic_num = resolved.get("epic_num")
         if epic_num is not None:
             from bmad_assist.core.paths import get_paths
@@ -324,28 +320,7 @@ class DevStoryCompiler:
             except (RuntimeError, OSError) as e:
                 logger.debug("Could not load code antipatterns: %s", e)
 
-        # 2. PRD (full, no epic-specific filtering) - search in planning_artifacts (docs/)
-        prd_path = find_file_in_planning_dir(context, "*prd*.md")
-        if prd_path:
-            content = safe_read_file(prd_path, project_root)
-            if content:
-                files[str(prd_path)] = content
-
-        # 3. UX (optional) - search in planning_artifacts (docs/)
-        ux_path = find_file_in_planning_dir(context, "*ux*.md")
-        if ux_path:
-            content = safe_read_file(ux_path, project_root)
-            if content:
-                files[str(ux_path)] = content
-
-        # 4. Architecture (technical) - search in planning_artifacts (docs/)
-        arch_path = find_file_in_planning_dir(context, "*architecture*.md")
-        if arch_path:
-            content = safe_read_file(arch_path, project_root)
-            if content:
-                files[str(arch_path)] = content
-
-        # 5. Epic file (current epic)
+        # 2. Epic file (current epic)
         epic_num = resolved.get("epic_num")
         if epic_num:
             epic_path = find_epic_file(context, epic_num)
@@ -354,7 +329,7 @@ class DevStoryCompiler:
                 if content:
                     files[str(epic_path)] = content
 
-        # 5.5 ATDD checklist (if exists) - provides failing tests from ATDD phase
+        # 3. ATDD checklist (if exists) - provides failing tests from ATDD phase
         story_id = resolved.get("story_id")
         if story_id:
             atdd_pattern = f"*atdd-checklist*{story_id}*.md"
@@ -365,7 +340,7 @@ class DevStoryCompiler:
                     files[str(atdd_path)] = content
                     logger.debug("Embedded ATDD checklist: %s", atdd_path)
 
-        # 6. Source files from story's File List using SourceContextService
+        # 4. Source files from story's File List using SourceContextService
         story_path_str = resolved.get("story_file")
         if story_path_str:
             story_path = Path(story_path_str)
@@ -378,7 +353,7 @@ class DevStoryCompiler:
             source_files = service.collect_files(file_list_paths, None)
             files.update(source_files)
 
-        # 7. Story file (LAST - closest to instructions per recency-bias)
+        # 5. Story file (LAST - closest to instructions per recency-bias)
         if story_path_str:
             story_path = Path(story_path_str)
             content = safe_read_file(story_path, project_root)

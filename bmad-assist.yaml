@@ -1,7 +1,7 @@
 # bmad-assist configuration
 # Copy provider settings from your global config or customize here
 
-project_name: cli-dashboard
+project_name: project-name
 user_name: Tester
 communication_language: English
 document_output_language: English
@@ -43,10 +43,10 @@ providers:
       model: gemini-3-flash-preview
     - provider: gemini
       model: gemini-2.5-flash
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
+    - provider: gemini
+      model: gemini-2.5-flash-lite
+    - provider: gemini
+      model: gemini-2.5-flash-lite
       
     # Claude subprocess providers
     - provider: claude-subprocess
@@ -121,6 +121,25 @@ compiler:
       hunk_context_lines: 20     # Min context lines around changes
       hunk_context_scale: 0.3    # Context = max(hunk_context_lines, changes * scale)
       max_files: 15              # Hard cap on files (prevents budget dilution)
+
+  # Strategic document loading for workflow prompts
+  # Controls which docs (PRD, Architecture, UX, project-context) are included
+  strategic_context:
+    budget: 8000                 # Total token cap for strategic docs (0 = disabled)
+
+    # Default settings for all workflows
+    defaults:
+      include: [project-context] # Doc types to include (order matters)
+      main_only: true            # For sharded docs: load only index.md
+
+    # Per-workflow overrides (null fields inherit from defaults)
+    create_story:                # Needs full context for story creation
+      include: [project-context, prd, architecture, ux]
+    validate_story:              # Story + architecture alignment
+      include: [project-context, architecture]
+    validate_story_synthesis:    # Minimal - aggregates validator outputs
+      include: [project-context]
+    # dev_story, code_review, code_review_synthesis use defaults
 
 benchmarking:
   enabled: true

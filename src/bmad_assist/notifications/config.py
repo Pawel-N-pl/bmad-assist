@@ -49,7 +49,7 @@ def _substitute_env_vars(value: str) -> str:
         var_name = match.group(1)
         env_value = os.environ.get(var_name, "")
         if not env_value:
-            logger.warning("Environment variable %s not set", var_name)
+            logger.debug("Environment variable %s not set", var_name)
         return env_value
 
     return ENV_VAR_PATTERN.sub(replace_var, value)

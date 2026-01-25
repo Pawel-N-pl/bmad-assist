@@ -300,17 +300,21 @@ class TestSynthesisContext:
                 f"prd.md should not be in context, found files: {filenames}"
             )
 
-    def test_context_includes_architecture_files(
+    def test_context_excludes_architecture_files_by_default(
         self,
         tmp_project: Path,
         two_validations: list[AnonymizedValidation],
     ) -> None:
-        """architecture.md IS included in synthesis context (technical constraints)."""
+        """architecture.md is NOT included in synthesis context by default.
+
+        Synthesis workflows need minimal context since they aggregate validator outputs.
+        Architecture was removed per Strategic Context Optimization (tech-spec).
+        """
         from bmad_assist.compiler.workflows.validate_story_synthesis import (
             ValidateStorySynthesisCompiler,
         )
 
-        # Create architecture file - should be included as ground truth
+        # Create architecture file - should NOT be included by default
         (tmp_project / "docs" / "architecture.md").write_text("# Architecture\n\n## Patterns...")
 
         context = create_test_context(
@@ -323,15 +327,15 @@ class TestSynthesisContext:
 
         result = compiler.compile(context)
 
-        # Check that architecture.md file IS in context
+        # Check that architecture.md file is NOT in context (optimized behavior)
         root = ET.fromstring(result.context)
         context_elem = root.find("context")
         if context_elem is not None:
             file_elements = context_elem.findall(".//file")
             paths = [f.get("path", "") for f in file_elements]
             filenames = [Path(p).name for p in paths if p]
-            assert "architecture.md" in filenames, (
-                f"architecture.md should be in context, found: {filenames}"
+            assert "architecture.md" not in filenames, (
+                f"architecture.md should NOT be in context by default, found: {filenames}"
             )
 
     def test_context_excludes_epic_doc_files(

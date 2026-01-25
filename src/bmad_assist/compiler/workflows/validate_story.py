@@ -27,9 +27,7 @@ from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
     find_epic_file,
-    find_file_in_planning_dir,
     find_previous_stories,
-    find_project_context_file,
     find_sprint_status_file,
     find_story_context_file,
     get_stories_dir,
@@ -38,6 +36,7 @@ from bmad_assist.compiler.shared_utils import (
     resolve_story_file,
     safe_read_file,
 )
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, WorkflowIR
 from bmad_assist.compiler.variable_utils import (
     filter_garbage_variables,
@@ -214,51 +213,14 @@ class ValidateStoryCompiler:
         epic_num = resolved.get("epic_num")
         story_num = resolved.get("story_num")
 
-        # 1. Project context (general) - optional
-        project_context_path = find_project_context_file(context)
-        if project_context_path:
-            content = safe_read_file(project_context_path, project_root)
-            if content:
-                files[str(project_context_path)] = content
-                resolved["project_context"] = str(project_context_path)
-                logger.debug("Added project_context to context")
-        else:
-            logger.debug("File not found, skipping: project_context.md")
+        # 1. Strategic docs via StrategicContextService
+        # Default config for validate_story: project-context + architecture (26% PRD citation rate)
+        strategic_service = StrategicContextService(context, "validate_story")
+        strategic_files = strategic_service.collect()
+        files.update(strategic_files)
+        logger.debug("Added %d strategic docs via service", len(strategic_files))
 
-        # 2. PRD (broader) - optional - search in planning_artifacts (docs/)
-        prd_path = find_file_in_planning_dir(context, "*prd*.md")
-        if prd_path:
-            content = safe_read_file(prd_path, project_root)
-            if content:
-                files[str(prd_path)] = content
-                resolved["prd_file"] = str(prd_path)
-                logger.debug("Added prd to context")
-        else:
-            logger.debug("File not found, skipping: prd.md")
-
-        # 3. Architecture (technical) - optional - search in planning_artifacts (docs/)
-        arch_path = find_file_in_planning_dir(context, "*architecture*.md")
-        if arch_path:
-            content = safe_read_file(arch_path, project_root)
-            if content:
-                files[str(arch_path)] = content
-                resolved["architecture_file"] = str(arch_path)
-                logger.debug("Added architecture to context")
-        else:
-            logger.debug("File not found, skipping: architecture.md")
-
-        # 4. UX Design (UI validation) - optional - search in planning_artifacts (docs/)
-        ux_path = find_file_in_planning_dir(context, "*ux*.md")
-        if ux_path:
-            content = safe_read_file(ux_path, project_root)
-            if content:
-                files[str(ux_path)] = content
-                resolved["ux_design_file"] = str(ux_path)
-                logger.debug("Added ux_design to context")
-        else:
-            logger.debug("File not found, skipping: ux_design.md")
-
-        # 5. Epic file (related) - optional
+        # 2. Epic file (related) - optional
         epic_path = find_epic_file(context, epic_num)
         if epic_path:
             content = safe_read_file(epic_path, project_root)
@@ -269,7 +231,7 @@ class ValidateStoryCompiler:
         else:
             logger.debug("File not found, skipping: epic file for epic %s", epic_num)
 
-        # 6. Story Context File (internal BMM context) - optional
+        # 3. Story Context File (internal BMM context) - optional
         story_context_path = find_story_context_file(context, epic_num, story_num)
         if story_context_path:
             content = safe_read_file(story_context_path, project_root)
@@ -284,7 +246,7 @@ class ValidateStoryCompiler:
                 story_num,
             )
 
-        # 7. Checklist (validation checklist from workflow folder)
+        # 4. Checklist (validation checklist from workflow folder)
         workflow_dir = self.get_workflow_dir(context)
         checklist_path = workflow_dir / "checklist.md"
         if checklist_path.exists():
@@ -298,7 +260,7 @@ class ValidateStoryCompiler:
         else:
             logger.debug("File not found, skipping: checklist.md")
 
-        # 8. Previous stories (up to 3, chronological: oldest first)
+        # 5. Previous stories (up to 3, chronological: oldest first)
         prev_stories = find_previous_stories(context, resolved)
         for prev_story in prev_stories:
             content = safe_read_file(prev_story, project_root)
@@ -306,7 +268,7 @@ class ValidateStoryCompiler:
                 files[str(prev_story)] = content
                 logger.debug("Added previous story to context: %s", prev_story)
 
-        # 9. STORY FILE (MUST EXIST - validation target, inserted LAST)
+        # 6. STORY FILE (MUST EXIST - validation target, inserted LAST)
         stories_dir = get_stories_dir(context)
         pattern = f"{epic_num}-{story_num}-*.md"
         story_matches = sorted(stories_dir.glob(pattern)) if stories_dir.exists() else []
@@ -347,7 +309,7 @@ class ValidateStoryCompiler:
                 f"Suggestion: Check file permissions and encoding (UTF-8 required)"
             )
 
-        # 9a. Source files from story's File List (before story for recency-bias)
+        # 6a. Source files from story's File List (before story for recency-bias)
         file_list_paths = extract_file_paths_from_story(story_content)
         if file_list_paths:
             try:
@@ -371,7 +333,7 @@ class ValidateStoryCompiler:
                     "Failed to collect source files for validate_story: %s", e
                 )
 
-        # 9b. Insert story LAST (closest to instructions per recency-bias)
+        # 6b. Insert story LAST (closest to instructions per recency-bias)
         files[str(story_path)] = story_content
         resolved["story_file"] = str(story_path)
         logger.debug("Added story file to context (LAST): %s", story_path)

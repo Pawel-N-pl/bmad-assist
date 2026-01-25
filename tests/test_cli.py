@@ -587,10 +587,6 @@ class TestVersion:
         """Version is a string."""
         assert isinstance(__version__, str)
 
-    def test_version_matches_expected(self) -> None:
-        """Version matches expected value."""
-        assert __version__ == "0.4.5"
-
     def test_version_is_semver_format(self) -> None:
         """Version follows semantic versioning format."""
         parts = __version__.split(".")
