@@ -1,0 +1,268 @@
+# API Contract: webhook-relay-001
+# Defines expected API behavior based on docs/architecture.md
+
+fixture: "webhook-relay-001"
+base_url: "http://localhost:8080"
+last_updated: "2026-01-26"
+
+defaults:
+  content_type: application/json
+  timeout_seconds: 10
+
+# Health/Observability Endpoints
+health:
+  - path: /health
+    method: GET
+    responses:
+      200:
+        description: "Service is healthy"
+        body:
+          type: json
+          example: { "status": "healthy" }
+
+  - path: /health/ready
+    method: GET
+    responses:
+      200:
+        description: "Service is ready to accept traffic"
+      503:
+        description: "Service not ready (startup/shutdown)"
+
+  - path: /health/live
+    method: GET
+    responses:
+      200:
+        description: "Service is alive (liveness probe)"
+
+  - path: /metrics
+    method: GET
+    responses:
+      200:
+        description: "Prometheus metrics"
+        body:
+          type: text
+          content_type: text/plain
+
+# Webhook Receiver Endpoints
+endpoints:
+  # Webhook ingestion
+  - path: /webhook/{route_id}
+    description: "Receive webhook for a configured route"
+    methods: [POST]
+    path_params:
+      - name: route_id
+        type: string
+        required: true
+        description: "Route identifier"
+    request:
+      content_type: application/json
+      body:
+        type: any
+      headers:
+        - name: X-Webhook-Signature
+          required: false
+          description: "HMAC-SHA256 signature for payload verification"
+    responses:
+      200:
+        description: "Webhook accepted"
+        body:
+          type: json
+          fields:
+            - name: id
+              type: string
+              description: "Unique delivery ID"
+      400:
+        description: "Invalid payload"
+      401:
+        description: "Invalid signature"
+      404:
+        description: "Route not found"
+
+  - path: /webhook/{route_id}/{secret}
+    description: "Receive webhook with URL-based secret"
+    methods: [POST]
+    path_params:
+      - name: route_id
+        type: string
+        required: true
+      - name: secret
+        type: string
+        required: true
+    responses:
+      200:
+        description: "Webhook accepted"
+      401:
+        description: "Invalid secret"
+      404:
+        description: "Route not found"
+
+  # Admin - Routes
+  - path: /admin/routes
+    description: "List or create webhook routes"
+    methods: [GET, POST]
+    request:
+      body:
+        type: json
+        fields:
+          - name: path
+            type: string
+            required: true
+            description: "Webhook path (e.g., /webhook/github)"
+          - name: secret
+            type: string
+            required: false
+            description: "Signature verification secret"
+          - name: transform
+            type: object
+            required: false
+            description: "Transformation configuration"
+    responses:
+      200:
+        description: "List of routes (GET) or created route (POST)"
+        body:
+          type: json
+      201:
+        description: "Route created (POST)"
+      400:
+        description: "Invalid route configuration"
+
+  - path: /admin/routes/{id}
+    description: "Get, update, or delete a specific route"
+    methods: [GET, PUT, DELETE]
+    path_params:
+      - name: id
+        type: string
+        required: true
+    responses:
+      200:
+        description: "Route details (GET/PUT)"
+      204:
+        description: "Route deleted (DELETE)"
+      404:
+        description: "Route not found"
+
+  # Admin - Destinations
+  - path: /admin/routes/{id}/destinations
+    description: "List or add destinations for a route"
+    methods: [GET, POST]
+    path_params:
+      - name: id
+        type: string
+        required: true
+        description: "Route ID"
+    request:
+      body:
+        type: json
+        fields:
+          - name: url
+            type: string
+            required: true
+            description: "Destination URL"
+          - name: method
+            type: string
+            required: false
+            description: "HTTP method (default: POST)"
+          - name: headers
+            type: object
+            required: false
+            description: "Custom headers to inject"
+    responses:
+      200:
+        description: "List of destinations (GET) or added destination (POST)"
+      201:
+        description: "Destination added"
+      404:
+        description: "Route not found"
+
+  - path: /admin/destinations/{id}
+    description: "Delete a destination"
+    methods: [DELETE]
+    path_params:
+      - name: id
+        type: string
+        required: true
+    responses:
+      204:
+        description: "Destination deleted"
+      404:
+        description: "Destination not found"
+
+  # Admin - Deliveries
+  - path: /admin/deliveries
+    description: "Query delivery history"
+    methods: [GET]
+    query_params:
+      - name: route_id
+        type: string
+        required: false
+        description: "Filter by route"
+      - name: status
+        type: string
+        required: false
+        description: "Filter by status (success, failed, pending)"
+      - name: from
+        type: string
+        required: false
+        description: "Start time (ISO8601)"
+      - name: to
+        type: string
+        required: false
+        description: "End time (ISO8601)"
+    responses:
+      200:
+        description: "List of deliveries"
+        body:
+          type: json
+
+  # Admin - Dead Letter Queue
+  - path: /admin/dead-letter-queue
+    description: "List DLQ entries"
+    methods: [GET]
+    responses:
+      200:
+        description: "List of DLQ entries"
+        body:
+          type: json
+
+  - path: /admin/dead-letter-queue/{id}/replay
+    description: "Replay a DLQ entry"
+    methods: [POST]
+    path_params:
+      - name: id
+        type: string
+        required: true
+    responses:
+      200:
+        description: "Entry replayed"
+      404:
+        description: "Entry not found"
+
+  - path: /admin/dead-letter-queue/{id}
+    description: "Delete a DLQ entry"
+    methods: [DELETE]
+    path_params:
+      - name: id
+        type: string
+        required: true
+    responses:
+      204:
+        description: "Entry deleted"
+      404:
+        description: "Entry not found"
+
+# Error Response Schema
+error_schema:
+  type: json
+  fields:
+    - name: error
+      type: string
+      description: "Human-readable error message"
+
+# Authentication
+authentication:
+  type: none
+  notes: "Admin API is unauthenticated in MVP; use network-level security"
+
+# Rate Limiting
+rate_limiting:
+  enabled: false

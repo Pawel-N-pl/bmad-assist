@@ -1,0 +1,125 @@
+fixture: webhook-relay-003
+generated_at: '2026-01-27T01:06:06.972960+00:00'
+generator_version: '1.0'
+mode: automated
+scores:
+  completeness:
+    weight: 25
+    score: 10
+    details:
+      stories_completed:
+        max: 10
+        score: 0
+        metric: 0/0
+      no_todos:
+        max: 5
+        score: 0
+        metric: 16
+        notes: internal/storage/delivery_queue.go (10); internal/server/handlers/destination_admin_test.go
+          (5); internal/server/middleware/transform.go (1)
+      no_placeholders:
+        max: 5
+        score: 5
+        metric: 0
+        patterns_found: []
+      no_empty_files:
+        max: 5
+        score: 5
+        metric: 0
+  functionality:
+    weight: 25
+    score: 22.0
+    details:
+      build:
+        max: 10
+        score: 10
+        success: true
+        command: go build ./...
+        errors: []
+      unit_tests:
+        max: 10
+        score: 10.0
+        metric: 1254/1254
+        passed: 1254
+        failed: 0
+        skipped: 0
+        errors: []
+      behavior_tests:
+        max: 5
+        score: 2
+        metric: 0/0
+        passed: 0
+        failed: 0
+        notes: 2 test files found in webhook-relay/
+  code_quality:
+    weight: 20
+    score: 14
+    details:
+      linting:
+        max: 8
+        score: 8
+        tool: go vet
+        errors: 0
+        warnings: 0
+        top_issues: []
+      complexity:
+        max: 6
+        score: 6
+        tool: gocyclo
+        average: 2.65
+        max_function: ''
+        max_value: 0
+      security:
+        max: 6
+        score: 0
+        tool: gosec
+        high: 0
+        medium: 0
+        low: 0
+        issues: []
+  documentation:
+    weight: 15
+    score: 1
+    details:
+      readme_exists:
+        max: 4
+        score: 0
+        exists: false
+        length: 0
+      readme_sections:
+        max: 3
+        score: 0
+        has_install: false
+        has_usage: false
+        has_config: false
+      api_docs:
+        max: 4
+        score: 0
+        exists: false
+        format: ''
+        location: ''
+      inline_comments:
+        max: 4
+        score: 1
+        ratio: 7.7
+        sampled_files:
+        - internal/routing/destination_test.go
+        - internal/routing/route_test.go
+        - internal/routing/router_test.go
+        - internal/routing/route.go
+        - internal/routing/destination.go
+  ui_ux:
+    weight: 15
+    score: null
+    applicable: false
+    details: Fixture has no UI - points redistributed
+totals:
+  raw_score: 47.0
+  max_possible: 85
+  weighted_score: 55.3
+  grade: F
+notes: ''
+recommendations: []
+comparison:
+  baseline_fixture: null
+  delta: {}

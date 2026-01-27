@@ -1,0 +1,182 @@
+# Requirements Traceability Map: webhook-relay
+# Maps PRD requirements to behavioral tests
+# Applies to ALL variants: webhook-relay-001, webhook-relay-002, etc.
+
+fixture: "webhook-relay"
+prd_source: "docs/prd.md"
+last_updated: "2026-01-26"
+
+coverage:
+  total_requirements: 18
+  covered_requirements: 12
+  coverage_percent: 66.7
+
+# Functional Requirements from PRD
+requirements:
+  FR-001:
+    description: "Configurable Endpoints - Receive webhooks on configurable endpoints with unique paths per source integration"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestWebhookEndpoint::test_accepts_valid_json_payload
+      - test_api_behavior.py::TestWebhookEndpoint::test_route_not_found
+    notes: "Core webhook reception functionality"
+
+  FR-002:
+    description: "Signature Validation - Validate webhook signatures using HMAC-SHA256"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestWebhookEndpoint::test_signature_validation
+    notes: "Signature validation when secret configured"
+
+  FR-003:
+    description: "Payload Parsing - Parse and validate JSON payloads with proper error responses"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestWebhookEndpoint::test_handles_invalid_json
+      - test_api_behavior.py::TestWebhookEndpoint::test_handles_empty_body
+    notes: "JSON parsing and validation"
+
+  FR-004:
+    description: "JSONPath Extraction - Transform payloads using JSONPath expressions"
+    priority: medium
+    category: api
+    tests: []
+    notes: "Requires route configuration with transform; deferred to integration tests"
+
+  FR-005:
+    description: "Go Template Transformation - Transform payloads using Go templates"
+    priority: medium
+    category: api
+    tests: []
+    notes: "Requires route configuration with template; deferred to integration tests"
+
+  FR-006:
+    description: "Passthrough Mode - Support passthrough mode without transformation"
+    priority: medium
+    category: api
+    tests:
+      - test_api_behavior.py::TestWebhookEndpoint::test_accepts_valid_json_payload
+    notes: "Default behavior when no transform configured"
+
+  FR-007:
+    description: "Multiple Destinations - Route webhooks to multiple destinations (fan-out)"
+    priority: high
+    category: api
+    tests: []
+    notes: "Tested via route configuration; requires mock destinations"
+
+  FR-008:
+    description: "HTTP Destinations - Support HTTP/HTTPS destinations"
+    priority: high
+    category: api
+    tests: []
+    notes: "Core delivery functionality; tested with mock sink"
+
+  FR-009:
+    description: "Custom Headers - Inject custom headers on outbound requests"
+    priority: low
+    category: api
+    tests: []
+    notes: "Deferred; requires destination configuration inspection"
+
+  FR-010:
+    description: "Retry Logic - Retry failed deliveries using exponential backoff"
+    priority: high
+    category: api
+    tests: []
+    notes: "Hard to test behaviorally; requires timing assertions"
+
+  FR-011:
+    description: "Dead Letter Queue - Store exhausted retries in DLQ"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestDeadLetterQueue::test_list_dlq_entries
+    notes: "DLQ listing via admin API"
+
+  FR-012:
+    description: "DLQ Replay - Support replaying messages from DLQ"
+    priority: medium
+    category: api
+    tests: []
+    notes: "Requires DLQ entry + replay; integration test"
+
+  FR-013:
+    description: "Route Management - Admin API to list, create, update, delete routes"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestAdminRoutes::test_list_routes
+      - test_api_behavior.py::TestAdminRoutes::test_create_route
+      - test_api_behavior.py::TestAdminRoutes::test_create_route_validates_required_fields
+    notes: "Full CRUD on routes"
+
+  FR-014:
+    description: "Destination Management - Admin API to manage destinations per route"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestAdminDestinations::test_list_destinations
+    notes: "Destination CRUD via route endpoints"
+
+  FR-015:
+    description: "Delivery History - Query delivery history with filtering"
+    priority: medium
+    category: api
+    tests:
+      - test_api_behavior.py::TestDeliveryHistory::test_list_deliveries
+    notes: "History query endpoint"
+
+  FR-016:
+    description: "DLQ Operations - View and manage dead letter queue entries"
+    priority: medium
+    category: api
+    tests:
+      - test_api_behavior.py::TestDeadLetterQueue::test_list_dlq_entries
+    notes: "DLQ admin operations"
+
+  FR-017:
+    description: "Prometheus Metrics - Expose Prometheus-compatible metrics endpoint"
+    priority: medium
+    category: api
+    tests:
+      - test_api_behavior.py::TestObservability::test_metrics_endpoint
+    notes: "Metrics at /metrics"
+
+  FR-018:
+    description: "Health Check - Provide health check endpoint"
+    priority: high
+    category: api
+    tests:
+      - test_api_behavior.py::TestHealthEndpoints::test_health_endpoint_returns_200
+      - test_api_behavior.py::TestHealthEndpoints::test_health_returns_json
+      - test_api_behavior.py::TestHealthEndpoints::test_ready_endpoint
+      - test_api_behavior.py::TestHealthEndpoints::test_live_endpoint
+    notes: "Health, ready, and live endpoints"
+
+# Non-Functional Requirements
+nfr:
+  NFR-001:
+    description: "Handle 1000 requests per second per endpoint"
+    category: performance
+    verification: deferred
+    notes: "Requires load testing infrastructure"
+
+  NFR-007:
+    description: "Maintain test coverage above 80%"
+    category: quality
+    verification: automated
+    notes: "Checked by scorecard code_quality metrics"
+
+# Test File Index
+test_files:
+  - file: test_api_behavior.py
+    description: "API endpoint behavioral tests"
+    test_count: 20
+
+  - file: test_user_journeys.py
+    description: "UI journey tests (N/A - no UI)"
+    test_count: 0

@@ -1,0 +1,129 @@
+fixture: webhook-relay-001
+generated_at: '2026-01-26T13:27:39.558965+00:00'
+generator_version: '1.0'
+mode: automated
+scores:
+  completeness:
+    weight: 25
+    score: 12.0
+    details:
+      stories_completed:
+        max: 10
+        score: 0
+        metric: 0/0
+      no_todos:
+        max: 5
+        score: 4.0
+        metric: 2
+        notes: internal/transform/errors.go (2)
+      no_placeholders:
+        max: 5
+        score: 3
+        metric: 2
+        patterns_found:
+        - TODO comment
+      no_empty_files:
+        max: 5
+        score: 5
+        metric: 0
+  functionality:
+    weight: 25
+    score: 12.0
+    details:
+      build:
+        max: 10
+        score: 0
+        success: false
+        command: go build ./...
+        errors:
+        - '# github.com/webhook-relay/webhook-relay/internal/metrics'
+        - 'internal/metrics/prometheus.go:239:28: DeliveryRetryDelaySeconds.Reset
+          undefined (type prometheus.Histogram has no field or method Reset)'
+        - ''
+      unit_tests:
+        max: 10
+        score: 10.0
+        metric: 252/252
+        passed: 252
+        failed: 0
+        skipped: 0
+        errors: []
+      behavior_tests:
+        max: 5
+        score: 2
+        metric: 0/0
+        passed: 0
+        failed: 0
+        notes: 2 test files found in webhook-relay/
+  code_quality:
+    weight: 20
+    score: 9
+    details:
+      linting:
+        max: 8
+        score: 0
+        tool: go vet
+        errors: 8
+        warnings: 0
+        top_issues: []
+      complexity:
+        max: 6
+        score: 6
+        tool: gocyclo
+        average: 2.7
+        max_function: ''
+        max_value: 0
+      security:
+        max: 6
+        score: 3
+        tool: gosec
+        high: 2
+        medium: 3
+        low: 5
+        issues: []
+  documentation:
+    weight: 15
+    score: 1
+    details:
+      readme_exists:
+        max: 4
+        score: 0
+        exists: false
+        length: 0
+      readme_sections:
+        max: 3
+        score: 0
+        has_install: false
+        has_usage: false
+        has_config: false
+      api_docs:
+        max: 4
+        score: 0
+        exists: false
+        format: ''
+        location: ''
+      inline_comments:
+        max: 4
+        score: 1
+        ratio: 6.3
+        sampled_files:
+        - internal/routing/destination_test.go
+        - internal/routing/route_test.go
+        - internal/routing/router_test.go
+        - internal/routing/route.go
+        - internal/routing/destination.go
+  ui_ux:
+    weight: 15
+    score: null
+    applicable: false
+    details: Fixture has no UI - points redistributed
+totals:
+  raw_score: 34.0
+  max_possible: 85
+  weighted_score: 40.0
+  grade: F
+notes: ''
+recommendations: []
+comparison:
+  baseline_fixture: null
+  delta: {}

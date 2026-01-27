@@ -1,0 +1,145 @@
+# API Contract Template
+# Copy this file to experiments/fixture-tests/{fixture-name}/contract.yaml
+#
+# Defines the expected API behavior for behavioral testing.
+# This is a minimal contract - enough to write tests, not a full OpenAPI spec.
+
+fixture: ""                       # e.g., "webhook-relay-001"
+base_url: "http://localhost:8080" # Default base URL
+last_updated: ""                  # ISO date: "2026-01-26"
+
+# Global settings
+defaults:
+  content_type: application/json
+  timeout_seconds: 10
+
+# Health/readiness endpoints
+health:
+  - path: /health
+    method: GET
+    responses:
+      200:
+        description: "Service is healthy"
+        body:
+          type: json
+          example: { "status": "healthy" }
+
+  - path: /ready
+    method: GET
+    responses:
+      200:
+        description: "Service is ready to accept traffic"
+      503:
+        description: "Service not ready (startup/shutdown)"
+
+# API Endpoints
+endpoints:
+  # Example: Webhook ingestion endpoint
+  - path: /webhook/{name}
+    description: "Receive webhook payloads"
+    methods: [POST]
+    path_params:
+      - name: name
+        type: string
+        required: true
+        description: "Webhook route name"
+    request:
+      content_type: application/json
+      body:
+        type: any                 # Accepts any JSON payload
+      headers:
+        - name: X-Webhook-Signature
+          required: false
+          description: "HMAC signature for payload verification"
+    responses:
+      200:
+        description: "Webhook accepted"
+        body:
+          type: json
+          fields:
+            - name: id
+              type: string
+              description: "Unique delivery ID"
+            - name: status
+              type: string
+              enum: [accepted, queued]
+      400:
+        description: "Invalid payload"
+        body:
+          type: json
+          fields:
+            - name: error
+              type: string
+      404:
+        description: "Route not found"
+
+  # Example: Admin routes endpoint
+  - path: /admin/routes
+    description: "Manage webhook routes"
+    methods: [GET, POST]
+    request:
+      # POST body
+      body:
+        type: json
+        fields:
+          - name: path
+            type: string
+            required: true
+          - name: destinations
+            type: array
+            required: true
+    responses:
+      200:
+        description: "List of routes (GET) or created route (POST)"
+        body:
+          type: json
+      201:
+        description: "Route created"
+      400:
+        description: "Invalid route configuration"
+
+  - path: /admin/routes/{id}
+    description: "Manage specific route"
+    methods: [GET, PUT, DELETE]
+    path_params:
+      - name: id
+        type: string
+        required: true
+    responses:
+      200:
+        description: "Route details (GET) or updated route (PUT)"
+      204:
+        description: "Route deleted"
+      404:
+        description: "Route not found"
+
+# Error Response Schema (common across endpoints)
+error_schema:
+  type: json
+  fields:
+    - name: error
+      type: string
+      description: "Human-readable error message"
+    - name: code
+      type: string
+      required: false
+      description: "Machine-readable error code"
+
+# Rate Limiting (if applicable)
+rate_limiting:
+  enabled: false
+  # If enabled:
+  # requests_per_minute: 100
+  # headers:
+  #   - X-RateLimit-Limit
+  #   - X-RateLimit-Remaining
+  #   - X-RateLimit-Reset
+
+# Authentication (if applicable)
+authentication:
+  type: none                      # none | api_key | bearer | basic
+  # If api_key:
+  # header: X-API-Key
+  # If bearer:
+  # header: Authorization
+  # prefix: "Bearer "

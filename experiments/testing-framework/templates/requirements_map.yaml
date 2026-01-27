@@ -1,0 +1,69 @@
+# Requirements Traceability Map Template
+# Copy this file to experiments/fixture-tests/{fixture-name}/requirements_map.yaml
+#
+# This file maps PRD requirements to behavioral tests, ensuring complete coverage.
+
+fixture: ""                       # e.g., "webhook-relay-001"
+prd_source: "docs/prd.md"         # Path to PRD relative to fixture root
+last_updated: ""                  # ISO date: "2026-01-26"
+
+# Coverage summary (updated as tests are added)
+coverage:
+  total_requirements: 0
+  covered_requirements: 0
+  coverage_percent: 0.0
+
+# Functional Requirements
+# Extract from PRD: FR-1, FR-2, etc.
+requirements:
+  FR-1:
+    description: ""               # Copy from PRD
+    priority: high                # high | medium | low
+    category: api                 # api | ui | data | system
+    tests:
+      - test_api_behavior.py::TestClassName::test_method_name
+    notes: ""                     # Optional: implementation notes
+
+  FR-2:
+    description: ""
+    priority: medium
+    category: api
+    tests: []                     # Empty = not yet covered
+    notes: ""
+
+# Non-Functional Requirements (optional)
+# These may be harder to test automatically
+nfr:
+  NFR-1:
+    description: ""               # e.g., "Response time under 100ms"
+    category: performance         # performance | security | reliability
+    verification: manual          # automated | manual | deferred
+    notes: ""
+
+# Story-Level Acceptance Criteria (optional)
+# For detailed traceability, map individual story AC
+stories:
+  "1-1":
+    title: ""
+    acceptance_criteria:
+      - id: AC-1.1.1
+        description: ""
+        tests:
+          - test_api_behavior.py::TestClassName::test_name
+
+# Unmapped Requirements
+# List requirements that cannot be tested with behavioral tests
+unmapped:
+  - id: ""
+    reason: ""                    # e.g., "Requires manual security audit"
+
+# Test File Index
+# Quick reference to all test files for this fixture
+test_files:
+  - file: test_api_behavior.py
+    description: "API endpoint behavioral tests"
+    test_count: 0
+
+  - file: test_user_journeys.py
+    description: "UI journey tests (Playwright)"
+    test_count: 0

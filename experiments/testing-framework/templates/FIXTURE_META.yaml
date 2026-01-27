@@ -1,0 +1,80 @@
+# Fixture Metadata Template
+# Copy this file to experiments/fixtures/{fixture-name}/FIXTURE_META.yaml
+#
+# This file contains METADATA about the fixture, not full configuration.
+# Full config is in: run-manifest.yaml or .bmad-assist/effective-config.yaml
+
+# ============================================================================
+# IDENTIFICATION
+# ============================================================================
+
+name: ""                          # e.g., "webhook-relay-001"
+description: ""                   # Brief description of this fixture's purpose
+
+# ============================================================================
+# GENERATION CONTEXT
+# ============================================================================
+
+bmad_assist_version: ""           # e.g., "0.4.6"
+created_at: ""                    # ISO date: "2026-01-23T00:51:56Z"
+completed_at: ""                  # ISO date when all stories completed
+
+# Full configuration source (one of these should exist)
+config_source:
+  run_manifest: "run-manifest.yaml"           # Manually archived config
+  effective_config: ".bmad-assist/effective-config.yaml"  # Auto-saved at run start
+
+# ============================================================================
+# KEY SETTINGS (for quick comparison without opening full config)
+# ============================================================================
+
+key_settings:
+  # Strategic Context Optimization
+  strategic_context:
+    enabled: false
+    budget: null                  # e.g., 8000
+
+  # Primary models
+  master_model: ""                # e.g., "opus"
+  helper_model: ""                # e.g., "haiku"
+
+  # Multi-LLM validators (just names for reference)
+  multi_models: []                # e.g., ["gemini-2.5-flash", "sonnet"]
+
+# ============================================================================
+# PROJECT STATISTICS
+# ============================================================================
+
+statistics:
+  total_epics: 0
+  total_stories: 0
+  completed_stories: 0
+  run_duration_hours: 0.0
+
+# ============================================================================
+# TECHNOLOGY STACK (auto-detected or manual)
+# ============================================================================
+
+technology:
+  language: ""                    # e.g., "go", "python", "typescript"
+  framework: ""                   # e.g., "chi", "fastapi", "express"
+  database: ""                    # e.g., "sqlite", "postgresql", "none"
+
+# ============================================================================
+# COMPARISON & ARCHIVAL
+# ============================================================================
+
+comparison:
+  baseline_fixture: null          # e.g., "webhook-relay-001"
+  comparison_purpose: ""          # e.g., "Strategic Context Optimization evaluation"
+
+# Implementation quirks worth noting
+implementation_notes: []
+# Examples:
+#   - "Uses port 8081 instead of 8080"
+#   - "Run was restarted during epic 3"
+
+# Checksums (populated when archiving)
+checksums:
+  generated_at: null
+  manifest_file: null             # e.g., "../checksums-webhook-relay-001.txt"
