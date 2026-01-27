@@ -92,6 +92,9 @@ bmad-assist patch compile-all
 bmad-assist sprint generate
 bmad-assist sprint validate
 bmad-assist sprint sync
+
+# Experiments
+bmad-assist test scorecard <fixture>      # Generate quality scorecard
 ```
 
 ## Configuration
