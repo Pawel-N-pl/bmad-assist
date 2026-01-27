@@ -1,6 +1,6 @@
 # bmad-assist
 
-CLI tool for automating the [BMAD](https://github.com/bmad-method) development methodology with Multi-LLM orchestration.
+CLI tool for automating the [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) development methodology with Multi-LLM orchestration.
 
 ## What is BMAD?
 
@@ -136,4 +136,4 @@ MIT
 
 ## Links
 
-- [BMAD Method](https://github.com/bmad-method) - The methodology behind this tool
+- [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) - The methodology behind this tool
