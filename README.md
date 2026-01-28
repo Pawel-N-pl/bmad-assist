@@ -183,6 +183,11 @@ mypy src/
 ruff check src/
 ```
 
+## Community
+
+- **Discord:** [Join our server](https://discord.gg/GeptH9ManY) - Get help, share workflows, discuss AI-assisted development
+- **Issues:** [GitHub Issues](https://github.com/Pawel-N-pl/bmad-assist/issues) - Bug reports and feature requests
+
 ## License
 
 MIT
@@ -190,3 +195,4 @@ MIT
 ## Links
 
 - [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) - The methodology behind this tool
+- [Discord Community](https://discord.gg/GeptH9ManY) - Chat, support, and discussions
