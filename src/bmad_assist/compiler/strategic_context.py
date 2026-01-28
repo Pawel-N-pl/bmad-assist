@@ -59,7 +59,9 @@ DOC_PATTERNS: dict[str, tuple[list[str] | None, str | None, DocType | None]] = {
 }
 
 # Truncation notice appended to truncated content
-TRUNCATION_NOTICE = "\n\n<!-- TRUNCATED: Content exceeded token budget. See full document for details. -->"
+TRUNCATION_NOTICE = (
+    "\n\n<!-- TRUNCATED: Content exceeded token budget. See full document for details. -->"
+)
 
 # Allow 10% budget overrun to find better cut points
 BUDGET_OVERRUN_FACTOR = 1.10

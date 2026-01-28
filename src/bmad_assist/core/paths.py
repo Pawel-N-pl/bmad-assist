@@ -187,6 +187,7 @@ class ProjectPaths:
 
         Returns:
             Path to closest epics directory, or None if not found.
+
         """
         if not base.exists() or not base.is_dir():
             return None

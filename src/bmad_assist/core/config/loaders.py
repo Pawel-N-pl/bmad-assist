@@ -472,7 +472,8 @@ def load_config_with_project(
             sources.append(f"project ({project_config_path})")
 
         if len(sources) > 1:
-            raise ConfigError(f"Invalid configuration (merged from {' + '.join(sources)}): {e}") from e
+            merged = " + ".join(sources)
+            raise ConfigError(f"Invalid configuration (merged from {merged}): {e}") from e
         elif sources:
             raise ConfigError(f"Invalid configuration in {sources[0]}: {e}") from e
         else:
