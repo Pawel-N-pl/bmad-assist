@@ -2,6 +2,22 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.13] - 2026-01-29
+
+### Added
+- **Interactive element detection** - CRITICAL warning when workflow contains `<ask>` elements without patch (prevents hangs in non-interactive/subprocess mode)
+- **Auto-discover epics directory** in `project_knowledge` path
+
+### Fixed
+- **Compiler:** Escaped XML comment placeholders in CDATA - fixes METRICS_JSON markers appearing as `<__xml_comment__>` in compiled prompts
+- **Compiler:** Downgrade missing patch log from CRITICAL to DEBUG (not an error for custom workflows without bundled patches)
+- **Config:** Missing workflow fields in `StrategicContextConfig`
+- **CLI:** Use config paths for epic loading instead of hardcoded `docs/`
+- **CLI:** Pass `bmad_paths.epics` to `init_paths` in all commands
+
+### Changed
+- Example `bmad-assist.yaml` marked as optimized reference configuration
+
 ## [0.4.12] - 2026-01-28
 
 ### Added

@@ -1,11 +1,12 @@
-# bmad-assist configuration
-# Copy provider settings from your global config or customize here
+# bmad-assist configuration (optimized example)
+# This is an optimized reference config with recommended settings.
+# Copy to your project and customize provider settings as needed.
 
 project_name: project-name
 user_name: Tester
 communication_language: English
 document_output_language: English
-user_skill_level: expert
+user_skill_level: expert              # expert to minimize LLM verbosity
 
 # External paths (optional) - store docs/artifacts outside project root
 # paths:
@@ -15,9 +16,7 @@ user_skill_level: expert
 # Per-phase timeout configuration (seconds)
 timeouts:
   default: 600
-  create_story: 300
   dev_story: 3600
-  code_review: 900
   code_review_synthesis: 900
   retrospective: 900
   
@@ -95,20 +94,16 @@ providers:
 phase_models:
   # Single-LLM phases - object format
   create_story:
-    provider: opencode
-    model: zai-coding-plan/glm-4.7
-    # provider: claude-subprocess
-    # model: opus
+    provider: claude-subprocess
+    model: opus
   validate_story_synthesis:
     provider: claude-subprocess
     model: opus
     model_name: glm-4.7
     settings: ~/.claude/glm.json
   dev_story:
-    provider: opencode
-    model: zai-coding-plan/glm-4.7
-    # provider: claude-subprocess
-    # model: opus
+    provider: claude-subprocess
+    model: opus
   code_review_synthesis:
     provider: claude-subprocess
     model: opus
@@ -130,16 +125,16 @@ phase_models:
       model: gemini-3-flash-preview
     - provider: gemini
       model: gemini-2.5-flash
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
-    - provider: opencode
-      model: zai-coding-plan/glm-4.7
-      # model_name: glm-4.7
-      # settings: ~/.claude/glm.json
+    - provider: gemini
+      model: gemini-2.5-flash-lite
+    - provider: gemini
+      model: gemini-2.5-flash-lite
     - provider: claude-subprocess
-      model: sonnet
+      model: opus
+      model_name: glm-4.7
+      settings: ~/.claude/glm.json
+    - provider: claude-subprocess
+      model: opus
       model_name: glm-4.7
       settings: ~/.claude/glm.json
 
@@ -151,16 +146,16 @@ phase_models:
       model: gemini-3-flash-preview
     - provider: gemini
       model: gemini-2.5-flash
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
-    # - provider: gemini
-    #   model: gemini-2.5-flash-lite
-    - provider: opencode
-      model: zai-coding-plan/glm-4.7
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
+    - provider: gemini
+      model: gemini-2.5-flash-lite
+    - provider: gemini
+      model: gemini-2.5-flash-lite
     - provider: claude-subprocess
-      model: sonnet
+      model: opus
+      model_name: glm-4.7
+      settings: ~/.claude/glm.json
+    - provider: claude-subprocess
+      model: opus
       model_name: glm-4.7
       settings: ~/.claude/glm.json
 
@@ -169,7 +164,7 @@ phase_models:
 compiler:
   # patch_path: .bmad-assist/patches  # Custom patch files directory
 
-  # Source context collection for workflow prompts
+  # Source files context collection for workflow prompts
   source_context:
     # Per-workflow token budgets (0-99 = disabled)
     budgets:
@@ -200,7 +195,7 @@ compiler:
   # Strategic document loading for workflow prompts
   # Controls which docs (PRD, Architecture, UX, project-context) are included
   strategic_context:
-    budget: 8000                 # Total token cap for strategic docs (0 = disabled)
+    budget: 10000                 # Total token cap for strategic docs (0 = disabled)
 
     # Default settings for all workflows
     defaults:
