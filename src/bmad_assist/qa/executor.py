@@ -279,6 +279,20 @@ def _execute_single_run(
         effective_timeout,
     )
 
+    # Agent tracking
+    from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+    _track_cli = {
+        "model": config.providers.master.model,
+        "timeout": effective_timeout,
+        "settings_file": config.providers.master.settings_path,
+    }
+    _track_start = track_agent_start(
+        project_path, epic_id, "", "qa_plan_execute",
+        config.providers.master.provider, config.providers.master.model or "unknown",
+        prompt, cli_params=_track_cli,
+    )
+
     # Try to get results even if provider exits with non-zero code
     # LLM may have completed tests but provider cleanup failed
     stdout_content = ""
@@ -305,6 +319,12 @@ def _execute_single_run(
             e.exit_code,
             len(stdout_content),
         )
+
+    track_agent_end(
+        project_path, epic_id, "", "qa_plan_execute",
+        config.providers.master.provider, config.providers.master.model or "unknown",
+        prompt, _track_start, cli_params=_track_cli,
+    )
 
     # Always save raw output first - don't lose work if provider crashed
     # after LLM finished producing useful output

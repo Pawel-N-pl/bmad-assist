@@ -148,12 +148,28 @@ def generate_summary(
 
     provider = get_provider(provider_name)
 
+    # Agent tracking
+    from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+    _track_cli = {"model": model_name, "timeout": 60, "disable_tools": True}
+    _track_start = track_agent_start(
+        results_path.parent.parent, "", "", "qa_summary",
+        provider_name, model_name or "unknown", prompt,
+        cli_params=_track_cli,
+    )
+
     # Invoke helper LLM (no tools needed - pure text generation)
     result = provider.invoke(
         prompt,
         model=model_name,
         timeout=60,  # Short timeout for summary generation
         disable_tools=True,  # No tools needed for text generation
+    )
+
+    track_agent_end(
+        results_path.parent.parent, "", "", "qa_summary",
+        provider_name, model_name or "unknown", prompt, _track_start,
+        cli_params=_track_cli,
     )
 
     if result.exit_code != 0:

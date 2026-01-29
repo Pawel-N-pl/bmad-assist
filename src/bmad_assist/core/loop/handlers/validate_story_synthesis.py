@@ -246,8 +246,36 @@ class ValidateStorySynthesisHandler(BaseHandler):
             # Record start time for benchmarking
             start_time = datetime.now(UTC)
 
+            # Agent tracking
+            from bmad_assist.core.config import get_phase_timeout
+            from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+            _phase_config = self._get_phase_config()
+            if isinstance(_phase_config, list):
+                _tp = _phase_config[0].provider if _phase_config else "unknown"
+                _cfg = _phase_config[0] if _phase_config else None
+                _tm = (_cfg.model_name or _cfg.model) if _cfg else "unknown"
+            else:
+                _tp = _phase_config.provider
+                _tm = _phase_config.model_name or _phase_config.model or "unknown"
+            _track_cli = {
+                "model": self.get_cli_model(),
+                "timeout": get_phase_timeout(self.config, self.phase_name),
+                "cwd": self.project_path,
+            }
+            _track_start = track_agent_start(
+                self.project_path, epic_num, story_num, self.phase_name,
+                _tp, _tm, prompt, cli_params=_track_cli,
+            )
+
             # Invoke Master LLM
             result = self.invoke_provider(prompt)
+
+            # Agent tracking END
+            track_agent_end(
+                self.project_path, epic_num, story_num, self.phase_name,
+                _tp, _tm, prompt, _track_start, cli_params=_track_cli,
+            )
 
             # Record end time for benchmarking
             end_time = datetime.now(UTC)

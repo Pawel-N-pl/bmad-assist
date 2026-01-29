@@ -294,6 +294,23 @@ async def _invoke_validator(
         # Use unified run timestamp for consistency across all validators
         validation_timestamp = run_timestamp or start_time
 
+        # Agent tracking START
+        from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+        _track_project = cwd or Path(".")
+        _track_cli = {
+            "model": model, "timeout": timeout,
+            "allowed_tools": allowed_tools,
+            "settings_file": settings_file,
+            "color_index": color_index, "cwd": cwd,
+            "display_model": display_model,
+        }
+        _track_start = track_agent_start(
+            _track_project, epic_num, story_num, "validate_story",
+            provider.provider_name, model, prompt,
+            cli_params=_track_cli,
+        )
+
         # Use asyncio.wait_for with to_thread for ALL providers
         # This maintains BaseProvider contract boundary
         # Pass model and allowed_tools to control validator behavior
@@ -310,6 +327,13 @@ async def _invoke_validator(
                 display_model=display_model,
             ),  # type: ignore[call-arg]  # mypy doesn't handle to_thread kwargs well
             timeout=timeout,
+        )
+
+        # Agent tracking END
+        track_agent_end(
+            _track_project, epic_num, story_num, "validate_story",
+            provider.provider_name, model, prompt, _track_start,
+            cli_params=_track_cli,
         )
 
         duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
