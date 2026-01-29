@@ -189,12 +189,29 @@ class TestReviewHandler(BaseHandler):
 
             logger.debug("Using provider %s with model %s", provider_name, model)
 
+            # Agent tracking
+            from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+            _timeout = getattr(self.config, "timeout", 120)
+            _track_cli = {"model": model, "timeout": _timeout, "cwd": self.project_path}
+            _track_start = track_agent_start(
+                self.project_path, state.current_epic or "", state.current_story or "",
+                "test_review", provider_name, model or "unknown", compiled.context,
+                cli_params=_track_cli,
+            )
+
             # 4. Invoke provider with compiled prompt
             result = provider.invoke(
                 prompt=compiled.context,
                 model=model,
-                timeout=getattr(self.config, "timeout", 120),
+                timeout=_timeout,
                 cwd=self.project_path,
+            )
+
+            track_agent_end(
+                self.project_path, state.current_epic or "", state.current_story or "",
+                "test_review", provider_name, model or "unknown", compiled.context,
+                _track_start, cli_params=_track_cli,
             )
 
             # 5. Parse result

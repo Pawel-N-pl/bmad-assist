@@ -550,12 +550,28 @@ def _run_qa_plan_workflow(
         # Get master provider
         provider = get_provider(config.providers.master.provider)
 
+        # Agent tracking
+        from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+        _track_cli = {"model": config.providers.master.model, "timeout": config.timeout}
+        _track_start = track_agent_start(
+            project_path, epic_id, "", "qa_plan_generate",
+            config.providers.master.provider, config.providers.master.model or "unknown",
+            prompt, cli_params=_track_cli,
+        )
+
         # Invoke LLM
         logger.info("Invoking LLM for QA plan generation...")
         result = provider.invoke(
             prompt,
             model=config.providers.master.model,
             timeout=config.timeout,
+        )
+
+        track_agent_end(
+            project_path, epic_id, "", "qa_plan_generate",
+            config.providers.master.provider, config.providers.master.model or "unknown",
+            prompt, _track_start, cli_params=_track_cli,
         )
 
         if result.exit_code != 0:

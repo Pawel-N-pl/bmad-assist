@@ -717,6 +717,31 @@ class BaseHandler(ABC):
             story = state.current_story or "unknown"
             save_prompt(self.project_path, epic, story, self.phase_name, prompt)
 
+            # Agent tracking
+            from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+            phase_config = self._get_phase_config()
+            if isinstance(phase_config, list):
+                _track_provider = phase_config[0].provider if phase_config else "unknown"
+                _cfg = phase_config[0] if phase_config else None
+                _track_model = (_cfg.model_name or _cfg.model) if _cfg else "unknown"
+            else:
+                _track_provider = phase_config.provider
+                _track_model = phase_config.model_name or phase_config.model or "unknown"
+            _track_cli = {
+                "model": self.get_cli_model(),
+                "timeout": get_phase_timeout(self.config, self.phase_name),
+                "settings_file": getattr(phase_config, "settings_path", None)
+                if not isinstance(phase_config, list)
+                else (phase_config[0].settings_path if phase_config else None),
+                "cwd": self.project_path,
+            }
+            _track_start = track_agent_start(
+                self.project_path, epic, story, self.phase_name,
+                _track_provider, _track_model, prompt,
+                cli_params=_track_cli,
+            )
+
             # Invoke provider
             result = self.invoke_provider(prompt)
 
@@ -738,6 +763,13 @@ class BaseHandler(ABC):
                         "duration_ms": result.duration_ms,
                     }
                 )
+
+            # Agent tracking END
+            track_agent_end(
+                self.project_path, epic, story, self.phase_name,
+                _track_provider, _track_model, prompt, _track_start,
+                cli_params=_track_cli,
+            )
 
             # Save timing if enabled and successful
             if start_time and phase_result.success and self.config.benchmarking.enabled:

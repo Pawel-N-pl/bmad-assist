@@ -510,6 +510,20 @@ def execute_batch(
     timeout = config.timeout * 2  # Shorter timeout for smaller batches
     logger.info("Invoking LLM for batch %d (timeout: %ds, tools: enabled)", batch_id, timeout)
 
+    # Agent tracking
+    from bmad_assist.core.tracking import track_agent_end, track_agent_start
+
+    _track_cli = {
+        "model": config.providers.master.model,
+        "timeout": timeout,
+        "settings_file": config.providers.master.settings_path,
+    }
+    _track_start = track_agent_start(
+        project_path, epic_id, "", "qa_plan_execute_batch",
+        config.providers.master.provider, config.providers.master.model or "unknown",
+        prompt, cli_params=_track_cli,
+    )
+
     # Try to get results even if provider exits with non-zero code
     # LLM may have completed tests but provider cleanup failed
     stdout_content = ""
@@ -538,6 +552,13 @@ def execute_batch(
                 batch_id,
                 str(e)[:200],
             )
+            # Agent tracking END (error path)
+            track_agent_end(
+                project_path, epic_id, "", "qa_plan_execute_batch",
+                config.providers.master.provider,
+                config.providers.master.model or "unknown",
+                prompt, _track_start, cli_params=_track_cli,
+            )
             # Return empty results for this batch
             batch_result = BatchResult(
                 batch_id=batch_id,
@@ -554,6 +575,13 @@ def execute_batch(
                     )
                 )
             return batch_result
+
+    # Agent tracking END (success/partial path)
+    track_agent_end(
+        project_path, epic_id, "", "qa_plan_execute_batch",
+        config.providers.master.provider, config.providers.master.model or "unknown",
+        prompt, _track_start, cli_params=_track_cli,
+    )
 
     # Parse results from stdout (whether from success or exception)
     test_results = _parse_batch_results(stdout_content, tests)

@@ -315,6 +315,17 @@ def run(
         "--phase",
         help="Override starting phase. Requires --epic/--story. See docs for values.",
     ),
+    track_agents: bool = typer.Option(
+        False,
+        "--track-agents",
+        "-t",
+        help="Track provider invocations in .bmad-assist/agent-tracking.csv.",
+    ),
+    track_agents_params: bool = typer.Option(
+        False,
+        "--track-agents-params",
+        help="Include CLI parameters in agent tracking CSV (implies --track-agents).",
+    ),
     qa_enabled: bool = typer.Option(
         False,
         "--qa",
@@ -356,6 +367,12 @@ def run(
     if debug_vars:
         os.environ["BMAD_DEBUG_VARS"] = "1"
         console.print("[dim]Debug: showing variables only (no LLM)[/dim]")
+    if track_agents_params:
+        track_agents = True  # --track-agents-params implies --track-agents
+    if track_agents:
+        os.environ["BMAD_TRACK_AGENTS"] = "1"
+    if track_agents_params:
+        os.environ["BMAD_TRACK_AGENTS_PARAMS"] = "1"
     if disable_compiler:
         os.environ["BMAD_FORCE_YAML"] = "1"
         console.print("[dim]Compiler disabled: using legacy YAML handlers[/dim]")
@@ -370,6 +387,12 @@ def run(
         # Validate project path
         project_path = _validate_project_path(project)
         logger.debug("Project path resolved to: %s", project_path)
+
+        # Reset agent tracking CSV for fresh run
+        if track_agents:
+            from bmad_assist.core.tracking import reset_tracking_file
+
+            reset_tracking_file(project_path)
 
         # Early branch switch: ensure correct branch BEFORE loading any state files
         # This MUST happen before sprint-status.yaml and state.yaml are read,
