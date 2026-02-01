@@ -560,6 +560,7 @@ def find_sprint_status_file(context: CompilerContext) -> Path | None:
     # Fallback locations
     candidates.extend(
         [
+            context.output_folder / "planning-artifacts" / "sprint-status.yaml",  # Beta default
             context.output_folder / "sprint-artifacts" / "sprint-status.yaml",
             context.output_folder / "sprint-status.yaml",
         ]
@@ -600,6 +601,14 @@ def find_project_context_file(context: CompilerContext) -> Path | None:
         context.output_folder / "project-context.md",
         context.output_folder / "project_context.md",
     ])
+
+    # Priority 2b: Parent of output folder (e.g., _bmad-output/ when output_folder is implementation-artifacts/)
+    output_parent = context.output_folder.parent
+    if output_parent != context.project_root:
+        candidates.extend([
+            output_parent / "project-context.md",
+            output_parent / "project_context.md",
+        ])
 
     # Priority 3: Local docs folder (if not using external project_knowledge)
     if context.project_knowledge is None:

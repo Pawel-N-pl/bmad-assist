@@ -58,6 +58,7 @@ def _get_sprint_status_candidates(bmad_path: Path) -> list[Path]:
         return [
             # New location
             project_root / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml",
+            project_root / "_bmad-output" / "planning-artifacts" / "sprint-status.yaml",  # Beta default
             bmad_path / "sprint-artifacts" / "sprint-status.yaml",  # Legacy
             bmad_path / "sprint-status.yaml",  # Legacy (direct)
         ]

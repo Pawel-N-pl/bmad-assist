@@ -66,6 +66,10 @@ def _get_sprint_status_path(bmad_root: Path) -> Path:
         return paths.sprint_status_file
     except RuntimeError:
         # Fallback when singleton not initialized
+        # Check planning-artifacts first (Beta default), then legacy locations
+        planning_artifacts = bmad_root.parent / "_bmad-output" / "planning-artifacts" / "sprint-status.yaml"
+        if planning_artifacts.exists():
+            return planning_artifacts
         legacy_artifacts = bmad_root / "sprint-artifacts" / "sprint-status.yaml"
         if legacy_artifacts.exists():
             return legacy_artifacts

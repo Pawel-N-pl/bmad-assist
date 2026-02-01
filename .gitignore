@@ -135,3 +135,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 MagicMock/
+
+# bmad-assist artifacts (auto-generated, never commit)
+.bmad-assist/cache/
+*.meta.yaml
+*.tpl.xml

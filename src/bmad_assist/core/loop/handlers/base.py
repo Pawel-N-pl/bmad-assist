@@ -36,7 +36,7 @@ from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
     get_phase_provider_config,
 )
-from bmad_assist.core.exceptions import ConfigError, ProviderExitCodeError
+from bmad_assist.core.exceptions import CompilerError, ConfigError, ProviderExitCodeError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths

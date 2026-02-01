@@ -941,8 +941,8 @@ class DashboardServer:
 
             result["epics"].append(epic_data)
 
-        # Sort epics by id
-        result["epics"].sort(key=lambda e: (int(e["id"]) if str(e["id"]).isdigit() else e["id"]))
+        # Sort epics by id (numeric first, then string)
+        result["epics"].sort(key=lambda e: (0, int(e["id"])) if str(e["id"]).isdigit() else (1, str(e["id"])))
 
         return result
 

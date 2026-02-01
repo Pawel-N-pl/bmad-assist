@@ -5,7 +5,7 @@ patch:
   description: "Optimizes validate-story workflow for bmad-assist Multi-LLM automation - removes interactive steps, produces validation report only"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "validate-story"
   # NOTE: This patch transforms the interactive Master-LLM workflow into a read-only Multi-LLM validator
   # Workflow has 10 steps, patch reduces to 5 (removes file discovery + user interaction + file modification)

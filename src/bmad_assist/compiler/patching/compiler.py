@@ -40,8 +40,17 @@ _WORKFLOW_LOCATIONS = [
     "_bmad/bmm/workflows/4-implementation",  # Implementation workflows
     "_bmad/bmm/workflows/testarch",  # TEA workflows
     "_bmad/bmm/workflows/3-solutioning",  # Solutioning workflows
+    "_bmad/bmm/workflows/testarch",  # Testarch module
+    "_bmad/bmm/workflows/qa",  # QA module (Beta)
     "_bmad/bmm/workflows",  # Generic workflows
     "_bmad/core/workflows",  # Core workflows
+    "_bmad/tea/workflows/testarch",  # TEA external module
+    "_bmad/sdet/workflows",  # SDET module
+    # Legacy structure (.bmad/)
+    ".bmad/bmm/workflows/4-implementation",  # Implementation workflows
+    ".bmad/bmm/workflows/3-solutioning",  # Solutioning workflows
+    ".bmad/bmm/workflows",  # Generic workflows
+    ".bmad/core/workflows",  # Core workflows
 ]
 
 # Mapping from workflow name to BMAD directory structure

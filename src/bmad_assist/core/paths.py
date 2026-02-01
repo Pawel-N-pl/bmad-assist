@@ -315,6 +315,7 @@ class ProjectPaths:
         """
         candidates = [
             self.sprint_status_file,  # New: implementation-artifacts/
+            self.planning_artifacts / "sprint-status.yaml",  # Beta default
             self.legacy_sprint_artifacts / "sprint-status.yaml",  # Legacy
             self.project_knowledge / "sprint-status.yaml",  # Legacy (direct)
         ]

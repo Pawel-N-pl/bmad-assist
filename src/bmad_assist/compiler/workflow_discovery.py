@@ -37,6 +37,8 @@ STANDARD_WORKFLOWS = {
     "testarch-framework",
     "testarch-nfr-assess",
     "testarch-test-design",
+    # QA module (Beta)
+    "qa-automate",
 }
 
 # Search locations for user's BMAD installation (checked in order)
@@ -44,6 +46,9 @@ STANDARD_WORKFLOWS = {
 BMAD_SEARCH_PATHS = [
     "_bmad/bmm/workflows/4-implementation",
     "_bmad/bmm/workflows/testarch",
+    "_bmad/bmm/workflows/qa",              # Beta QA automate (SDET)
+    "_bmad/tea/workflows/testarch",        # TEA external module
+    "_bmad/sdet/workflows",                # Future SDET module
 ]
 
 # Mapping from workflow name to BMAD directory structure
@@ -57,6 +62,7 @@ WORKFLOW_TO_BMAD_DIR = {
     "testarch-framework": "framework",
     "testarch-nfr-assess": "nfr-assess",
     "testarch-test-design": "test-design",
+    "qa-automate": "automate",  # Beta QA automate workflow
 }
 
 

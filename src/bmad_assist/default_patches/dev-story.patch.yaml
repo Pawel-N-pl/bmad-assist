@@ -14,7 +14,7 @@ patch:
   description: "Removes interactivity from dev-story for bmad-assist automation - Master LLM implements story with READ+WRITE permission"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "dev-story"
   # NOTE: dev-story has 10 steps in instructions.xml
   # Steps 1, 4, 10 are removed (discovery, sprint-status, user comms)

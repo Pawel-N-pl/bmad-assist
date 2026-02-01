@@ -5,7 +5,7 @@ patch:
   description: "Enhance QA plan generation with strict selector usage and project context"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "qa-plan-generate"
 
 # No transforms needed - CRITICAL Output Requirements are in instructions.md

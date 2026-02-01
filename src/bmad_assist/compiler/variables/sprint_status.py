@@ -61,6 +61,7 @@ def _resolve_sprint_status(
     # Legacy fallback for compiler-only usage (check multiple locations)
     fallback_locations = [
         context.project_root / "_bmad-output" / "implementation-artifacts" / "sprint-status.yaml",
+        context.project_root / "_bmad-output" / "planning-artifacts" / "sprint-status.yaml",  # Beta default
         context.project_root / "docs" / "sprint-status.yaml",
         context.project_root / "docs" / "sprint-artifacts" / "sprint-status.yaml",
     ]

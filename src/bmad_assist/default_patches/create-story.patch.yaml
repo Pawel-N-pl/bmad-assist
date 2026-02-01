@@ -5,7 +5,7 @@ patch:
   description: "Optimizes create-story workflow - removes programmatically handled steps, embeds all context"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "create-story"
 
 git_intelligence:

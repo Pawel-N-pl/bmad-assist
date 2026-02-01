@@ -9,7 +9,7 @@ patch:
   description: "Transforms retrospective from interactive party-mode to automated single-output workflow with extraction markers"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "retrospective"
 
 transforms:

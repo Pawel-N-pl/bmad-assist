@@ -5,7 +5,7 @@ patch:
   description: "Strip interactivity for automated/CI execution"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "qa-plan-execute"
 
 # Conditions for patch application

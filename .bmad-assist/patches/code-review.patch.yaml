@@ -5,7 +5,7 @@ patch:
   description: "Optimizes code-review workflow for Multi-LLM automation - removes interactive steps, produces code review report to stdout only"
 
 compatibility:
-  bmad_version: "6.0.0-alpha.22"
+  bmad_version: ">=6.0.0-alpha.22"
   workflow: "code-review"
   # NOTE: This patch is compatible with the 5-step code-review workflow
   # Steps: 1 (file discovery), 2 (attack plan), 3 (adversarial review),
