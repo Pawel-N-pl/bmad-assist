@@ -16,6 +16,13 @@ from bmad_assist.testarch.config import (
     PreflightConfig,
     TestarchConfig,
 )
+from bmad_assist.testarch.core import (
+    CIPlatform,
+    ReviewScope,
+    TEAVariableResolver,
+    detect_ci_platform,
+    resolve_review_scope,
+)
 from bmad_assist.testarch.eligibility import (
     API_KEYWORDS,
     SKIP_KEYWORDS,
@@ -24,16 +31,10 @@ from bmad_assist.testarch.eligibility import (
     ATDDEligibilityResult,
     KeywordScorer,
 )
-from bmad_assist.testarch.knowledge import (
-    KnowledgeBaseLoader,
-    KnowledgeFragment,
-    KnowledgeIndex,
-    get_knowledge_loader,
-)
-from bmad_assist.testarch.preflight import (
-    PreflightChecker,
-    PreflightResult,
-    PreflightStatus,
+from bmad_assist.testarch.engagement import (
+    STANDALONE_WORKFLOWS,
+    WORKFLOW_MODE_FIELDS,
+    should_run_workflow,
 )
 from bmad_assist.testarch.evidence import (
     CoverageEvidence,
@@ -46,17 +47,16 @@ from bmad_assist.testarch.evidence import (
     TestResultsEvidence,
     get_evidence_collector,
 )
-from bmad_assist.testarch.core import (
-    CIPlatform,
-    ReviewScope,
-    TEAVariableResolver,
-    detect_ci_platform,
-    resolve_review_scope,
+from bmad_assist.testarch.knowledge import (
+    KnowledgeBaseLoader,
+    KnowledgeFragment,
+    KnowledgeIndex,
+    get_knowledge_loader,
 )
-from bmad_assist.testarch.engagement import (
-    STANDALONE_WORKFLOWS,
-    WORKFLOW_MODE_FIELDS,
-    should_run_workflow,
+from bmad_assist.testarch.preflight import (
+    PreflightChecker,
+    PreflightResult,
+    PreflightStatus,
 )
 from bmad_assist.testarch.standalone import StandaloneRunner
 

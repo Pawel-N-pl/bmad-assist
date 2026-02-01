@@ -70,7 +70,7 @@ ARTIFACT_PATTERNS: dict[str, list[str]] = {
 
 # Valid artifact types (for config validation) - exclude internal test-design-system
 VALID_ARTIFACT_TYPES: frozenset[str] = frozenset(
-    k for k in ARTIFACT_CONFIGS.keys() if k != "test-design-system"
+    k for k in ARTIFACT_CONFIGS if k != "test-design-system"
 )
 
 # Legacy constant (deprecated, kept for backward compatibility)

@@ -560,7 +560,7 @@ class TestarchConfig(BaseModel):
     )
 
     # TEA Context Loader configuration (Story TEA Context Loader)
-    context: "TEAContextConfig | None" = Field(
+    context: TEAContextConfig | None = Field(
         default=None,
         description="TEA context loader configuration for artifact injection",
     )

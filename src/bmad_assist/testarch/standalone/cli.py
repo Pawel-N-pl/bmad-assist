@@ -44,7 +44,7 @@ def _get_runner(
     output_dir: Path | None,
     evidence_output: Path | None,
     provider: str | None,
-) -> "StandaloneRunner":
+) -> StandaloneRunner:
     """Create StandaloneRunner with validated paths.
 
     Args:
@@ -162,6 +162,7 @@ def framework_command(
         $ bmad-assist tea framework                    # Current directory
         $ bmad-assist tea framework -r ./my-project   # Specific project
         $ bmad-assist tea framework --dry-run         # Preview only
+
     """
     _setup_logging(verbose=verbose, quiet=False)
 
@@ -254,6 +255,7 @@ def ci_command(
         $ bmad-assist tea ci                          # Auto-detect platform
         $ bmad-assist tea ci --ci-platform github     # Force GitHub Actions
         $ bmad-assist tea ci -r ./my-project -d       # Dry-run for project
+
     """
     _setup_logging(verbose=verbose, quiet=False)
 
@@ -354,6 +356,7 @@ def test_design_command(
         $ bmad-assist tea test-design                     # System level (default)
         $ bmad-assist tea test-design --level epic        # Epic level
         $ bmad-assist tea test-design -r ./project -d     # Dry-run
+
     """
     _setup_logging(verbose=verbose, quiet=False)
 
@@ -458,6 +461,7 @@ def automate_command(
         $ bmad-assist tea automate                         # Analyze full codebase
         $ bmad-assist tea automate --component auth        # Focus on auth module
         $ bmad-assist tea automate -r ./project -d         # Dry-run
+
     """
     _setup_logging(verbose=verbose, quiet=False)
 
@@ -563,6 +567,7 @@ def nfr_assess_command(
         $ bmad-assist tea nfr-assess                       # Assess all categories
         $ bmad-assist tea nfr-assess --category security   # Security only
         $ bmad-assist tea nfr-assess -r ./project -d       # Dry-run
+
     """
     _setup_logging(verbose=verbose, quiet=False)
 

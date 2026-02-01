@@ -22,10 +22,18 @@ if TYPE_CHECKING:
     )
     from bmad_assist.core.loop.handlers.create_story import CreateStoryHandler as CreateStoryHandler
     from bmad_assist.core.loop.handlers.dev_story import DevStoryHandler as DevStoryHandler
-    from bmad_assist.core.loop.handlers.qa_plan_execute import QaPlanExecuteHandler as QaPlanExecuteHandler
-    from bmad_assist.core.loop.handlers.qa_plan_generate import QaPlanGenerateHandler as QaPlanGenerateHandler
-    from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler as RetrospectiveHandler
-    from bmad_assist.core.loop.handlers.validate_story import ValidateStoryHandler as ValidateStoryHandler
+    from bmad_assist.core.loop.handlers.qa_plan_execute import (
+        QaPlanExecuteHandler as QaPlanExecuteHandler,
+    )
+    from bmad_assist.core.loop.handlers.qa_plan_generate import (
+        QaPlanGenerateHandler as QaPlanGenerateHandler,
+    )
+    from bmad_assist.core.loop.handlers.retrospective import (
+        RetrospectiveHandler as RetrospectiveHandler,
+    )
+    from bmad_assist.core.loop.handlers.validate_story import (
+        ValidateStoryHandler as ValidateStoryHandler,
+    )
     from bmad_assist.core.loop.handlers.validate_story_synthesis import (
         ValidateStorySynthesisHandler as ValidateStorySynthesisHandler,
     )

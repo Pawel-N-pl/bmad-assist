@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from bmad_assist.compiler.shared_utils import (
-    find_project_context_file,
     safe_read_file,
 )
 from bmad_assist.compiler.types import CompilerContext, WorkflowIR

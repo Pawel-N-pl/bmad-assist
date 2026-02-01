@@ -54,9 +54,9 @@ from bmad_assist.core.config.loop_config import (
 from bmad_assist.core.config.models import (
     ALL_KNOWN_PHASES,
     DEFAULT_LOOP_CONFIG,
-    TEA_FULL_LOOP_CONFIG,
     MULTI_LLM_PHASES,
     SINGLE_LLM_PHASES,
+    TEA_FULL_LOOP_CONFIG,
     BenchmarkingConfig,
     BmadPathsConfig,
     CompilerConfig,

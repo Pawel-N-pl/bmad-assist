@@ -13,10 +13,11 @@ import logging
 import os
 import tempfile
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
 
@@ -143,7 +144,7 @@ class StandaloneRunner:
     def _create_standalone_config(
         self,
         testarch_overrides: dict[str, Any] | None = None,
-    ) -> "Config":
+    ) -> Config:
         """Create minimal Config for standalone execution.
 
         Attempts to load existing bmad-assist.yaml for provider settings.
@@ -239,7 +240,7 @@ class StandaloneRunner:
             testarch=TestarchConfig(**base_testarch),
         )
 
-    def _create_standalone_state(self) -> "State":
+    def _create_standalone_state(self) -> State:
         """Create minimal State for standalone execution.
 
         State is NOT persisted - exists only during workflow execution.

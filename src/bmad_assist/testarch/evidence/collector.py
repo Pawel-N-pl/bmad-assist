@@ -37,11 +37,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Singleton storage for collectors (per project root)
-_collectors: dict[Path, "EvidenceContextCollector"] = {}
+_collectors: dict[Path, EvidenceContextCollector] = {}
 _collector_lock = Lock()
 
 
-def get_evidence_collector(project_root: Path) -> "EvidenceContextCollector":
+def get_evidence_collector(project_root: Path) -> EvidenceContextCollector:
     """Get or create collector for project root (singleton per root).
 
     Thread-safe: Uses lock to prevent race conditions on concurrent access.

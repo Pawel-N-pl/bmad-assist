@@ -145,7 +145,7 @@ def __getattr__(name: str) -> type[Any]:
         module = importlib.import_module(_lazy_imports[name], __package__)
         # ClaudeProvider is an alias for ClaudeSDKProvider
         if name == "ClaudeProvider":
-            cls: type[Any] = getattr(module, "ClaudeSDKProvider")
+            cls: type[Any] = module.ClaudeSDKProvider
             return cls
         cls = getattr(module, name)
         return cls

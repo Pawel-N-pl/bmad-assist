@@ -51,7 +51,7 @@ WORKFLOW_MODE_FIELDS: dict[str, str] = {
 
 def should_run_workflow(
     workflow_id: str,
-    config: "TestarchConfig | None",
+    config: TestarchConfig | None,
 ) -> bool:
     """Determine if a TEA workflow should run based on engagement model.
 

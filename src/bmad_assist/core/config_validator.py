@@ -15,6 +15,7 @@ Example:
     >>> results = validate_config_file(Path("bmad-assist.yaml"))
     >>> for r in results:
     ...     print(f"[{r.status.upper()}] {r.message}")
+
 """
 
 import logging

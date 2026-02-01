@@ -1,7 +1,8 @@
 """Async utility functions shared across modules."""
 
 import asyncio
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 
 async def delayed_invoke(delay: float, coro: Coroutine[Any, Any, Any]) -> Any:

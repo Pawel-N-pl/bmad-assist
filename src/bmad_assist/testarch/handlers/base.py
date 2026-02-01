@@ -33,10 +33,10 @@ from bmad_assist.core.state import State
 from bmad_assist.providers.base import ProviderResult
 
 if TYPE_CHECKING:
+    from bmad_assist.compiler.types import CompiledWorkflow
     from bmad_assist.core.config import Config
     from bmad_assist.testarch.config import EvidenceConfig, KnowledgeConfig
     from bmad_assist.testarch.evidence.models import EvidenceContext
-    from bmad_assist.compiler.types import CompiledWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class TestarchBaseHandler(BaseHandler):
     # Evidence Collection Methods
     # =========================================================================
 
-    def _get_evidence_config(self) -> "EvidenceConfig | None":
+    def _get_evidence_config(self) -> EvidenceConfig | None:
         """Get evidence configuration from testarch config.
 
         Returns:
@@ -159,7 +159,7 @@ class TestarchBaseHandler(BaseHandler):
             return False
         return evidence_config.enabled and evidence_config.collect_before_step
 
-    def _collect_evidence(self) -> "EvidenceContext":
+    def _collect_evidence(self) -> EvidenceContext:
         """Collect evidence using EvidenceContextCollector.
 
         Returns:
@@ -193,7 +193,7 @@ class TestarchBaseHandler(BaseHandler):
 
     def _save_evidence(
         self,
-        evidence: "EvidenceContext",
+        evidence: EvidenceContext,
         story_id: str,
     ) -> Path | None:
         """Save collected evidence to configured storage path.
@@ -237,7 +237,7 @@ class TestarchBaseHandler(BaseHandler):
     # Knowledge Loading Methods
     # =========================================================================
 
-    def _get_knowledge_config(self) -> "KnowledgeConfig | None":
+    def _get_knowledge_config(self) -> KnowledgeConfig | None:
         """Get knowledge configuration from testarch config.
 
         Returns:
@@ -534,7 +534,7 @@ class TestarchBaseHandler(BaseHandler):
         self,
         workflow_name: str,
         state: State,
-    ) -> "CompiledWorkflow":
+    ) -> CompiledWorkflow:
         """Compile workflow with proper context.
 
         Args:
@@ -569,7 +569,7 @@ class TestarchBaseHandler(BaseHandler):
 
     def _invoke_workflow(
         self,
-        compiled: "CompiledWorkflow",
+        compiled: CompiledWorkflow,
         timeout: int | None = None,
     ) -> ProviderResult | PhaseResult:
         """Invoke master provider with compiled workflow.
@@ -680,7 +680,7 @@ class TestarchBaseHandler(BaseHandler):
                 save_prompt(
                     self.project_path, epic, story_num_for_save, self.phase_name, compiled.context
                 )
-            except (OSError, IOError) as e:
+            except OSError as e:
                 logger.warning("Failed to save prompt (continuing): %s", e)
 
             # 3. Invoke provider

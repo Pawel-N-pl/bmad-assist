@@ -8,6 +8,7 @@ Example:
     $ bmad-assist config wizard
     $ bmad-assist config verify
     $ bmad-assist config verify --config ~/my-project/bmad-assist.yaml
+
 """
 
 import logging

@@ -88,7 +88,7 @@ class KnowledgeBaseLoader:
         self._project_root = project_root.resolve()
         self._cache = FragmentCache()
         self._index: KnowledgeIndex | None = None
-        self._config: "KnowledgeConfig | None" = None
+        self._config: KnowledgeConfig | None = None
 
     def configure(self, config: "KnowledgeConfig | None") -> None:
         """Configure the loader with KnowledgeConfig.
@@ -482,9 +482,8 @@ class KnowledgeBaseLoader:
         # Build exclude tags based on flags (AC6)
         # Config-based exclusions are handled by load_by_ids
         exclude_tags: list[str] = []
-        if tea_flags:
-            if not tea_flags.get("tea_use_playwright_utils", True):
-                exclude_tags.append("playwright-utils")
+        if tea_flags and not tea_flags.get("tea_use_playwright_utils", True):
+            exclude_tags.append("playwright-utils")
 
         return self.load_by_ids(fragment_ids, exclude_tags=exclude_tags)
 

@@ -44,6 +44,7 @@ def mask_url(url: str | None, prefix_length: int = URL_PREFIX_LENGTH) -> str:
         'http://x.co/***'
         >>> mask_url(None)
         '(not configured)'
+
     """
     if not url:
         return "(not configured)"
@@ -89,6 +90,7 @@ def mask_token(token: str | None, prefix_length: int = TOKEN_PREFIX_LENGTH) -> s
         '12345***'
         >>> mask_token(None)
         '(not configured)'
+
     """
     if not token:
         return "(not configured)"

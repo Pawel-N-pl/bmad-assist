@@ -36,10 +36,6 @@ Example:
 from .base import NotificationProvider
 from .config import NotificationConfig, ProviderConfigItem
 from .discord import DiscordProvider
-# Internal utilities - not part of public API (not in __all__)
-# Underscore prefix signals these are private implementation details
-from .masking import mask_token as _mask_token
-from .masking import mask_url as _mask_url
 from .dispatcher import EventDispatcher, get_dispatcher, init_dispatcher, reset_dispatcher
 from .events import (
     HIGH_PRIORITY_EVENTS,

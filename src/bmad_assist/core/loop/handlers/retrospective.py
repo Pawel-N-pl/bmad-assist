@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from bmad_assist.core.loop.handlers.base import BaseHandler
@@ -26,7 +25,7 @@ from bmad_assist.core.state import State
 from bmad_assist.retrospective import extract_retrospective_report, save_retrospective_report
 
 if TYPE_CHECKING:
-    from bmad_assist.core.config import Config
+    pass
 
 logger = logging.getLogger(__name__)
 
