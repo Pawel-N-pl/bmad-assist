@@ -9,6 +9,7 @@ Default Providers:
     - "claude-subprocess": ClaudeSubprocessProvider (benchmarking only)
     - "codex": CodexProvider (Codex CLI subprocess)
     - "gemini": GeminiProvider (Gemini CLI subprocess)
+    - "gemini-cloudcode": GeminiCloudCodeProvider (Cloud Code Assist API, uses OpenClaw OAuth)
 
 Example:
     >>> from bmad_assist.providers import get_provider, list_providers
@@ -53,6 +54,7 @@ def _init_default_providers() -> None:
     from bmad_assist.providers.copilot import CopilotProvider
     from bmad_assist.providers.cursor_agent import CursorAgentProvider
     from bmad_assist.providers.gemini import GeminiProvider
+    from bmad_assist.providers.gemini_cloudcode import GeminiCloudCodeProvider
     from bmad_assist.providers.kimi import KimiProvider
     from bmad_assist.providers.opencode import OpenCodeProvider
 
@@ -66,6 +68,7 @@ def _init_default_providers() -> None:
             "copilot": CopilotProvider,
             "cursor-agent": CursorAgentProvider,
             "gemini": GeminiProvider,
+            "gemini-cloudcode": GeminiCloudCodeProvider,
             "kimi": KimiProvider,
             "opencode": OpenCodeProvider,
         }
