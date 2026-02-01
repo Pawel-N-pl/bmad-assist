@@ -601,6 +601,7 @@ class TestCompileOutput:
 class TestCoreIntegration:
     """Tests for integration with core.py (AC7)."""
 
+    @pytest.mark.slow
     def test_compile_workflow_integration(self, tmp_project: Path) -> None:
         """compile_workflow('dev-story', context) works."""
         from bmad_assist.compiler.core import compile_workflow
