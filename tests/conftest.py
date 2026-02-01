@@ -123,6 +123,31 @@ providers:
 
 
 @pytest.fixture(autouse=True)
+def disable_patch_compilation(request):
+    """Skip patch compilation during tests to avoid LLM calls.
+
+    Patch compilation uses the Master LLM provider to transform workflows,
+    which is slow (~7s per attempt × 3 retries = 21s). Tests should use
+    original workflow files instead.
+
+    Tests that need real patch compilation can use:
+        @pytest.mark.real_patch_compilation
+    """
+    if request.node.get_closest_marker("real_patch_compilation"):
+        yield None
+        return
+
+    with patch("bmad_assist.compiler.patching.compiler.compile_patch") as mock:
+        # Return None to signal "use original files"
+        mock.side_effect = lambda *args, **kwargs: (_ for _ in ()).throw(
+            __import__("bmad_assist.core.exceptions", fromlist=["PatchError"]).PatchError(
+                "Patch compilation disabled in tests"
+            )
+        )
+        yield mock
+
+
+@pytest.fixture(autouse=True)
 def disable_debug_json_logger(request):
     """Globally disable DebugJsonLogger during tests.
 

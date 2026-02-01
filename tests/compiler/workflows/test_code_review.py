@@ -802,7 +802,6 @@ post_process:
 class TestRegistration:
     """Tests for compiler registration in registry."""
 
-    @pytest.mark.slow
     def test_compile_workflow_integration(self, tmp_project: Path) -> None:
         """compile_workflow('code-review', context) works."""
         from bmad_assist.compiler.core import compile_workflow
