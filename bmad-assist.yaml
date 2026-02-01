@@ -13,20 +13,23 @@ user_skill_level: expert              # expert to minimize LLM verbosity
 #   project_knowledge: /shared/docs/my-project    # PRD, architecture, epics
 #   output_folder: /data/bmad-output/my-project   # generated artifacts
 
-# Per-phase timeout configuration (seconds)
+# Per-phase timeout configuration (seconds), for larger projects increase timeouts
 timeouts:
-  default: 600
-  dev_story: 3600
-  code_review_synthesis: 900
-  retrospective: 900
+  default: 600                  # 10 m
+  validate_story_synthesis: 900 # 15 m
+  dev_story: 3600               # 1 h
+  code_review_synthesis: 1200   # 20 m
+  retrospective: 900            # 15 m
   
 providers:
+  # Default provider used for single-LLM phases when no phase_models specified
   master:
     provider: claude-subprocess
     model: opus
-    # model_name: glm-4.7
-    # settings: ~/.claude/glm.json
+    model_name: glm-4.7
+    settings: ~/.claude/glm.json
 
+  # Helper model for simple and fast tasks
   helper:
     provider: claude-subprocess
     model: haiku
@@ -127,16 +130,17 @@ phase_models:
       model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
-    - provider: gemini
-      model: gemini-2.5-flash-lite
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     - provider: claude-subprocess
       model: opus
       model_name: glm-4.7
       settings: ~/.claude/glm.json
-    - provider: claude-subprocess
-      model: opus
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+    # - provider: claude-subprocess
+    #   model: opus
+    #   model_name: glm-4.7
+    #   settings: ~/.claude/glm.json
 
   # Same for code_review - full control over reviewer list
   code_review:
@@ -148,16 +152,17 @@ phase_models:
       model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
-    - provider: gemini
-      model: gemini-2.5-flash-lite
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     - provider: claude-subprocess
       model: opus
       model_name: glm-4.7
       settings: ~/.claude/glm.json
-    - provider: claude-subprocess
-      model: opus
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+    # - provider: claude-subprocess
+    #   model: opus
+    #   model_name: glm-4.7
+    #   settings: ~/.claude/glm.json
 
 
 # Compiler configuration
@@ -215,6 +220,48 @@ compiler:
 
 benchmarking:
   enabled: true
+
+# Loop configuration - full TEA Enterprise integration
+loop:
+  epic_setup:
+    - tea_framework           # Initialize Playwright/Cypress (once per epic)
+    - tea_ci                  # Scaffold CI pipeline
+    - tea_test_design         # Generate system/epic test design
+  story:
+    - create_story
+    - validate_story
+    - validate_story_synthesis
+    - atdd                    # Generate ATDD checklist before implementation
+    - dev_story
+    - code_review
+    - code_review_synthesis
+    - test_review             # Review test quality after code review
+  epic_teardown:
+    - trace                   # Generate traceability matrix
+    - tea_nfr_assess          # NFR assessment before release
+    - retrospective
+
+# TEA (Test Architect Enterprise) configuration
+testarch:
+  enabled: false                  # Set to true to enable TEA functionality
+  engagement_model: auto          # off | lite | solo | integrated | auto
+  atdd_mode: auto                 # off | auto | on
+
+  # TEA Context Loader - injects TEA artifacts into workflow prompts
+  context:
+    enabled: true
+    budget: 10000                  # Total token budget for TEA artifacts
+    max_tokens_per_artifact: 4000
+    max_files_per_resolver: 10    # For ATDD (multiple checklist files)
+    workflows:
+      dev_story:
+        include: [test-design, atdd]
+      code_review:
+        include: [test-design]
+      code_review_synthesis:
+        include: [test-review]
+      retrospective:
+        include: [trace]
 
 notifications:
   enabled: true

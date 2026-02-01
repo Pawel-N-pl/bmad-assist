@@ -15,36 +15,25 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from bmad_assist.compiler.filtering import filter_instructions
-from bmad_assist.compiler.output import generate_output
-from bmad_assist.compiler.shared_utils import (
-    apply_post_process,
-    context_snapshot,
-    find_project_context_file,
-    get_stories_dir,
-    load_workflow_template,
-    safe_read_file,
-)
-from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, WorkflowIR
-from bmad_assist.compiler.variable_utils import substitute_variables
+from bmad_assist.compiler.shared_utils import safe_read_file
+from bmad_assist.compiler.types import CompilerContext, WorkflowIR
+from bmad_assist.compiler.workflows.testarch_base import TestarchTriModalCompiler
 from bmad_assist.core.exceptions import CompilerError
 
 logger = logging.getLogger(__name__)
 
-# Workflow path relative to project root (testarch uses different path)
-_TESTARCH_ATDD_PATH = "_bmad/bmm/workflows/testarch/atdd"
 
-
-class TestarchAtddCompiler:
+class TestarchAtddCompiler(TestarchTriModalCompiler):
     """Compiler for the testarch-atdd workflow.
 
-    Implements the WorkflowCompiler protocol to compile the testarch-atdd
-    workflow into a standalone prompt. The ATDD workflow generates failing
-    acceptance tests before implementation.
+    Extends TestarchTriModalCompiler to add ATDD-specific features:
+    - test-design-epic file inclusion in context
+    - test_dir variable resolution from workflow.yaml
 
     Context embedding follows recency-bias ordering:
     1. project_context.md (general)
-    2. story file (specific - most relevant for ATDD)
+    2. test-design-epic (P0/P1/P2 priorities)
+    3. story file (specific - most relevant for ATDD)
 
     """
 
@@ -53,63 +42,21 @@ class TestarchAtddCompiler:
         """Unique workflow identifier."""
         return "testarch-atdd"
 
-    def get_required_files(self) -> list[str]:
-        """Return list of required file glob patterns.
-
-        Returns:
-            Glob patterns for files needed by testarch-atdd workflow.
-
-        """
-        return [
-            "**/project_context.md",
-            "**/project-context.md",
-        ]
-
     def get_variables(self) -> dict[str, Any]:
-        """Return workflow-specific variables to resolve.
+        """Return ATDD-specific variables.
 
         Returns:
             Variables needed for testarch-atdd compilation.
 
         """
-        return {
-            "epic_num": None,
-            "story_num": None,
-            "story_id": None,
-            "story_file": None,
-            "test_dir": None,  # From workflow.yaml variables
-            "date": None,
-        }
-
-    def get_workflow_dir(self, context: CompilerContext) -> Path:
-        """Return the workflow directory for this compiler.
-
-        Uses workflow discovery for testarch-atdd.
-
-        Args:
-            context: The compilation context with project paths.
-
-        Returns:
-            Path to the workflow directory containing workflow.yaml.
-
-        Raises:
-            CompilerError: If workflow directory not found.
-
-        """
-        from bmad_assist.compiler.workflow_discovery import (
-            discover_workflow_dir,
-            get_workflow_not_found_message,
-        )
-
-        workflow_dir = discover_workflow_dir(self.workflow_name, context.project_root)
-        if workflow_dir is None:
-            raise CompilerError(
-                get_workflow_not_found_message(self.workflow_name, context.project_root)
-            )
-        return workflow_dir
+        base_vars = super().get_variables()
+        base_vars["test_dir"] = None  # From workflow.yaml variables
+        return base_vars
 
     def validate_context(self, context: CompilerContext) -> None:
         """Validate context before compilation.
+
+        ATDD requires story_num (story-level workflow).
 
         Args:
             context: The compilation context to validate.
@@ -118,190 +65,47 @@ class TestarchAtddCompiler:
             CompilerError: If required context is missing.
 
         """
-        if context.project_root is None:
-            raise CompilerError("project_root is required in context")
-        if context.output_folder is None:
-            raise CompilerError("output_folder is required in context")
+        # Call parent validation first
+        super().validate_context(context)
 
-        epic_num = context.resolved_variables.get("epic_num")
+        # ATDD requires story_num (it's a story-level workflow)
         story_num = context.resolved_variables.get("story_num")
-
-        if epic_num is None:
-            raise CompilerError(
-                "epic_num is required for testarch-atdd compilation.\n"
-                "  Suggestion: Provide epic_num via invocation params"
-            )
         if story_num is None:
             raise CompilerError(
                 "story_num is required for testarch-atdd compilation.\n"
                 "  Suggestion: Provide story_num via invocation params"
             )
 
-        # Validate story file exists
-        story_path = self._find_story_file(context, epic_num, story_num)
-        if story_path is None:
-            raise CompilerError(
-                f"Story file not found for {epic_num}-{story_num}-*.md\n"
-                f"  Suggestion: Ensure story file exists in stories directory"
-            )
-
-        # Workflow directory is validated by get_workflow_dir via discovery
-        workflow_dir = self.get_workflow_dir(context)
-        if not workflow_dir.exists():
-            raise CompilerError(
-                f"Workflow directory not found: {workflow_dir}\n"
-                f"  Why it's needed: Contains workflow.yaml and instructions.md\n"
-                f"  How to fix: Reinstall bmad-assist or ensure BMAD is properly installed"
-            )
-
-    def compile(self, context: CompilerContext) -> CompiledWorkflow:
-        """Compile testarch-atdd workflow with given context.
-
-        Executes the full compilation pipeline:
-        1. Use pre-loaded workflow_ir from context
-        2. Build context files with story and project context
-        3. Resolve variables including test_dir from workflow.yaml
-        4. Filter instructions
-        5. Generate XML output
-
-        Args:
-            context: The compilation context with:
-                - workflow_ir: Pre-loaded WorkflowIR
-                - patch_path: Path to patch file (for post_process)
-
-        Returns:
-            CompiledWorkflow ready for output.
-
-        Raises:
-            CompilerError: If compilation fails at any stage.
-
-        """
-        workflow_ir = context.workflow_ir
-        if workflow_ir is None:
-            raise CompilerError(
-                "workflow_ir not set in context. This is a bug - core.py should have loaded it."
-            )
-
-        workflow_dir = self.get_workflow_dir(context)
-
-        with context_snapshot(context):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Using testarch-atdd workflow from %s", workflow_dir)
-
-            # Build resolved variables
-            resolved = dict(context.resolved_variables)
-
-            epic_num = resolved.get("epic_num")
-            story_num = resolved.get("story_num")
-
-            # Compute story_id
-            resolved["story_id"] = f"{epic_num}.{story_num}"
-
-            # Find and add story file path
-            story_path = self._find_story_file(context, epic_num, story_num)
-            if story_path:
-                resolved["story_file"] = str(story_path)
-
-            # Resolve test_dir from workflow.yaml variables
-            workflow_vars = workflow_ir.raw_config.get("variables", {})
-            test_dir = workflow_vars.get("test_dir", "{project-root}/tests")
-            test_dir = test_dir.replace("{project-root}", str(context.project_root))
-            resolved["test_dir"] = test_dir
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Resolved %d variables", len(resolved))
-
-            # Build context files
-            context_files = self._build_context_files(context, resolved)
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Built context with %d files", len(context_files))
-
-            # Load template if defined
-            template_content = load_workflow_template(workflow_ir, context)
-
-            # Filter instructions
-            filtered_instructions = filter_instructions(workflow_ir)
-            filtered_instructions = substitute_variables(filtered_instructions, resolved)
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Filtered instructions: %d bytes", len(filtered_instructions))
-
-            # Build mission
-            mission = self._build_mission(workflow_ir, resolved)
-
-            # Generate output
-            compiled = CompiledWorkflow(
-                workflow_name=self.workflow_name,
-                mission=mission,
-                context="",
-                variables=resolved,
-                instructions=filtered_instructions,
-                output_template=template_content,
-                token_estimate=0,
-            )
-
-            result = generate_output(
-                compiled,
-                project_root=context.project_root,
-                context_files=context_files,
-                links_only=context.links_only,
-            )
-
-            # Apply post_process rules if patch exists
-            final_xml = apply_post_process(result.xml, context)
-
-            return CompiledWorkflow(
-                workflow_name=self.workflow_name,
-                mission=mission,
-                context=final_xml,
-                variables=resolved,
-                instructions=filtered_instructions,
-                output_template=template_content,
-                token_estimate=result.token_estimate,
-            )
-
-    def _find_story_file(
+    def _get_workflow_specific_variables(
         self,
+        resolved: dict[str, Any],
         context: CompilerContext,
-        epic_num: Any,
-        story_num: Any,
-    ) -> Path | None:
-        """Find story file by epic and story number.
+        workflow_ir: WorkflowIR,
+    ) -> None:
+        """Add ATDD-specific variables.
+
+        Resolves test_dir from workflow.yaml variables section.
 
         Args:
-            context: Compilation context with paths.
-            epic_num: Epic number.
-            story_num: Story number.
-
-        Returns:
-            Path to story file or None if not found.
+            resolved: Resolved variables dict (modified in place).
+            context: Compilation context.
+            workflow_ir: Workflow IR.
 
         """
-        stories_dir = get_stories_dir(context)
-        if not stories_dir.exists():
-            return None
-
-        pattern = f"{epic_num}-{story_num}-*.md"
-        matches = sorted(stories_dir.glob(pattern))
-
-        if not matches:
-            logger.debug("No story file found matching %s in %s", pattern, stories_dir)
-            return None
-
-        return matches[0]
+        # Resolve test_dir from workflow.yaml variables
+        workflow_vars = workflow_ir.raw_config.get("variables", {})
+        test_dir = workflow_vars.get("test_dir", "{project-root}/tests")
+        test_dir = test_dir.replace("{project-root}", str(context.project_root))
+        resolved["test_dir"] = test_dir
 
     def _build_context_files(
         self,
         context: CompilerContext,
         resolved: dict[str, Any],
     ) -> dict[str, str]:
-        """Build context files dict with recency-bias ordering.
+        """Build context files with ATDD-specific additions.
 
-        For ATDD workflow:
-        1. project_context.md (general rules)
-        2. test-design-epic (P0/P1/P2 priorities from test-design workflow)
-        3. story file (most relevant - contains AC for test generation)
+        Adds test-design-epic file to base context for P0/P1/P2 priorities.
 
         Args:
             context: Compilation context with paths.
@@ -311,34 +115,19 @@ class TestarchAtddCompiler:
             Dictionary mapping file paths to content.
 
         """
-        files: dict[str, str] = {}
-        project_root = context.project_root
+        # Get base context files (project_context + story file)
+        files = super()._build_context_files(context, resolved)
 
-        # 1. Project context (general)
-        project_context_path = find_project_context_file(context)
-        if project_context_path:
-            content = safe_read_file(project_context_path, project_root)
-            if content:
-                files[str(project_context_path)] = content
-
-        # 2. test-design-epic (if exists) - provides P0/P1/P2 test priorities
+        # Add test-design-epic if exists (P0/P1/P2 test priorities)
         epic_num = resolved.get("epic_num")
         if epic_num:
             test_design_pattern = f"*test-design-epic*{epic_num}*.md"
             test_design_path = self._find_test_design_file(context, test_design_pattern)
             if test_design_path:
-                content = safe_read_file(test_design_path, project_root)
+                content = safe_read_file(test_design_path, context.project_root)
                 if content:
                     files[str(test_design_path)] = content
                     logger.debug("Embedded test-design-epic: %s", test_design_path)
-
-        # 3. Story file (most relevant for ATDD)
-        story_file_path = resolved.get("story_file")
-        if story_file_path:
-            story_path = Path(story_file_path)
-            content = safe_read_file(story_path, project_root)
-            if content:
-                files[str(story_path)] = content
 
         return files
 
@@ -370,32 +159,3 @@ class TestarchAtddCompiler:
                     return matches[0]
 
         return None
-
-    def _build_mission(
-        self,
-        workflow_ir: WorkflowIR,
-        resolved: dict[str, Any],
-    ) -> str:
-        """Build mission description for compiled workflow.
-
-        Args:
-            workflow_ir: Workflow IR with description.
-            resolved: Resolved variables.
-
-        Returns:
-            Mission description string.
-
-        """
-        base_description = workflow_ir.raw_config.get(
-            "description", "Generate failing acceptance tests before implementation"
-        )
-
-        story_id = resolved.get("story_id", "?")
-
-        mission = (
-            f"{base_description}\n\n"
-            f"Target: Story {story_id}\n"
-            f"Generate acceptance tests based on story acceptance criteria."
-        )
-
-        return mission

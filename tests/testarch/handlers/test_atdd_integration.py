@@ -47,17 +47,17 @@ class TestATDDHandlerInvokeWorkflow:
         workflow_yaml = workflow_dir / "workflow.yaml"
         workflow_yaml.write_text("""
 name: testarch-atdd
-description: "Generate failing acceptance tests before implementation"
-instructions: "{installed_path}/instructions.xml"
-template: "{installed_path}/atdd-checklist-template.md"
+description: \"Generate failing acceptance tests before implementation\"
+instructions: \"{installed_path}/instructions.xml\"
+template: \"{installed_path}/atdd-checklist-template.md\"
 variables:
-  test_dir: "{project-root}/tests"
-default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
+  test_dir: \"{project-root}/tests\"
+default_output_file: \"{output_folder}/atdd-checklist-{story_id}.md\"
 """)
 
         instructions = workflow_dir / "instructions.xml"
         instructions.write_text("""<workflow>
-<step n="1" goal="Analyze story acceptance criteria">
+<step n=\"1\" goal=\"Analyze story acceptance criteria\">
 <action>Read story file and extract acceptance criteria</action>
 </step>
 </workflow>""")
@@ -89,7 +89,8 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
         return tmp_path, state
 
     def test_invoke_atdd_workflow_calls_compiler(
-        self, setup_atdd_workflow: tuple[Path, State]
+        self,
+        setup_atdd_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_atdd_workflow calls compile_workflow."""
         project_path, state = setup_atdd_workflow
@@ -103,20 +104,28 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
 
         # Mock provider
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="ATDD tests generated successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.atdd.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ) as mock_compile,
-            patch("bmad_assist.testarch.handlers.atdd.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_atdd_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_atdd_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_atdd_workflow(state)
 
@@ -126,7 +135,8 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
             assert call_args[0][0] == "testarch-atdd"
 
     def test_invoke_atdd_workflow_calls_provider(
-        self, setup_atdd_workflow: tuple[Path, State]
+        self,
+        setup_atdd_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_atdd_workflow invokes master provider."""
         project_path, state = setup_atdd_workflow
@@ -138,22 +148,30 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
         mock_compiled.workflow_name = "testarch-atdd"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="ATDD tests generated successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.atdd.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
             patch(
-                "bmad_assist.testarch.handlers.atdd.get_provider", return_value=mock_provider
+                "bmad_assist.providers.get_provider", return_value=mock_provider
             ) as mock_get_provider,
-            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_paths,
+            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_atdd_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_atdd_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_atdd_workflow(state)
 
@@ -166,7 +184,8 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
             assert call_kwargs["model"] == "opus"
 
     def test_invoke_atdd_workflow_returns_phase_result(
-        self, setup_atdd_workflow: tuple[Path, State]
+        self,
+        setup_atdd_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_atdd_workflow returns PhaseResult."""
         project_path, state = setup_atdd_workflow
@@ -178,20 +197,28 @@ default_output_file: "{output_folder}/atdd-checklist-{story_id}.md"
         mock_compiled.workflow_name = "testarch-atdd"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="ATDD tests generated successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.atdd.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.atdd.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_atdd_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_atdd_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_atdd_workflow(state)
 
@@ -222,7 +249,8 @@ class TestATDDHandlerInvokeWorkflowErrorHandling:
         return tmp_path, state
 
     def test_invoke_atdd_workflow_handles_compiler_error(
-        self, setup_atdd_workflow: tuple[Path, State]
+        self,
+        setup_atdd_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_atdd_workflow handles CompilerError gracefully."""
         from bmad_assist.core.exceptions import CompilerError
@@ -233,20 +261,26 @@ class TestATDDHandlerInvokeWorkflowErrorHandling:
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.atdd.compile_workflow",
+                "bmad_assist.compiler.compile_workflow",
                 side_effect=CompilerError("Test compiler error"),
             ),
-            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_paths,
+            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_atdd_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_atdd_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_atdd_workflow(state)
 
             assert result.success is False
-            assert "compiler error" in result.error.lower() or "error" in result.error.lower()
+            assert result.error is not None
+            assert "error" in result.error.lower()
 
     def test_invoke_atdd_workflow_handles_provider_error(
-        self, setup_atdd_workflow: tuple[Path, State]
+        self,
+        setup_atdd_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_atdd_workflow handles provider error."""
         project_path, state = setup_atdd_workflow
@@ -257,25 +291,34 @@ class TestATDDHandlerInvokeWorkflowErrorHandling:
         mock_compiled.context = "<compiled-prompt>test</compiled-prompt>"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=1,
             stdout="",
             stderr="Provider execution failed",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.atdd.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.atdd.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.atdd.get_paths") as mock_atdd_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_atdd_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_atdd_workflow(state)
 
             assert result.success is False
-            assert "error" in result.error.lower() or "fail" in result.error.lower()
+            assert result.error is not None
+            assert "error" in result.error.lower()
 
 
 class TestATDDHandlerChecklistExtraction:

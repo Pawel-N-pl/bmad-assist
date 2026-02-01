@@ -13,8 +13,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from bmad_assist.core.loop.dispatch import execute_phase
+from bmad_assist.core.loop.helpers import _print_phase_banner
+from bmad_assist.core.loop.notifications import _dispatch_event
 from bmad_assist.core.loop.types import PhaseResult
-from bmad_assist.core.state import Phase, State, save_state, start_phase_timing
+from bmad_assist.core.state import (
+    Phase,
+    State,
+    get_phase_duration_ms,
+    save_state,
+    start_phase_timing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +35,7 @@ LoopState = State
 def _execute_epic_setup(
     state: LoopState,
     state_path: Path,
-    project_path: Path,  # noqa: ARG001 - reserved for future use
+    project_path: Path,
 ) -> tuple[LoopState, bool]:
     """Execute epic setup phases before first story.
 
@@ -78,9 +86,26 @@ def _execute_epic_setup(
         start_phase_timing(state)
         save_state(state, state_path)
 
+        # CLI Observability: Print phase banner (visible regardless of log level)
+        _print_phase_banner(
+            phase=phase_name,
+            epic=state.current_epic,
+            story=None,  # Epic setup phases don't have a story
+        )
+
         # Execute the setup phase
         logger.info("Executing epic setup phase: %s", phase_name)
         result = execute_phase(state)
+
+        # Dispatch phase_completed notification (regardless of success/failure)
+        phase_duration = get_phase_duration_ms(state)
+        _dispatch_event(
+            "phase_completed",
+            project_path,
+            state,
+            phase=phase_name,
+            duration_ms=phase_duration,
+        )
 
         if not result.success:
             # Setup failure - halt the loop (per ADR-001)
@@ -119,7 +144,7 @@ def _execute_epic_setup(
 def _execute_epic_teardown(
     state: LoopState,
     state_path: Path,
-    project_path: Path,  # noqa: ARG001 - reserved for future use
+    project_path: Path,
 ) -> tuple[LoopState, PhaseResult | None]:
     """Execute epic teardown phases after last story.
 
@@ -169,10 +194,27 @@ def _execute_epic_teardown(
         start_phase_timing(state)
         save_state(state, state_path)
 
+        # CLI Observability: Print phase banner (visible regardless of log level)
+        _print_phase_banner(
+            phase=phase_name,
+            epic=state.current_epic,
+            story=None,  # Epic teardown phases don't have a story
+        )
+
         # Execute the teardown phase
         logger.info("Executing epic teardown phase: %s", phase_name)
         result = execute_phase(state)
         last_result = result
+
+        # Dispatch phase_completed notification (regardless of success/failure)
+        phase_duration = get_phase_duration_ms(state)
+        _dispatch_event(
+            "phase_completed",
+            project_path,
+            state,
+            phase=phase_name,
+            duration_ms=phase_duration,
+        )
 
         if not result.success:
             # Teardown failure - log warning and CONTINUE (per ADR-002)

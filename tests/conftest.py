@@ -60,6 +60,24 @@ def reset_and_load_minimal_config(request):
     _reset_config()
 
 
+@pytest.fixture(autouse=True)
+def reset_loop_config_singleton():
+    """Reset loop config singleton to DEFAULT_LOOP_CONFIG before and after each test.
+
+    This ensures tests don't leak loop configuration between each other.
+    Without this, tests could pick up the project's bmad-assist.yaml loop config
+    which has TEA phases enabled.
+    """
+    from bmad_assist.core.config.loop_config import _reset_loop_config, set_loop_config
+    from bmad_assist.core.config.models.loop import DEFAULT_LOOP_CONFIG
+
+    _reset_loop_config()
+    # Explicitly set to DEFAULT to avoid loading from project bmad-assist.yaml
+    set_loop_config(DEFAULT_LOOP_CONFIG)
+    yield
+    _reset_loop_config()
+
+
 @pytest.fixture
 def init_test_paths(tmp_path):
     """Initialize paths singleton for a test with temp directory.

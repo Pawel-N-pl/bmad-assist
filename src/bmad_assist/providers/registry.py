@@ -23,6 +23,8 @@ Example:
 import logging
 from typing import TYPE_CHECKING
 
+# Import directly from exceptions module to avoid loading entire core package
+# which would trigger core/__init__.py -> run_loop -> heavy imports
 from bmad_assist.core.exceptions import ConfigError
 
 if TYPE_CHECKING:
@@ -51,6 +53,7 @@ def _init_default_providers() -> None:
     from bmad_assist.providers.copilot import CopilotProvider
     from bmad_assist.providers.cursor_agent import CursorAgentProvider
     from bmad_assist.providers.gemini import GeminiProvider
+    from bmad_assist.providers.kimi import KimiProvider
     from bmad_assist.providers.opencode import OpenCodeProvider
 
     # Use update() to preserve reference identity (not assignment)
@@ -63,6 +66,7 @@ def _init_default_providers() -> None:
             "copilot": CopilotProvider,
             "cursor-agent": CursorAgentProvider,
             "gemini": GeminiProvider,
+            "kimi": KimiProvider,
             "opencode": OpenCodeProvider,
         }
     )

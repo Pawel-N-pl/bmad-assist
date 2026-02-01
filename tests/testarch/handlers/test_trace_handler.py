@@ -34,9 +34,16 @@ def mock_config() -> MagicMock:
     """Create a mock Config with testarch settings."""
     config = MagicMock()
     config.testarch = MagicMock()
+    config.testarch.engagement_model = "auto"  # Allow workflows to run
     config.testarch.trace_on_epic_complete = "auto"
     config.benchmarking = MagicMock()
     config.benchmarking.enabled = False
+    
+    config.providers = MagicMock()
+    config.providers.master = MagicMock()
+    config.providers.master.provider = "claude"
+    config.providers.master.model = "opus"
+    config.timeout = 30
     return config
 
 
@@ -101,7 +108,10 @@ class TestTraceModeOff:
     """Test trace skipped when mode=off (AC #2)."""
 
     def test_run_skips_when_mode_off(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """run() skips with mode=off."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -121,7 +131,10 @@ class TestTraceModeNotConfigured:
     """Test trace skipped when testarch not configured (AC #9)."""
 
     def test_run_skips_when_not_configured(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """run() skips when testarch is None."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -141,7 +154,10 @@ class TestTraceModeOn:
     """Test trace always runs when mode=on (AC #2)."""
 
     def test_run_executes_when_mode_on(
-        self, mock_config: MagicMock, tmp_path: Path, state_without_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_without_atdd_ran: State
     ) -> None:
         """run() executes trace when mode=on, regardless of atdd_ran_in_epic."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -170,7 +186,10 @@ class TestTraceModeAuto:
     """Test trace in auto mode checks atdd_ran_in_epic (AC #2)."""
 
     def test_run_executes_when_auto_and_atdd_ran(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """run() executes when mode=auto and atdd_ran_in_epic=True."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -193,7 +212,10 @@ class TestTraceModeAuto:
         mock_invoke.assert_called_once()
 
     def test_run_skips_when_auto_and_no_atdd(
-        self, mock_config: MagicMock, tmp_path: Path, state_without_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_without_atdd_ran: State
     ) -> None:
         """run() skips when mode=auto and atdd_ran_in_epic=False."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -270,7 +292,9 @@ class TestTraceWorkflowInvocation:
     """Test _invoke_trace_workflow (now implemented with compiler integration)."""
 
     def test_invoke_returns_error_when_paths_not_initialized(
-        self, handler: "TraceHandler", state_with_atdd_ran: State
+        self,
+        handler: "TraceHandler",
+        state_with_atdd_ran: State
     ) -> None:
         """Returns error PhaseResult when paths singleton not initialized.
 
@@ -293,7 +317,10 @@ class TestPhaseResultStructure:
     """Test PhaseResult outputs structure (AC #8)."""
 
     def test_success_result_structure(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """Success result contains required outputs when workflow fails gracefully.
 
@@ -312,7 +339,10 @@ class TestPhaseResultStructure:
         assert "error" in result.error.lower() or "Paths not initialized" in result.error
 
     def test_skip_result_structure(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """Skip result contains required outputs."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -337,7 +367,10 @@ class TestErrorHandling:
     """Test error handling (AC #9)."""
 
     def test_workflow_error_returns_fail(
-        self, mock_config: MagicMock, tmp_path: Path, state_with_atdd_ran: State
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path,
+        state_with_atdd_ran: State
     ) -> None:
         """Workflow invocation error returns PhaseResult.fail()."""
         from bmad_assist.testarch.handlers import TraceHandler
@@ -346,7 +379,9 @@ class TestErrorHandling:
         handler = TraceHandler(mock_config, tmp_path)
 
         with patch.object(
-            handler, "_invoke_trace_workflow", side_effect=RuntimeError("Provider failed")
+            handler,
+            "_invoke_trace_workflow",
+            side_effect=RuntimeError("Provider failed")
         ):
             result = handler.run(state_with_atdd_ran)
 
@@ -360,7 +395,7 @@ class TestErrorHandling:
 
 
 class TestCheckTraceModeLogic:
-    """Test _check_trace_mode helper."""
+    """Test _check_mode with trace config."""
 
     def test_check_trace_mode_off(self, mock_config: MagicMock, tmp_path: Path) -> None:
         """Returns ('off', False) for mode=off."""
@@ -368,9 +403,9 @@ class TestCheckTraceModeLogic:
 
         mock_config.testarch.trace_on_epic_complete = "off"
         handler = TraceHandler(mock_config, tmp_path)
-
         state = State(current_epic="testarch", atdd_ran_in_epic=True)
-        mode, should_run = handler._check_trace_mode(state)
+
+        mode, should_run = handler._check_mode(state, "trace_on_epic_complete")
 
         assert mode == "off"
         assert should_run is False
@@ -381,9 +416,9 @@ class TestCheckTraceModeLogic:
 
         mock_config.testarch.trace_on_epic_complete = "on"
         handler = TraceHandler(mock_config, tmp_path)
-
         state = State(current_epic="testarch", atdd_ran_in_epic=False)
-        mode, should_run = handler._check_trace_mode(state)
+
+        mode, should_run = handler._check_mode(state, "trace_on_epic_complete")
 
         assert mode == "on"
         assert should_run is True
@@ -394,24 +429,26 @@ class TestCheckTraceModeLogic:
 
         mock_config.testarch.trace_on_epic_complete = "auto"
         handler = TraceHandler(mock_config, tmp_path)
-
         state = State(current_epic="testarch", atdd_ran_in_epic=True)
-        mode, should_run = handler._check_trace_mode(state)
+
+        mode, should_run = handler._check_mode(state, "trace_on_epic_complete", "atdd_ran_in_epic")
 
         assert mode == "auto"
         assert should_run is True
 
     def test_check_trace_mode_auto_without_atdd(
-        self, mock_config: MagicMock, tmp_path: Path
+        self,
+        mock_config: MagicMock,
+        tmp_path: Path
     ) -> None:
         """Returns ('auto', False) when mode=auto and atdd_ran_in_epic=False."""
         from bmad_assist.testarch.handlers import TraceHandler
 
         mock_config.testarch.trace_on_epic_complete = "auto"
         handler = TraceHandler(mock_config, tmp_path)
-
         state = State(current_epic="testarch", atdd_ran_in_epic=False)
-        mode, should_run = handler._check_trace_mode(state)
+
+        mode, should_run = handler._check_mode(state, "trace_on_epic_complete", "atdd_ran_in_epic")
 
         assert mode == "auto"
         assert should_run is False
@@ -422,249 +459,18 @@ class TestCheckTraceModeLogic:
 
         mock_config.testarch = None
         handler = TraceHandler(mock_config, tmp_path)
-
         state = State(current_epic="testarch", atdd_ran_in_epic=True)
-        mode, should_run = handler._check_trace_mode(state)
+
+        mode, should_run = handler._check_mode(state, "trace_on_epic_complete")
 
         assert mode == "not_configured"
         assert should_run is False
 
 
 # =============================================================================
-# AC #6, #7: RetrospectiveHandler integration
+# Note: RetrospectiveHandler integration tests removed (Story 25.8 AC9)
+#
+# Trace is now a separate Phase (Phase.TRACE) and can be configured in
+# loop.epic_teardown to run before retrospective. The trace invocation
+# has been removed from RetrospectiveHandler to decouple core from testarch.
 # =============================================================================
-
-
-class TestRetrospectiveIntegration:
-    """Test RetrospectiveHandler invokes TraceHandler (AC #6, #7)."""
-
-    def test_retrospective_invokes_trace(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """RetrospectiveHandler.execute() invokes TraceHandler.run()."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        mock_config.testarch.trace_on_epic_complete = "on"
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(
-            current_epic="testarch",
-            current_story="testarch.7",
-            current_phase=Phase.RETROSPECTIVE,
-            atdd_ran_in_epic=True,
-        )
-
-        # Mock _run_trace_if_enabled to verify it's called
-        with patch.object(handler, "_run_trace_if_enabled") as mock_trace:
-            mock_trace.return_value = PhaseResult.ok(
-                {
-                    "gate_decision": "PASS",
-                    "trace_file": None,
-                }
-            )
-
-            # Mock parent execute to avoid handler config loading
-            with patch.object(RetrospectiveHandler, "execute", wraps=handler.execute):
-                # Call execute - will try to call _run_trace_if_enabled
-                # We need to mock the full chain
-                with patch.object(handler, "render_prompt", return_value="test prompt"):
-                    with patch.object(handler, "invoke_provider") as mock_invoke:
-                        mock_invoke.return_value = MagicMock(
-                            exit_code=0, stdout="Retrospective done", stderr=""
-                        )
-
-                        try:
-                            handler.execute(state)
-                        except Exception:
-                            # May fail on config loading, but we verify trace was called
-                            pass
-
-            mock_trace.assert_called_once()
-
-    def test_retrospective_passes_trace_context(
-        self, mock_config: MagicMock, tmp_path: Path
-    ) -> None:
-        """RetrospectiveHandler.build_context() includes trace results (AC #7)."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(
-            current_epic="testarch",
-            current_story="testarch.7",
-            current_phase=Phase.RETROSPECTIVE,
-            atdd_ran_in_epic=True,
-        )
-
-        # Simulate trace result being stored (as execute() would do)
-        handler._trace_result = PhaseResult.ok(
-            {
-                "gate_decision": "PASS",
-                "trace_file": "/path/to/trace.md",
-                "response": "Traceability matrix generated",
-            }
-        )
-
-        # Verify build_context includes trace data
-        context = handler.build_context(state)
-
-        assert context.get("trace_gate_decision") == "PASS"
-        assert context.get("trace_file") == "/path/to/trace.md"
-        assert context.get("trace_response") == "Traceability matrix generated"
-
-    def test_retrospective_context_excludes_skipped_trace(
-        self, mock_config: MagicMock, tmp_path: Path
-    ) -> None:
-        """build_context() excludes trace data when trace was skipped."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(
-            current_epic="testarch",
-            current_story="testarch.7",
-            current_phase=Phase.RETROSPECTIVE,
-        )
-
-        # Simulate skipped trace result
-        handler._trace_result = PhaseResult.ok(
-            {
-                "skipped": True,
-                "reason": "trace_on_epic_complete=off",
-                "trace_mode": "off",
-            }
-        )
-
-        # Verify build_context does NOT include trace data for skipped
-        context = handler.build_context(state)
-
-        assert "trace_gate_decision" not in context
-        assert "trace_file" not in context
-
-    def test_retrospective_continues_on_trace_error(
-        self, mock_config: MagicMock, tmp_path: Path
-    ) -> None:
-        """RetrospectiveHandler continues when TraceHandler raises exception.
-
-        The exception handling happens inside _run_trace_if_enabled, not in execute().
-        This test verifies that _run_trace_if_enabled returns None when TraceHandler raises.
-        """
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(
-            current_epic="testarch",
-            current_story="testarch.7",
-            current_phase=Phase.RETROSPECTIVE,
-            atdd_ran_in_epic=True,
-        )
-
-        # Mock TraceHandler to raise - this is caught in _run_trace_if_enabled
-        with patch("bmad_assist.testarch.handlers.TraceHandler") as MockTrace:
-            MockTrace.side_effect = RuntimeError("Trace crashed")
-
-            # _run_trace_if_enabled should return None (error handled internally)
-            result = handler._run_trace_if_enabled(state)
-            assert result is None
-
-            # Now verify execute continues - mock parent chain
-            with patch.object(handler, "render_prompt", return_value="test prompt"):
-                with patch.object(handler, "invoke_provider") as mock_invoke:
-                    mock_invoke.return_value = MagicMock(
-                        exit_code=0, stdout="Retrospective done", stderr=""
-                    )
-
-                    try:
-                        result = handler.execute(state)
-                        # Retrospective should succeed
-                        assert result.success is True
-                    except Exception:
-                        # Config errors are OK
-                        pass
-
-    def test_retrospective_continues_on_trace_fail_result(
-        self, mock_config: MagicMock, tmp_path: Path
-    ) -> None:
-        """RetrospectiveHandler continues when TraceHandler returns fail result."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(
-            current_epic="testarch",
-            current_story="testarch.7",
-            current_phase=Phase.RETROSPECTIVE,
-            atdd_ran_in_epic=True,
-        )
-
-        # Mock _run_trace_if_enabled to return failure
-        with patch.object(handler, "_run_trace_if_enabled") as mock_trace:
-            mock_trace.return_value = None  # Indicates trace failed/skipped
-
-            # Mock parent execute
-            with patch.object(handler, "render_prompt", return_value="test prompt"):
-                with patch.object(handler, "invoke_provider") as mock_invoke:
-                    mock_invoke.return_value = MagicMock(
-                        exit_code=0, stdout="Retrospective done", stderr=""
-                    )
-
-                    try:
-                        result = handler.execute(state)
-                        # Retrospective should still succeed
-                        assert result.success is True
-                    except Exception:
-                        # Config errors are OK - we just want to verify trace doesn't block
-                        pass
-
-
-class TestRetrospectiveTraceMethod:
-    """Test RetrospectiveHandler._run_trace_if_enabled method."""
-
-    def test_run_trace_if_enabled_exists(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """_run_trace_if_enabled method exists on RetrospectiveHandler."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        assert hasattr(handler, "_run_trace_if_enabled")
-        assert callable(handler._run_trace_if_enabled)
-
-    def test_run_trace_handles_import_error(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """_run_trace_if_enabled handles ImportError gracefully."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(current_epic="testarch", atdd_ran_in_epic=True)
-
-        # Mock the testarch.handlers module to raise ImportError
-        with patch(
-            "bmad_assist.testarch.handlers.TraceHandler",
-            side_effect=ImportError("No testarch module"),
-        ):
-            # Should return None, not raise
-            result = handler._run_trace_if_enabled(state)
-            assert result is None
-
-    def test_run_trace_handles_exception(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """_run_trace_if_enabled handles general exceptions gracefully."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(current_epic="testarch", atdd_ran_in_epic=True)
-
-        # Mock TraceHandler to raise
-        with patch("bmad_assist.testarch.handlers.TraceHandler") as MockTrace:
-            MockTrace.side_effect = RuntimeError("Something broke")
-
-            result = handler._run_trace_if_enabled(state)
-            assert result is None
-
-    def test_run_trace_handles_fail_result(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """_run_trace_if_enabled handles PhaseResult.fail() gracefully."""
-        from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
-
-        handler = RetrospectiveHandler(mock_config, tmp_path)
-        state = State(current_epic="testarch", atdd_ran_in_epic=True)
-
-        # Mock TraceHandler to return fail result
-        with patch("bmad_assist.testarch.handlers.TraceHandler") as MockTrace:
-            mock_trace_handler = MagicMock()
-            mock_trace_handler.run.return_value = PhaseResult.fail("Trace failed")
-            MockTrace.return_value = mock_trace_handler
-
-            result = handler._run_trace_if_enabled(state)
-            assert result is None  # Failed trace returns None

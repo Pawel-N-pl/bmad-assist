@@ -3,6 +3,7 @@
 Story 6.5: run_loop() and _run_loop_body() implementation.
 Story 15.4: Event notification dispatch integration.
 Story 20.10: Sprint-status sync and repair integration.
+Story XX: CLI Observability - Phase banners and run tracking.
 
 This module has been refactored to import helper functions from:
 - helpers.py: _count_epic_stories, _get_story_title
@@ -18,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +28,14 @@ from typing import Any
 import yaml
 
 from bmad_assist import __version__
+from bmad_assist.core.loop.run_tracking import (
+    PhaseInvocation,
+    PhaseStatus,
+    RunLog,
+    RunStatus,
+    mask_cli_args,
+    save_run_log,
+)
 from bmad_assist.core.config import Config
 from bmad_assist.core.exceptions import StateError
 
@@ -46,7 +56,11 @@ from bmad_assist.core.loop.epic_phases import (
 )
 from bmad_assist.core.loop.epic_transitions import handle_epic_completion
 from bmad_assist.core.loop.guardian import get_next_phase, guardian_check_anomaly
-from bmad_assist.core.loop.helpers import _count_epic_stories, _get_story_title
+from bmad_assist.core.loop.helpers import (
+    _count_epic_stories,
+    _get_story_title,
+    _print_phase_banner,
+)
 from bmad_assist.core.loop.interactive import checkpoint_and_prompt, is_skip_story_prompts
 from bmad_assist.core.loop.locking import _running_lock
 from bmad_assist.core.loop.notifications import _dispatch_event
@@ -88,6 +102,8 @@ logger = logging.getLogger(__name__)
 # Temp file suffix for atomic writes
 _EFFECTIVE_CONFIG_TEMP_SUFFIX = ".tmp"
 _REDACTED_VALUE = "***REDACTED***"
+
+
 
 
 def _get_dangerous_field_paths(
@@ -339,9 +355,35 @@ def run_loop(
         # Story 20.10: Register sprint sync callback at loop startup
         _ensure_sprint_sync_callback()
 
+        # CLI Observability: Initialize run tracking
+        run_log = RunLog(
+            cli_args=sys.argv[1:],
+            cli_args_masked=mask_cli_args(sys.argv[1:]),
+            project_path=str(project_path),
+        )
+
         # Dashboard: Create lock file for process detection
         with _running_lock(project_path):
-            return _run_loop_body(config, project_path, epic_list, epic_stories_loader)
+            try:
+                exit_reason = _run_loop_body(
+                    config, project_path, epic_list, epic_stories_loader, run_log
+                )
+                # Update run_log with final status
+                run_log.status = RunStatus.COMPLETED
+                run_log.ended_at = datetime.now(UTC)
+                return exit_reason
+            except Exception:
+                # Mark run as crashed on unhandled exception
+                run_log.status = RunStatus.CRASHED
+                run_log.ended_at = datetime.now(UTC)
+                raise
+            finally:
+                # Always save run log on exit
+                csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
+                try:
+                    save_run_log(run_log, project_path, as_csv=csv_enabled)
+                except Exception as e:
+                    logger.warning("Failed to save run log: %s", e)
     finally:
         # Story 6.6: Always restore previous signal handlers on exit
         # Moved outside _running_lock to ensure cleanup even if lock acquisition fails
@@ -353,6 +395,7 @@ def _run_loop_body(
     project_path: Path,
     epic_list: list[EpicId],
     epic_stories_loader: Callable[[EpicId], list[str]],
+    run_log: RunLog | None = None,
 ) -> LoopExitReason:
     """Execute the main loop body with signal handling active.
 
@@ -365,6 +408,7 @@ def _run_loop_body(
         project_path: Path to project root directory.
         epic_list: Sorted list of epic numbers (validated non-empty by run_loop).
         epic_stories_loader: Callable that returns story IDs for given epic.
+        run_log: Optional RunLog for tracking phase invocations.
 
     Returns:
         LoopExitReason indicating how the loop exited.
@@ -583,6 +627,13 @@ def _run_loop_body(
         start_phase_timing(state)
         save_state(state, state_path)
 
+        # CLI Observability: Print phase banner (visible regardless of log level)
+        _print_phase_banner(
+            phase=state.current_phase.name if state.current_phase else "UNKNOWN",
+            epic=state.current_epic,
+            story=state.current_story,
+        )
+
         # AC2: Execute current phase
         result = execute_phase(state)
 
@@ -594,6 +645,39 @@ def _run_loop_body(
             result.outputs.get("duration_ms", 0),
             result.error if not result.success else "none",
         )
+
+        # CLI Observability: Record phase invocation in run log
+        if run_log is not None:
+            phase_ended = datetime.now(UTC)
+            phase_started = state.phase_started_at or phase_ended
+            # Make phase_started timezone-aware if needed
+            if phase_started.tzinfo is None:
+                phase_started = phase_started.replace(tzinfo=UTC)
+            duration_ms = int((phase_ended - phase_started).total_seconds() * 1000)
+
+            # Determine phase status
+            if result.success:
+                phase_status = PhaseStatus.SUCCESS
+            elif result.error and "timeout" in result.error.lower():
+                phase_status = PhaseStatus.TIMEOUT
+            else:
+                phase_status = PhaseStatus.ERROR
+
+            run_log.phases.append(
+                PhaseInvocation(
+                    phase=state.current_phase.name if state.current_phase else "UNKNOWN",
+                    started_at=phase_started,
+                    ended_at=phase_ended,
+                    duration_ms=duration_ms,
+                    provider=config.providers.master.provider,
+                    model=config.providers.master.model,
+                    status=phase_status,
+                    error_type=result.error[:100] if result.error else None,
+                )
+            )
+            # Update run_log with current epic/story
+            run_log.epic = state.current_epic
+            run_log.story = state.current_story
 
         # Story 22.9: Emit dashboard workflow_status event with completed/failed status
         # This complements the "in-progress" emission at phase start
@@ -703,8 +787,8 @@ def _run_loop_body(
 
             # Code Review Fix: Use GuardianDecision enum instead of magic string
             if guardian_decision == GuardianDecision.HALT:
-                # AC5: Guardian "halt" - stop loop for user intervention
-                logger.info("Loop halted by guardian for user intervention")
+                # AC5: Guardian "halt" - stop loop due to phase failure
+                logger.debug("Loop stopped due to phase failure")
 
                 # Story 15.4: Dispatch queue_blocked event
                 _dispatch_event(

@@ -748,6 +748,10 @@ class BaseHandler(ABC):
                     output=result.stdout,
                 )
 
+            # NOTE: phase_completed notification is dispatched by the caller (runner.py
+            # or epic_phases.py) to avoid duplicates. Handler should NOT dispatch here.
+            # See tech-spec cli-observability-run-tracking.md Task 6.
+
             return phase_result
 
         except ConfigError as e:

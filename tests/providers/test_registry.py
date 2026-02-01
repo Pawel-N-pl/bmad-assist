@@ -122,17 +122,19 @@ class TestListProviders:
         assert isinstance(result, frozenset)
 
     def test_list_providers_contains_all_default_providers(self, reset_registry: None) -> None:
-        """AC4: list_providers() contains exactly 8 default providers."""
+        """AC4: list_providers() contains all known default providers."""
         from bmad_assist.providers.registry import list_providers
 
         result = list_providers()
 
-        expected = frozenset({
+        # Check that known providers are present (not exact count - list will grow)
+        expected_providers = {
             "amp", "claude", "claude-subprocess", "codex",
-            "copilot", "cursor-agent", "gemini", "opencode"
-        })
-        assert result == expected
-        assert len(result) == 8
+            "copilot", "cursor-agent", "gemini", "kimi", "opencode"
+        }
+        assert expected_providers.issubset(result)
+        # Sanity check: at least these many providers
+        assert len(result) >= len(expected_providers)
 
     def test_list_providers_is_immutable(self, reset_registry: None) -> None:
         """AC4: Result is immutable (frozenset, not set)."""
@@ -463,9 +465,10 @@ class TestLazyInitialization:
         # First access triggers initialization
         providers = list_providers()
 
-        # Now registry has providers
-        assert len(_REGISTRY) == 8
-        assert len(providers) == 8
+        # Now registry has providers (don't hardcode count - will grow)
+        assert len(_REGISTRY) > 0
+        assert len(providers) > 0
+        assert "claude" in providers  # Sanity check known provider exists
 
         # Clean up
         _REGISTRY.clear()
@@ -485,8 +488,8 @@ class TestLazyInitialization:
         # get_provider triggers initialization
         provider = get_provider("claude")
 
-        # Now registry has providers
-        assert len(_REGISTRY) == 8
+        # Now registry has providers (don't hardcode count)
+        assert len(_REGISTRY) > 0
         assert isinstance(provider, ClaudeSDKProvider)
 
         # Clean up
@@ -506,8 +509,8 @@ class TestLazyInitialization:
         # is_valid_provider triggers initialization
         result = is_valid_provider("claude")
 
-        # Now registry has providers
-        assert len(_REGISTRY) == 8
+        # Now registry has providers (don't hardcode count)
+        assert len(_REGISTRY) > 0
         assert result is True
 
         # Clean up
@@ -529,9 +532,10 @@ class TestLazyInitialization:
         # register_provider triggers initialization before adding custom
         register_provider("test-lazy-init", custom_provider_class)
 
-        # Now registry has default providers + custom (8 default + 1 custom)
-        assert len(_REGISTRY) == 9
+        # Now registry has default providers + custom (don't hardcode count)
+        assert len(_REGISTRY) > 1  # At least default + custom
         assert "test-lazy-init" in _REGISTRY
+        assert "claude" in _REGISTRY  # Sanity check default exists
 
         # Clean up
         _REGISTRY.clear()

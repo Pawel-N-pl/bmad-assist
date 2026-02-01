@@ -296,3 +296,9 @@ notifications:
 ```
 
 Variables are resolved at runtime from the environment or `.env` file.
+
+## See Also
+
+- [TEA Configuration](tea-configuration.md) - Test Engineer Architect module settings
+- [Providers Reference](providers.md) - Detailed provider configuration
+- [Strategic Context](strategic-context.md) - Document injection settings

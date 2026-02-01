@@ -15,6 +15,7 @@ from bmad_assist.core.config.models.features import (
 )
 from bmad_assist.core.config.models.loop import (
     DEFAULT_LOOP_CONFIG,
+    TEA_FULL_LOOP_CONFIG,
     LoopConfig,
     SprintConfig,
     WarningsConfig,
@@ -93,6 +94,7 @@ __all__ = [
     "SprintConfig",
     "WarningsConfig",
     "DEFAULT_LOOP_CONFIG",
+    "TEA_FULL_LOOP_CONFIG",
     # main.py
     "Config",
 ]

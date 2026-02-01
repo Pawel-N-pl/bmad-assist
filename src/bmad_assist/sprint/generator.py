@@ -686,6 +686,16 @@ def generate_from_epics(
         entries = _generate_entries_from_epic(epic, is_module=is_module)
         result.files_processed += 1
 
+        # Count story entries (exclude epic meta and retrospective entries)
+        story_entries = [e for e in entries if e.entry_type == EntryType.EPIC_STORY]
+        if story_entries:
+            logger.debug(
+                "Epic %s: found %d stories (%s)",
+                epic.epic_num,
+                len(story_entries),
+                epic.path,
+            )
+
         for entry in entries:
             if entry.key in seen_keys:
                 logger.warning(

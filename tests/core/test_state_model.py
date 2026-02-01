@@ -30,9 +30,9 @@ from bmad_assist.core.state import Phase, State
 class TestPhaseEnum:
     """Test Phase enum values and ordering (AC2)."""
 
-    def test_phase_enum_has_eleven_values(self) -> None:
-        """Phase enum contains exactly 11 workflow phases (including ATDD, TEST_REVIEW, and QA phases)."""
-        assert len(Phase) == 11
+    def test_phase_enum_has_seventeen_values(self) -> None:
+        """Phase enum contains exactly 17 workflow phases (including TEA handlers)."""
+        assert len(Phase) == 17
 
     def test_phase_enum_values_in_order(self) -> None:
         """Phase enum values match expected order."""
@@ -45,6 +45,12 @@ class TestPhaseEnum:
             ("CODE_REVIEW", "code_review"),
             ("CODE_REVIEW_SYNTHESIS", "code_review_synthesis"),
             ("TEST_REVIEW", "test_review"),
+            ("TRACE", "trace"),
+            ("TEA_FRAMEWORK", "tea_framework"),
+            ("TEA_CI", "tea_ci"),
+            ("TEA_TEST_DESIGN", "tea_test_design"),
+            ("TEA_AUTOMATE", "tea_automate"),
+            ("TEA_NFR_ASSESS", "tea_nfr_assess"),
             ("RETROSPECTIVE", "retrospective"),
             ("QA_PLAN_GENERATE", "qa_plan_generate"),
             ("QA_PLAN_EXECUTE", "qa_plan_execute"),
@@ -585,3 +591,95 @@ class TestATDDStateFields:
         assert state.current_story == "3.1"
         assert state.atdd_ran_for_story is False  # Default
         assert state.atdd_ran_in_epic is False  # Default
+
+
+# =============================================================================
+# Framework/CI State Tracking Fields (Story 25.9)
+# =============================================================================
+
+
+class TestFrameworkCIStateFields:
+    """Test framework_ran_in_epic and ci_ran_in_epic state tracking fields."""
+
+    def test_state_default_framework_ran_in_epic_is_false(self) -> None:
+        """State.framework_ran_in_epic defaults to False."""
+        state = State()
+        assert state.framework_ran_in_epic is False
+
+    def test_state_default_ci_ran_in_epic_is_false(self) -> None:
+        """State.ci_ran_in_epic defaults to False."""
+        state = State()
+        assert state.ci_ran_in_epic is False
+
+    def test_state_accepts_framework_ran_in_epic_true(self) -> None:
+        """State accepts framework_ran_in_epic=True."""
+        state = State(framework_ran_in_epic=True)
+        assert state.framework_ran_in_epic is True
+
+    def test_state_accepts_ci_ran_in_epic_true(self) -> None:
+        """State accepts ci_ran_in_epic=True."""
+        state = State(ci_ran_in_epic=True)
+        assert state.ci_ran_in_epic is True
+
+    def test_framework_ci_fields_yaml_round_trip(self) -> None:
+        """Framework/CI state fields survive YAML round-trip."""
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            framework_ran_in_epic=True,
+            ci_ran_in_epic=True,
+        )
+
+        # Serialize
+        data = state.model_dump(mode="json")
+        yaml_str = yaml.dump(data)
+
+        # Deserialize
+        loaded_data = yaml.safe_load(yaml_str)
+        restored = State.model_validate(loaded_data)
+
+        # Verify
+        assert restored.framework_ran_in_epic is True
+        assert restored.ci_ran_in_epic is True
+
+    def test_backward_compatibility_old_state_without_framework_ci_fields(self) -> None:
+        """Old state files without framework/CI fields load with defaults."""
+        old_state_data = {
+            "current_epic": 3,
+            "current_story": "3.1",
+            "current_phase": "dev_story",
+            "completed_stories": ["1.1", "2.1"],
+            "completed_epics": [1, 2],
+            "started_at": "2026-01-01T10:00:00",
+            "updated_at": "2026-01-01T12:00:00",
+            "anomalies": [],
+            "testarch_preflight": None,
+            "atdd_ran_for_story": False,
+            "atdd_ran_in_epic": True,
+            # Note: framework_ran_in_epic and ci_ran_in_epic are NOT present
+        }
+
+        # Load should succeed with default values
+        state = State.model_validate(old_state_data)
+        assert state.framework_ran_in_epic is False  # Default
+        assert state.ci_ran_in_epic is False  # Default
+
+
+class TestPhaseEnumTeaFrameworkCI:
+    """Test TEA_FRAMEWORK and TEA_CI Phase enum values."""
+
+    def test_tea_framework_phase_exists(self) -> None:
+        """TEA_FRAMEWORK phase exists in Phase enum."""
+        assert Phase.TEA_FRAMEWORK.value == "tea_framework"
+
+    def test_tea_ci_phase_exists(self) -> None:
+        """TEA_CI phase exists in Phase enum."""
+        assert Phase.TEA_CI.value == "tea_ci"
+
+    def test_tea_framework_can_be_created_from_value(self) -> None:
+        """TEA_FRAMEWORK can be created from string value."""
+        assert Phase("tea_framework") == Phase.TEA_FRAMEWORK
+
+    def test_tea_ci_can_be_created_from_value(self) -> None:
+        """TEA_CI can be created from string value."""
+        assert Phase("tea_ci") == Phase.TEA_CI

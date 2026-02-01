@@ -1,6 +1,7 @@
 """Loop configuration singleton and loading functions."""
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,11 @@ from bmad_assist.core.config.constants import (
     MAX_LOOP_CONFIG_PARENT_DEPTH,
     PROJECT_CONFIG_NAME,
 )
-from bmad_assist.core.config.models.loop import DEFAULT_LOOP_CONFIG, LoopConfig
+from bmad_assist.core.config.models.loop import (
+    DEFAULT_LOOP_CONFIG,
+    TEA_FULL_LOOP_CONFIG,
+    LoopConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +164,11 @@ def load_loop_config(project_path: Path | None = None) -> LoopConfig:
     if config is not None:
         return config
 
-    # Step 4: Use default
+    # Step 4: Use default (check for --tea flag via env var)
+    if os.environ.get("BMAD_TEA_LOOP") == "1":
+        logger.debug("No loop config found, using TEA_FULL_LOOP_CONFIG (--tea flag)")
+        return TEA_FULL_LOOP_CONFIG
+
     logger.debug("No loop config found, using DEFAULT_LOOP_CONFIG")
     return DEFAULT_LOOP_CONFIG
 

@@ -46,7 +46,7 @@ __all__ = [
 MAX_LABEL_LENGTH = 16
 
 # Default icon for workflows with no pattern match
-DEFAULT_ICON = "🔷"
+DEFAULT_ICON = "📋"
 
 # Icon patterns - order matters, first match wins.
 # CRITICAL: "synth" must be before "dev" to correctly match *synthesis* workflows
@@ -97,15 +97,15 @@ def _initialize_predefined_labels() -> None:
         # Story lifecycle events (from EventType)
         "story-started": WorkflowNotificationConfig("🚀", "Story"),
         "story-completed": WorkflowNotificationConfig("✅", "Story"),
-        # Testarch module workflows
-        "testarch:framework": WorkflowNotificationConfig("🧪", "Framework"),
-        "testarch:nfr": WorkflowNotificationConfig("🧪", "NFR"),
-        "testarch:test-design": WorkflowNotificationConfig("🧪", "TestDesign"),
-        "testarch:ci": WorkflowNotificationConfig("🧪", "CI"),
-        "testarch:trace": WorkflowNotificationConfig("🧪", "Trace"),
-        "testarch:automate": WorkflowNotificationConfig("🧪", "Automate"),
-        "testarch:atdd": WorkflowNotificationConfig("🧪", "ATDD"),
-        "testarch:test-review": WorkflowNotificationConfig("🧪", "TestReview"),
+        # TEA module workflows (keys match Phase enum values after _phase_to_workflow_name conversion)
+        "tea-framework": WorkflowNotificationConfig("🧪", "Framework"),
+        "tea-nfr-assess": WorkflowNotificationConfig("🧪", "NFR"),
+        "tea-test-design": WorkflowNotificationConfig("🧪", "TestDesign"),
+        "tea-ci": WorkflowNotificationConfig("🧪", "CI"),
+        "tea-trace": WorkflowNotificationConfig("🧪", "Trace"),
+        "tea-automate": WorkflowNotificationConfig("🧪", "Automate"),
+        "atdd": WorkflowNotificationConfig("🧪", "ATDD"),
+        "test-review": WorkflowNotificationConfig("🧪", "TestReview"),
     }
 
     PREDEFINED_LABELS = predefined

@@ -59,6 +59,57 @@ class SourceContextBudgetsConfig(BaseModel):
         description="Token budget for validate_story_synthesis workflow",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
+    # TEA workflow budgets (per ADR-4 in tech-spec-tea-context-loader.md)
+    # Most TEA workflows don't need source context (budget=0)
+    # Only automate and nfr-assess need source for feature/code discovery
+    testarch_atdd: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-atdd (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_trace: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-trace (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_test_review: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-test-review (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_framework: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-framework (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_ci: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-ci (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_test_design: int = Field(
+        default=0,
+        ge=0,
+        description="Token budget for testarch-test-design (disabled by default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_automate: int = Field(
+        default=10000,
+        ge=0,
+        description="Token budget for testarch-automate (needs source for feature discovery)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    testarch_nfr_assess: int = Field(
+        default=10000,
+        ge=0,
+        description="Token budget for testarch-nfr-assess (needs source for code health)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
     default: int = Field(
         default=20000,
         ge=0,

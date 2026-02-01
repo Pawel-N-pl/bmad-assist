@@ -28,10 +28,15 @@ STANDARD_WORKFLOWS = {
     "create-story",
     "dev-story",
     "retrospective",
-    # Testarch module (standard BMAD, not custom)
+    # Testarch module (standard BMAD, not custom) - all 8 TEA workflows
     "testarch-atdd",
     "testarch-trace",
     "testarch-test-review",
+    "testarch-automate",
+    "testarch-ci",
+    "testarch-framework",
+    "testarch-nfr-assess",
+    "testarch-test-design",
 }
 
 # Search locations for user's BMAD installation (checked in order)
@@ -47,6 +52,11 @@ WORKFLOW_TO_BMAD_DIR = {
     "testarch-atdd": "atdd",
     "testarch-trace": "trace",
     "testarch-test-review": "test-review",
+    "testarch-automate": "automate",
+    "testarch-ci": "ci",
+    "testarch-framework": "framework",
+    "testarch-nfr-assess": "nfr-assess",
+    "testarch-test-design": "test-design",
 }
 
 
@@ -107,8 +117,19 @@ def discover_workflow_dir(
 
 
 def _is_valid_workflow_dir(path: Path) -> bool:
-    """Check if path is a valid workflow directory."""
-    return path.is_dir() and (path / "workflow.yaml").is_file()
+    """Check if path is a valid workflow directory.
+
+    Valid if directory contains workflow.yaml OR workflow.md (or both).
+    Tri-modal workflows may have only workflow.md without workflow.yaml.
+    """
+    if not path.is_dir():
+        return False
+
+    # Either workflow.yaml or workflow.md (or both) makes it valid
+    has_yaml = (path / "workflow.yaml").is_file()
+    has_md = (path / "workflow.md").is_file()
+
+    return has_yaml or has_md
 
 
 def get_workflow_not_found_message(workflow_name: str, project_root: Path) -> str:

@@ -119,11 +119,22 @@ class Phase(Enum):
         6. CODE_REVIEW - Multi-LLM code review
         7. CODE_REVIEW_SYNTHESIS - Master LLM synthesizes review
         8. TEST_REVIEW - Test quality review (testarch module)
-        9. RETROSPECTIVE - Epic retrospective (after last story in epic)
-        10. QA_PLAN_GENERATE - Generate E2E test plan for epic
-        11. QA_PLAN_EXECUTE - Execute E2E tests for epic
+        9. TRACE - Requirements traceability matrix (testarch module)
+        10. TEA_FRAMEWORK - Test framework initialization (epic_setup phase)
+        11. TEA_CI - CI pipeline initialization (epic_setup phase)
+        12. TEA_TEST_DESIGN - Test design planning (dual-scope: epic_setup or story)
+        13. RETROSPECTIVE - Epic retrospective (after last story in epic)
+        14. QA_PLAN_GENERATE - Generate E2E test plan for epic
+        15. QA_PLAN_EXECUTE - Execute E2E tests for epic
 
     The phase ordering enables workflow orchestration in Epic 6.
+
+    Epic Setup Phases (run once per epic before first story):
+        TEA_FRAMEWORK: Initialize test framework (Playwright/Cypress).
+        TEA_CI: Initialize CI pipeline (GitHub Actions/GitLab CI/etc).
+        TEA_TEST_DESIGN: Test design planning (dual-scope phase).
+            - System-level: First epic or no sprint-status.yaml - creates architecture + QA docs.
+            - Epic-level: Subsequent epics - creates per-epic test plan.
 
     Attributes:
         CREATE_STORY: Initial story creation phase.
@@ -134,6 +145,12 @@ class Phase(Enum):
         CODE_REVIEW: Parallel Multi-LLM code review phase.
         CODE_REVIEW_SYNTHESIS: Master synthesis of code reviews.
         TEST_REVIEW: Test quality review phase (testarch module).
+        TRACE: Requirements traceability matrix phase (testarch module).
+        TEA_FRAMEWORK: Test framework initialization phase (epic_setup scope).
+        TEA_CI: CI pipeline initialization phase (epic_setup scope).
+        TEA_TEST_DESIGN: Test design planning phase (dual-scope: epic_setup or story).
+        TEA_AUTOMATE: Test automation expansion phase (epic_setup scope, after test_design).
+        TEA_NFR_ASSESS: Non-functional requirements assessment phase (epic_teardown scope).
         RETROSPECTIVE: Epic retrospective phase (after last story in epic).
         QA_PLAN_GENERATE: Generate E2E test plan for completed epic.
         QA_PLAN_EXECUTE: Execute E2E tests using generated test plan.
@@ -148,6 +165,12 @@ class Phase(Enum):
     CODE_REVIEW = "code_review"
     CODE_REVIEW_SYNTHESIS = "code_review_synthesis"
     TEST_REVIEW = "test_review"
+    TRACE = "trace"
+    TEA_FRAMEWORK = "tea_framework"
+    TEA_CI = "tea_ci"
+    TEA_TEST_DESIGN = "tea_test_design"
+    TEA_AUTOMATE = "tea_automate"  # epic_setup scope: after test_design
+    TEA_NFR_ASSESS = "tea_nfr_assess"  # epic_teardown scope: after trace
     RETROSPECTIVE = "retrospective"
     QA_PLAN_GENERATE = "qa_plan_generate"
     QA_PLAN_EXECUTE = "qa_plan_execute"
@@ -195,6 +218,14 @@ class State(BaseModel):
         testarch_preflight: Preflight check completion tracking (None if not run).
         atdd_ran_for_story: True if ATDD ran for current story (reset at handler start).
         atdd_ran_in_epic: True if ATDD ran for any story in current epic.
+        framework_ran_in_epic: True if framework handler ran in current epic.
+            Reset to False when epic changes.
+        ci_ran_in_epic: True if CI handler ran in current epic.
+            Reset to False when epic changes.
+        automate_ran_in_epic: True if automate handler ran in current epic.
+            Reset to False when epic changes.
+        nfr_assess_ran_in_epic: True if NFR assessment handler ran in current epic.
+            Reset to False when epic changes.
         epic_setup_complete: True if epic_setup phases ran for current epic.
             Reset to False when epic changes in handle_epic_completion().
 
@@ -230,6 +261,14 @@ class State(BaseModel):
     testarch_preflight: PreflightStateEntry | None = None
     atdd_ran_for_story: bool = False
     atdd_ran_in_epic: bool = False
+    # Story 25.9: Track framework/CI handler execution in current epic
+    framework_ran_in_epic: bool = False  # True if framework handler ran in current epic
+    ci_ran_in_epic: bool = False  # True if CI handler ran in current epic
+    # Story 25.10: Track test design handler execution in current epic
+    test_design_ran_in_epic: bool = False  # True if test design ran (system or epic level)
+    # Story 25.11: Track automate and NFR assessment handler execution in current epic
+    automate_ran_in_epic: bool = False  # True if automate handler ran in current epic
+    nfr_assess_ran_in_epic: bool = False  # True if NFR assessment ran in current epic
     qa_category: str = "A"  # Test category for QA phases: "A", "B", or "all"
     # Configurable loop architecture: track epic setup completion
     epic_setup_complete: bool = False  # Reset to False on epic change
@@ -398,9 +437,14 @@ def update_position(
     """
     now = _get_now()
 
-    # Reset atdd_ran_in_epic when epic changes (new epic starts fresh)
+    # Reset epic-scoped flags when epic changes (new epic starts fresh)
     if epic is not None and epic != state.current_epic:
         state.atdd_ran_in_epic = False
+        state.framework_ran_in_epic = False
+        state.ci_ran_in_epic = False
+        state.test_design_ran_in_epic = False
+        state.automate_ran_in_epic = False
+        state.nfr_assess_ran_in_epic = False
 
     if epic is not None:
         state.current_epic = epic

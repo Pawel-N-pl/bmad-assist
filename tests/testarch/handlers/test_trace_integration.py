@@ -1,4 +1,5 @@
-"""Tests for TraceHandler compiler integration.
+"""
+Tests for TraceHandler compiler integration.
 
 Tests the integration between TraceHandler and the TraceCompiler,
 verifying that _invoke_trace_workflow correctly:
@@ -89,7 +90,8 @@ default_output_file: "{output_folder}/traceability-matrix.md"
         return tmp_path, state
 
     def test_invoke_trace_workflow_calls_compiler(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow calls compile_workflow."""
         project_path, state = setup_trace_workflow
@@ -103,20 +105,28 @@ default_output_file: "{output_folder}/traceability-matrix.md"
 
         # Mock provider
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="## Gate Decision: PASS\nTests traced successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ) as mock_compile,
-            patch("bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_trace_workflow(state)
 
@@ -126,7 +136,8 @@ default_output_file: "{output_folder}/traceability-matrix.md"
             assert call_args[0][0] == "testarch-trace"
 
     def test_invoke_trace_workflow_calls_provider(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow invokes master provider."""
         project_path, state = setup_trace_workflow
@@ -138,22 +149,30 @@ default_output_file: "{output_folder}/traceability-matrix.md"
         mock_compiled.workflow_name = "testarch-trace"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="## Gate Decision: PASS\nTests traced successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
             patch(
-                "bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider
+                "bmad_assist.providers.get_provider", return_value=mock_provider
             ) as mock_get_provider,
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_trace_workflow(state)
 
@@ -166,7 +185,8 @@ default_output_file: "{output_folder}/traceability-matrix.md"
             assert call_kwargs["model"] == "opus"
 
     def test_invoke_trace_workflow_returns_phase_result_with_gate(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow returns PhaseResult with gate_decision."""
         project_path, state = setup_trace_workflow
@@ -178,20 +198,26 @@ default_output_file: "{output_folder}/traceability-matrix.md"
         mock_compiled.workflow_name = "testarch-trace"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="## Gate Decision: PASS\nAll tests mapped successfully",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_paths,
         ):
             mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value.output_folder = project_path / "_bmad-output"
 
             result = handler._invoke_trace_workflow(state)
 
@@ -202,7 +228,8 @@ default_output_file: "{output_folder}/traceability-matrix.md"
             assert result.outputs["gate_decision"] == "PASS"
 
     def test_invoke_trace_workflow_creates_traceability_directory(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow creates traceability directory."""
         project_path, state = setup_trace_workflow
@@ -221,20 +248,26 @@ default_output_file: "{output_folder}/traceability-matrix.md"
         mock_compiled.workflow_name = "testarch-trace"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout="## Gate Decision: PASS\nTests mapped",
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_paths,
         ):
             mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value.output_folder = project_path / "_bmad-output"
 
             result = handler._invoke_trace_workflow(state)
 
@@ -242,7 +275,8 @@ default_output_file: "{output_folder}/traceability-matrix.md"
             assert traceability_dir.exists()
 
     def test_invoke_trace_workflow_saves_trace_file(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow saves trace file with atomic write."""
         project_path, state = setup_trace_workflow
@@ -255,20 +289,26 @@ default_output_file: "{output_folder}/traceability-matrix.md"
 
         provider_output = "## Gate Decision: PASS\n# Traceability Matrix\nTest content"
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=0,
             stdout=provider_output,
             stderr="",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_paths,
         ):
             mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value.output_folder = project_path / "_bmad-output"
 
             result = handler._invoke_trace_workflow(state)
 
@@ -298,7 +338,8 @@ class TestTraceHandlerInvokeWorkflowErrorHandling:
         return tmp_path, state
 
     def test_invoke_trace_workflow_handles_compiler_error(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow handles CompilerError gracefully."""
         from bmad_assist.core.exceptions import CompilerError
@@ -309,20 +350,26 @@ class TestTraceHandlerInvokeWorkflowErrorHandling:
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow",
+                "bmad_assist.compiler.compile_workflow",
                 side_effect=CompilerError("Test compiler error"),
             ),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_trace_workflow(state)
 
             assert result.success is False
+            assert result.error is not None
             assert "error" in result.error.lower()
 
     def test_invoke_trace_workflow_handles_provider_error(
-        self, setup_trace_workflow: tuple[Path, State]
+        self,
+        setup_trace_workflow: tuple[Path, State],
     ) -> None:
         """Test _invoke_trace_workflow handles provider error."""
         project_path, state = setup_trace_workflow
@@ -333,22 +380,31 @@ class TestTraceHandlerInvokeWorkflowErrorHandling:
         mock_compiled.context = "<compiled-prompt>test</compiled-prompt>"
 
         mock_provider = MagicMock()
-        mock_provider.invoke.return_value = MagicMock(
+        from bmad_assist.providers.base import ProviderResult
+        mock_provider.invoke.return_value = ProviderResult(
             exit_code=1,
             stdout="",
             stderr="Provider execution failed",
+            model="opus",
+            command=("claude",),
+            duration_ms=100
         )
 
         with (
             patch(
-                "bmad_assist.testarch.handlers.trace.compile_workflow", return_value=mock_compiled
+                "bmad_assist.compiler.compile_workflow", return_value=mock_compiled
             ),
-            patch("bmad_assist.testarch.handlers.trace.get_provider", return_value=mock_provider),
-            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_paths,
+            patch("bmad_assist.providers.get_provider", return_value=mock_provider),
+            patch("bmad_assist.testarch.handlers.trace.get_paths") as mock_trace_paths,
+            patch("bmad_assist.testarch.handlers.base.get_paths") as mock_base_paths,
         ):
-            mock_paths.return_value.output_folder = project_path / "_bmad-output"
+            mock_paths = MagicMock()
+            mock_paths.output_folder = project_path / "_bmad-output"
+            mock_trace_paths.return_value = mock_paths
+            mock_base_paths.return_value = mock_paths
 
             result = handler._invoke_trace_workflow(state)
 
             assert result.success is False
-            assert "error" in result.error.lower() or "fail" in result.error.lower()
+            assert result.error is not None
+            assert "error" in result.error.lower()

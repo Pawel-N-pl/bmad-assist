@@ -88,8 +88,8 @@ def _load_epic_data(
     from bmad_assist.core.paths import get_paths
 
     paths = get_paths()
-    # bmad_path is parent of epics_dir (e.g., docs/ or docs/development_process/)
-    bmad_path = paths.epics_dir.parent
+    # Use project_knowledge directly - it handles both sharded (epics/) and monolithic (epics.md)
+    bmad_path = paths.project_knowledge
 
     logger.debug("Loading BMAD project state from: %s", bmad_path)
 
@@ -321,6 +321,16 @@ def run(
         hidden=True,  # Experimental feature - not documented yet
         help="Enable QA phases (qa-plan-generate, qa-plan-execute) after retrospective.",
     ),
+    csv_output: bool = typer.Option(
+        False,
+        "--csv",
+        help="Export run logs as CSV in addition to YAML (.bmad-assist/runs/)",
+    ),
+    tea: bool = typer.Option(
+        False,
+        "--tea",
+        help="Enable full TEA (Test Architect Enterprise) loop with all phases",
+    ),
 ) -> None:
     """Execute the main BMAD development loop.
 
@@ -365,6 +375,12 @@ def run(
     if qa_enabled:
         os.environ["BMAD_QA_ENABLED"] = "1"
         console.print("[dim]QA: E2E test phases enabled after retrospective[/dim]")
+    if csv_output:
+        os.environ["BMAD_CSV_OUTPUT"] = "1"
+        console.print("[dim]Run logs: CSV export enabled[/dim]")
+    if tea:
+        os.environ["BMAD_TEA_LOOP"] = "1"
+        console.print("[dim]TEA: Full Test Architect Enterprise loop enabled[/dim]")
 
     try:
         # Validate project path
@@ -531,13 +547,12 @@ def run(
 
         # Apply start point override if --epic specified
         if epic:
-            # Use epics_dir parent for BMAD files (supports auto-discovered paths)
-            bmad_path = project_paths.epics_dir.parent
-
+            # Use project_knowledge for BMAD files - same as _load_epic_data()
+            # epics_dir.parent would fail for monolithic epics.md in docs/
             apply_start_point_override(
                 loaded_config,
                 project_path,
-                bmad_path,
+                project_paths.project_knowledge,
                 epic,
                 story,
                 epic_list,
@@ -576,9 +591,8 @@ def run(
             _warning("Loop terminated by kill signal, state saved")
             raise typer.Exit(code=EXIT_SIGTERM)
         elif exit_reason == LoopExitReason.GUARDIAN_HALT:
-            _warning("Loop halted by guardian for user intervention")
-            # Guardian halt is not an error - exit with 0
-            raise typer.Exit(code=EXIT_SUCCESS)
+            # Phase failed - error already logged above, just exit with error code
+            raise typer.Exit(code=EXIT_ERROR)
 
         # COMPLETED exit reason - show success message
         # Final success message always shown (AC11 - quiet mode shows final result)
@@ -602,6 +616,57 @@ def run(
 
 
 # ============================================================================
+# Reset Lock Command
+# ============================================================================
+
+
+@app.command(name="reset-lock")
+def reset_lock_command(
+    project: Path = typer.Option(
+        Path("."),
+        "--project",
+        "-p",
+        help="Path to project directory (default: current directory)",
+        exists=False,  # Don't require directory to exist - we'll check for lock file
+    ),
+) -> None:
+    """Remove stale running.lock file to allow new runs.
+
+    Use this when bmad-assist reports another run is active but
+    the process has actually terminated (stale lock).
+    """
+    from bmad_assist.core.loop.locking import _is_pid_alive, _read_lock_file
+
+    # Resolve project path
+    project_path = project.resolve()
+    lock_path = project_path / ".bmad-assist" / "running.lock"
+
+    if not lock_path.exists():
+        _info(f"No lock file found at {lock_path}")
+        raise typer.Exit(code=EXIT_SUCCESS)
+
+    # Read lock file to report what we're removing
+    pid, timestamp = _read_lock_file(lock_path)
+
+    # Check if process is actually alive
+    if pid is not None and _is_pid_alive(pid):
+        _warning(f"Process {pid} is still running! Lock file is valid.")
+        _warning("If you're sure no bmad-assist run is active, use --force (not implemented yet)")
+        raise typer.Exit(code=EXIT_WARNING)
+
+    # Remove the lock file
+    try:
+        lock_path.unlink()
+        if pid is not None:
+            _success(f"Removed stale lock file (PID {pid}, locked at {timestamp})")
+        else:
+            _success(f"Removed lock file at {lock_path}")
+    except OSError as e:
+        _error(f"Failed to remove lock file: {e}")
+        raise typer.Exit(code=EXIT_ERROR) from None
+
+
+# ============================================================================
 # Register commands from commands/ modules
 # ============================================================================
 
@@ -616,18 +681,22 @@ app.command(name="init")(init_command)
 
 # Register sub-apps (command groups)
 from bmad_assist.commands.benchmark import benchmark_app  # noqa: E402
+from bmad_assist.commands.config import config_app  # noqa: E402
 from bmad_assist.commands.experiment import experiment_app  # noqa: E402
 from bmad_assist.commands.patch import patch_app  # noqa: E402
 from bmad_assist.commands.qa import qa_app  # noqa: E402
 from bmad_assist.commands.sprint import sprint_app  # noqa: E402
 from bmad_assist.commands.test import test_app  # noqa: E402
+from bmad_assist.testarch.standalone.cli import tea_app  # noqa: E402
 
+app.add_typer(config_app, name="config")
 app.add_typer(patch_app, name="patch")
 app.add_typer(benchmark_app, name="benchmark")
 app.add_typer(sprint_app, name="sprint")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(qa_app, name="qa")
 app.add_typer(test_app, name="test")
+app.add_typer(tea_app, name="tea")
 
 
 if __name__ == "__main__":

@@ -277,8 +277,8 @@ class TestAdvanceStatePhaseOrdering:
     """Test advance_state handles phase ordering (AC6)."""
 
     def test_default_loop_config_has_expected_phases(self) -> None:
-        """AC6: DEFAULT_LOOP_CONFIG.story contains expected phases."""
-        # Default config has standard 6-phase story loop
+        """AC6: DEFAULT_LOOP_CONFIG.story contains expected phases (minimal, no TEA)."""
+        # Default config has 6-phase story loop without TEA phases
         expected_story = [
             "create_story",
             "validate_story",
@@ -290,16 +290,16 @@ class TestAdvanceStatePhaseOrdering:
         assert DEFAULT_LOOP_CONFIG.story == expected_story
 
     def test_default_loop_config_teardown(self) -> None:
-        """AC6: DEFAULT_LOOP_CONFIG.epic_teardown contains retrospective."""
+        """AC6: DEFAULT_LOOP_CONFIG.epic_teardown contains only retrospective (no TEA)."""
         assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective"]
 
     @pytest.mark.parametrize(
         "current_phase,expected_next",
         [
-            # Test transitions within DEFAULT_LOOP_CONFIG.story
+            # Test transitions within DEFAULT_LOOP_CONFIG.story (minimal, no TEA)
             (Phase.CREATE_STORY, Phase.VALIDATE_STORY),
             (Phase.VALIDATE_STORY, Phase.VALIDATE_STORY_SYNTHESIS),
-            (Phase.VALIDATE_STORY_SYNTHESIS, Phase.DEV_STORY),
+            (Phase.VALIDATE_STORY_SYNTHESIS, Phase.DEV_STORY),  # No ATDD in default
             (Phase.DEV_STORY, Phase.CODE_REVIEW),
             (Phase.CODE_REVIEW, Phase.CODE_REVIEW_SYNTHESIS),
         ],
@@ -361,7 +361,7 @@ class TestAdvanceStateAtLastStoryPhase:
     """Test advance_state at last story phase indicates epic complete (AC8).
 
     Note: In the configurable loop architecture, advance_state uses LoopConfig.story.
-    The last phase in DEFAULT_LOOP_CONFIG.story is CODE_REVIEW_SYNTHESIS.
+    The last phase in DEFAULT_LOOP_CONFIG.story is TEST_REVIEW (Story 25.12).
     """
 
     @pytest.fixture
@@ -370,7 +370,7 @@ class TestAdvanceStateAtLastStoryPhase:
         return State(
             current_epic=2,
             current_story="2.5",
-            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,  # Last phase in minimal loop
             completed_stories=["2.1", "2.2", "2.3", "2.4", "2.5"],
             started_at=datetime(2025, 12, 10, 8, 0, 0),
             updated_at=datetime(2025, 12, 10, 18, 0, 0),
@@ -686,6 +686,7 @@ class TestEdgeCases:
         # Expected: traverse all story phases, then epic_complete at the last one
         # DEFAULT_LOOP_CONFIG.story = [create_story, validate_story, validate_story_synthesis,
         #                              dev_story, code_review, code_review_synthesis]
+        # (minimal loop, no TEA phases like atdd or test_review)
         expected = [
             Phase.CREATE_STORY,
             Phase.VALIDATE_STORY,
@@ -791,3 +792,119 @@ class TestUpdatePositionATDDReset:
         # atdd_ran_for_story should NOT be reset by update_position
         # (only atdd_ran_in_epic is reset, atdd_ran_for_story is reset by handler)
         assert state.atdd_ran_for_story is True
+
+
+# =============================================================================
+# Framework/CI Epic Flag Reset (Story 25.9)
+# =============================================================================
+
+
+class TestUpdatePositionFrameworkCIReset:
+    """Test update_position resets framework_ran_in_epic and ci_ran_in_epic on epic change."""
+
+    def test_update_position_resets_framework_ran_in_epic_on_epic_change(self) -> None:
+        """update_position resets framework_ran_in_epic when epic changes."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            framework_ran_in_epic=True,
+        )
+
+        # Change epic
+        update_position(state, epic=2)
+
+        # Flag should be reset
+        assert state.framework_ran_in_epic is False
+        assert state.current_epic == 2
+
+    def test_update_position_resets_ci_ran_in_epic_on_epic_change(self) -> None:
+        """update_position resets ci_ran_in_epic when epic changes."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            ci_ran_in_epic=True,
+        )
+
+        # Change epic
+        update_position(state, epic=2)
+
+        # Flag should be reset
+        assert state.ci_ran_in_epic is False
+        assert state.current_epic == 2
+
+    def test_update_position_preserves_framework_ran_in_epic_when_same_epic(self) -> None:
+        """update_position preserves framework_ran_in_epic when epic stays the same."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            framework_ran_in_epic=True,
+        )
+
+        # Update story within same epic
+        update_position(state, story="1.6")
+
+        # Flag should be preserved
+        assert state.framework_ran_in_epic is True
+        assert state.current_story == "1.6"
+
+    def test_update_position_preserves_ci_ran_in_epic_when_same_epic(self) -> None:
+        """update_position preserves ci_ran_in_epic when epic stays the same."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            ci_ran_in_epic=True,
+        )
+
+        # Update story within same epic
+        update_position(state, story="1.6")
+
+        # Flag should be preserved
+        assert state.ci_ran_in_epic is True
+
+    def test_update_position_resets_all_epic_flags_on_epic_change(self) -> None:
+        """update_position resets all epic-scoped flags when epic changes."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            atdd_ran_in_epic=True,
+            framework_ran_in_epic=True,
+            ci_ran_in_epic=True,
+            test_design_ran_in_epic=True,
+            automate_ran_in_epic=True,
+            nfr_assess_ran_in_epic=True,
+        )
+
+        # Change epic
+        update_position(state, epic=2)
+
+        # All epic-scoped flags should be reset
+        assert state.atdd_ran_in_epic is False
+        assert state.framework_ran_in_epic is False
+        assert state.ci_ran_in_epic is False
+        assert state.test_design_ran_in_epic is False
+        assert state.automate_ran_in_epic is False
+        assert state.nfr_assess_ran_in_epic is False
+
+    def test_update_position_preserves_all_flags_when_epic_none(self) -> None:
+        """update_position preserves all epic flags when epic arg is None."""
+        state = State(
+            current_epic=1,
+            current_story="1.5",
+            atdd_ran_in_epic=True,
+            framework_ran_in_epic=True,
+            ci_ran_in_epic=True,
+            test_design_ran_in_epic=True,
+            automate_ran_in_epic=True,
+            nfr_assess_ran_in_epic=True,
+        )
+
+        # Update phase only
+        update_position(state, phase=Phase.DEV_STORY)
+
+        # All flags should be preserved
+        assert state.atdd_ran_in_epic is True
+        assert state.framework_ran_in_epic is True
+        assert state.ci_ran_in_epic is True
+        assert state.test_design_ran_in_epic is True
+        assert state.automate_ran_in_epic is True
+        assert state.nfr_assess_ran_in_epic is True

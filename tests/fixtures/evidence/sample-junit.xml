@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="10" failures="2" errors="1" skipped="1" time="45.2">
+  <testsuite name="TestAPI" tests="5" failures="1" errors="0" skipped="1" time="20.5">
+    <testcase name="test_get_users" classname="TestAPI" time="0.5"/>
+    <testcase name="test_create_user" classname="TestAPI" time="1.2"/>
+    <testcase name="test_delete_user" classname="TestAPI" time="0.8">
+      <failure message="Expected 204 but got 500">User deletion failed</failure>
+    </testcase>
+    <testcase name="test_update_user" classname="TestAPI" time="0.6"/>
+    <testcase name="test_deprecated_endpoint" classname="TestAPI" time="0.0">
+      <skipped message="Deprecated endpoint"/>
+    </testcase>
+  </testsuite>
+  <testsuite name="TestAuth" tests="5" failures="1" errors="1" skipped="0" time="24.7">
+    <testcase name="test_login" classname="TestAuth" time="1.5"/>
+    <testcase name="test_logout" classname="TestAuth" time="0.8"/>
+    <testcase name="test_token_refresh" classname="TestAuth" time="2.0">
+      <failure message="Token expired too early">Token refresh timing issue</failure>
+    </testcase>
+    <testcase name="test_invalid_credentials" classname="TestAuth" time="0.3"/>
+    <testcase name="test_rate_limit" classname="TestAuth" time="5.0">
+      <error message="Connection reset">Network error during test</error>
+    </testcase>
+  </testsuite>
+</testsuites>

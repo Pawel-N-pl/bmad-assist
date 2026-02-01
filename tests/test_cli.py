@@ -114,15 +114,15 @@ class TestLoggingSetup:
         _setup_logging(verbose=True, quiet=False)
         assert logging.getLogger().level == logging.DEBUG
 
-    def test_setup_logging_quiet_sets_warning(self) -> None:
-        """AC11: --quiet sets WARNING level."""
+    def test_setup_logging_quiet_sets_error(self) -> None:
+        """AC11: --quiet sets ERROR level (more quiet than before)."""
         _setup_logging(verbose=False, quiet=True)
-        assert logging.getLogger().level == logging.WARNING
+        assert logging.getLogger().level == logging.ERROR
 
-    def test_setup_logging_default_sets_info(self) -> None:
-        """Default logging level is INFO."""
+    def test_setup_logging_default_sets_warning(self) -> None:
+        """Default logging level is WARNING (changed from INFO to reduce noise)."""
         _setup_logging(verbose=False, quiet=False)
-        assert logging.getLogger().level == logging.INFO
+        assert logging.getLogger().level == logging.WARNING
 
     def test_setup_logging_verbose_takes_precedence(self) -> None:
         """AC10/AC11: --verbose takes precedence over --quiet."""

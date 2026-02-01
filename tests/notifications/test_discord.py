@@ -75,10 +75,11 @@ class TestDiscordProviderClass:
         result = repr(provider)
         assert "DiscordProvider" in result
         assert "***" in result
-        # Full URL should not be visible
-        assert "https://discord.com/api/webhooks" not in result
-        # Only last 20 chars shown (as per story requirement for debugging)
-        assert "***" in result
+        # Smart masking: shows service identifier but masks secrets
+        assert "discord.com/api/webhooks/***" in result
+        # Webhook ID and token should NOT be visible
+        assert "123456789" not in result
+        assert "secret-token-here" not in result
 
     def test_repr_when_not_configured(self) -> None:
         """Test __repr__ shows 'not configured' when webhook URL not set."""
@@ -690,4 +691,5 @@ class TestSendMethod:
         assert result is False
         assert "Notification failed" in caplog.text
         assert "discord" in caplog.text.lower()
-        assert "Unexpected formatting error" in caplog.text
+        # F1 FIX: Only error type is logged, not the message (prevents secret leakage)
+        assert "ValueError" in caplog.text

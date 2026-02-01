@@ -32,6 +32,7 @@ __all__ = [
     "DashboardError",
     "IsolationError",
     "ManifestError",
+    "EvidenceError",
 ]
 
 
@@ -488,3 +489,19 @@ class ManifestError(BmadAssistError):
         """
         super().__init__(message)
         self.run_id = run_id
+
+
+class EvidenceError(BmadAssistError):
+    """Evidence collection or parsing error.
+
+    Raised when:
+    - Evidence file cannot be parsed
+    - Evidence command execution fails critically
+    - Other evidence collection failures that should stop processing
+
+    Note: Most evidence collection failures are handled gracefully
+    (return None, log warning). This exception is for critical failures.
+
+    """
+
+    pass

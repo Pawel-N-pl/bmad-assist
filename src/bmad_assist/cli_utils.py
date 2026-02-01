@@ -5,6 +5,7 @@ shared across CLI command modules.
 """
 
 import logging
+import sys
 from pathlib import Path
 
 import typer
@@ -32,8 +33,12 @@ EXIT_TOKEN_BUDGET_ERROR: int = 15  # TokenBudgetError - prompt too large
 EXIT_PATCH_ERROR: int = 16  # PatchError - general patch compilation error
 EXIT_PATCH_VALIDATION_ERROR: int = 17  # Validation failure after retries
 
+# TTY detection for Rich markup
+# When stdout is piped, Rich automatically strips ANSI codes
+_is_tty = sys.stdout.isatty()
+
 # Rich console for output
-console = Console()
+console = Console(force_terminal=_is_tty, no_color=not _is_tty)
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -109,19 +114,22 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
 
     Args:
         verbose: If True, set DEBUG level.
-        quiet: If True, set WARNING level.
+        quiet: If True, set ERROR level.
 
     Note:
         verbose and quiet are mutually exclusive. If both are True,
         verbose takes precedence.
 
+        Default log level is WARNING (changed from INFO to reduce noise).
+        Phase banners are always shown regardless of log level.
+
     """
     if verbose:
         level = logging.DEBUG
     elif quiet:
-        level = logging.WARNING
+        level = logging.ERROR
     else:
-        level = logging.INFO
+        level = logging.WARNING  # Changed from INFO to reduce log noise
 
     # Clear any existing handlers to avoid duplicates
     logging.root.handlers.clear()
@@ -132,6 +140,11 @@ def _setup_logging(verbose: bool, quiet: bool) -> None:
         datefmt="[%X]",
         handlers=[RichHandler(console=console, rich_tracebacks=True, show_path=False)],
     )
+
+    # Suppress HTTP client loggers (security: prevent secret leakage)
+    # These loggers can expose sensitive URLs (Telegram bot tokens, Discord webhooks)
+    for logger_name in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def _validate_project_path(project: str) -> Path:

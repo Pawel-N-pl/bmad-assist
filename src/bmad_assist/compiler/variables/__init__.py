@@ -50,5 +50,16 @@ from bmad_assist.compiler.variables.sprint_status import (  # noqa: F401
     _extract_story_title,
     _resolve_sprint_status,
 )
+from bmad_assist.compiler.variables.tea import (  # noqa: F401
+    resolve_knowledge_index,
+    resolve_next_step_file,
+    resolve_tea_config_flags,
+    resolve_tea_variables,
+)
 
-__all__ = ["resolve_variables", "MAX_RECURSION_DEPTH"]
+__all__ = [
+    "resolve_variables",
+    "MAX_RECURSION_DEPTH",
+    "resolve_tea_variables",
+    "resolve_knowledge_index",
+]

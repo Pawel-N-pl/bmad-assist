@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bmad-assist"
-version = "0.4.13"
+version = "0.4.15"
 description = "CLI tool for automating BMAD methodology development loop"
 readme = "README.md"
 license = {text = "MIT"}
@@ -23,6 +23,7 @@ dependencies = [
     "claude-agent-sdk>=0.1.0",
     "textstat>=0.7.3",
     "httpx>=0.27.0",
+    "questionary>=2.0.0",  # Interactive prompts with arrow-key navigation
 ]
 
 [project.optional-dependencies]
@@ -44,7 +45,7 @@ bmad-assist = "bmad_assist.cli:app"
 where = ["src"]
 
 [tool.setuptools.package-data]
-bmad_assist = ["workflows/**/*", "default_patches/*.yaml"]
+bmad_assist = ["workflows/**/*", "default_patches/*.yaml", "testarch/knowledge_base/**/*"]
 
 [tool.mypy]
 python_version = "3.11"

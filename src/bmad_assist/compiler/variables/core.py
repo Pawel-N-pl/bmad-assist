@@ -401,6 +401,21 @@ def resolve_variables(
     # Step 9: Resolve sprint_status path (docs/ or docs/sprint-artifacts/)
     resolved = _resolve_sprint_status(resolved, context)
 
+    # Step 9.5: TEA variable resolution for testarch-* workflows
+    # Only applies if workflow name starts with "testarch-"
+    workflow_name = workflow_ir.name if workflow_ir else None
+    if workflow_name and workflow_name.startswith("testarch-"):
+        from bmad_assist.testarch.core.variables import TEAVariableResolver
+
+        tea_resolver = TEAVariableResolver()
+        tea_vars = tea_resolver.resolve_all(context, workflow_name)
+
+        # Merge TEA variables (don't override existing)
+        for key, value in tea_vars.items():
+            if key not in resolved:
+                resolved[key] = value
+                logger.debug("Set from TEA resolver: %s", key)
+
     # Step 10: Apply hard overrides (always enforced regardless of config)
     resolved["user_skill_level"] = "expert"
     resolved["communication_language"] = "English"

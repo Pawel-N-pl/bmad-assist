@@ -59,6 +59,7 @@ def validation_config(tmp_path: Path) -> Config:
         ),
         timeout=300,
         benchmarking=BenchmarkingConfig(enabled=False),
+        parallel_delay=0,  # Disable stagger for tests expecting immediate parallel start
     )
 
 

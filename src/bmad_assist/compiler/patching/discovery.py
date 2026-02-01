@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 # Default patch directory name
 DEFAULT_PATCH_DIR = ".bmad-assist/patches"
 DEFAULTS_FILENAME = "defaults.yaml"
+DEFAULTS_TESTARCH_FILENAME = "defaults-testarch.yaml"
+
+# TEA workflow prefix for detection
+TEA_WORKFLOW_PREFIX = "testarch-"
 
 
 def determine_patch_source_level(
@@ -177,40 +181,41 @@ def discover_patch(
     return None
 
 
-def load_defaults(patch_path: Path) -> list[PostProcessRule]:
-    """Load shared post_process rules from defaults.yaml.
-
-    Searches for defaults.yaml in the same directory as the patch file,
-    then falls back to global ~/.bmad-assist/patches/defaults.yaml.
+def _load_defaults_file(
+    patch_dir: Path,
+    filename: str,
+    description: str,
+) -> list[PostProcessRule]:
+    """Load post_process rules from a defaults file.
 
     Args:
-        patch_path: Path to the patch file (used to find sibling defaults.yaml).
+        patch_dir: Directory to search for defaults file.
+        filename: Name of defaults file (e.g., "defaults.yaml").
+        description: Description for logging (e.g., "defaults.yaml").
 
     Returns:
-        List of PostProcessRule from defaults, empty list if not found.
+        List of PostProcessRule from file, empty list if not found or invalid.
 
     """
-    # Look for defaults.yaml in same directory as patch
-    patch_dir = patch_path.parent
-    defaults_path = patch_dir / DEFAULTS_FILENAME
+    defaults_path = patch_dir / filename
 
-    # Fallback to global defaults
+    # Fallback to global location
     if not defaults_path.exists():
-        defaults_path = Path.home() / DEFAULT_PATCH_DIR / DEFAULTS_FILENAME
+        defaults_path = Path.home() / DEFAULT_PATCH_DIR / filename
 
     if not defaults_path.exists():
-        logger.debug("No defaults.yaml found, skipping defaults")
+        logger.debug("No %s found", description)
         return []
 
     try:
         content = defaults_path.read_text(encoding="utf-8")
         data = yaml.safe_load(content)
     except (yaml.YAMLError, OSError) as e:
-        logger.warning("Failed to load defaults.yaml: %s", e)
+        logger.warning("Failed to load %s: %s", description, e)
         return []
 
     if not isinstance(data, dict):
-        logger.warning("defaults.yaml must contain a YAML mapping")
+        logger.warning("%s must contain a YAML mapping", description)
         return []
 
     # Parse post_process section
@@ -219,13 +224,13 @@ def load_defaults(patch_path: Path) -> list[PostProcessRule]:
         return []
 
     if not isinstance(post_process_section, list):
-        logger.warning("defaults.yaml post_process must be a list")
+        logger.warning("%s post_process must be a list", description)
         return []
 
     rules = []
     for i, rule_data in enumerate(post_process_section):
         if not isinstance(rule_data, dict):
-            logger.warning("defaults.yaml post_process[%d] must be a mapping", i)
+            logger.warning("%s post_process[%d] must be a mapping", description, i)
             continue
         try:
             rules.append(
@@ -236,11 +241,68 @@ def load_defaults(patch_path: Path) -> list[PostProcessRule]:
                 )
             )
         except ValidationError as e:
-            logger.warning("Invalid rule in defaults.yaml post_process[%d]: %s", i, e)
+            logger.warning("Invalid rule in %s post_process[%d]: %s", description, i, e)
             continue
 
-    logger.debug("Loaded %d default post_process rules from %s", len(rules), defaults_path)
+    logger.debug("Loaded %d post_process rules from %s", len(rules), defaults_path)
     return rules
+
+
+def is_tea_workflow(workflow_name: str) -> bool:
+    """Check if workflow is a TEA workflow.
+
+    TEA workflows are identified by the "testarch-" prefix.
+
+    Args:
+        workflow_name: Workflow name.
+
+    Returns:
+        True if workflow is a TEA workflow.
+
+    """
+    return workflow_name.startswith(TEA_WORKFLOW_PREFIX) if workflow_name else False
+
+
+def load_defaults(
+    patch_path: Path,
+    workflow_name: str | None = None,
+) -> list[PostProcessRule]:
+    """Load shared post_process rules from defaults files.
+
+    For TEA workflows (testarch-*), applies merge order:
+    1. defaults.yaml (global base)
+    2. defaults-testarch.yaml (TEA overlay)
+
+    For non-TEA workflows, only loads defaults.yaml.
+
+    Args:
+        patch_path: Path to the patch file (used to find sibling defaults).
+        workflow_name: Optional workflow name for TEA detection.
+
+    Returns:
+        List of PostProcessRule from defaults, empty list if not found.
+
+    """
+    patch_dir = patch_path.parent
+
+    # Load base defaults.yaml
+    base_rules = _load_defaults_file(patch_dir, DEFAULTS_FILENAME, "defaults.yaml")
+
+    # For TEA workflows, also load defaults-testarch.yaml
+    if workflow_name and is_tea_workflow(workflow_name):
+        tea_rules = _load_defaults_file(
+            patch_dir, DEFAULTS_TESTARCH_FILENAME, "defaults-testarch.yaml"
+        )
+        if tea_rules:
+            logger.debug(
+                "Merging TEA defaults: %d base + %d TEA = %d total",
+                len(base_rules),
+                len(tea_rules),
+                len(base_rules) + len(tea_rules),
+            )
+            return base_rules + tea_rules
+
+    return base_rules
 
 
 def load_patch(patch_path: Path) -> WorkflowPatch:
@@ -372,9 +434,11 @@ def load_patch(patch_path: Path) -> WorkflowPatch:
         except ValidationError as e:
             raise PatchError(f"Invalid git_intelligence in {patch_path}: {e}") from e
 
-    # Load default post_process rules from defaults.yaml
+    # Load default post_process rules from defaults.yaml (and defaults-testarch.yaml for TEA)
     # Defaults are applied first, patch-specific rules extend them
-    default_rules = load_defaults(patch_path)
+    # Use workflow name from compatibility section for TEA detection
+    workflow_name = compatibility.workflow
+    default_rules = load_defaults(patch_path, workflow_name)
 
     # Extract and validate optional post_process section (patch-specific)
     post_process_section = data.get("post_process")

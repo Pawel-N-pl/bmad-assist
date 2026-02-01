@@ -46,6 +46,7 @@ from bmad_assist.benchmarking import (
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.config import Config, get_phase_timeout
+from bmad_assist.core.config.loaders import parse_parallel_delay
 from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
     get_phase_provider_config,
@@ -97,6 +98,10 @@ __all__ = [
 
 # Minimum reviewers required for synthesis
 _MIN_REVIEWERS = 2
+
+
+# F7 FIX: Use shared delayed_invoke instead of local duplicate
+from bmad_assist.core.async_utils import delayed_invoke
 
 # Tools allowed for reviewers (read-only access to codebase)
 # Code reviewers need to read files to perform meaningful review, but must NOT modify anything
@@ -275,6 +280,8 @@ async def _invoke_reviewer(
     color_index: int | None = None,
     cwd: Path | None = None,
     display_model: str | None = None,
+    provider_name: str | None = None,
+    thinking: bool | None = None,
 ) -> tuple[str, ValidationOutput | None, DeterministicMetrics | None, str | None]:
     """Invoke a single reviewer using asyncio.to_thread.
 
@@ -318,6 +325,7 @@ async def _invoke_reviewer(
                 color_index=color_index,
                 cwd=cwd,
                 display_model=display_model,
+                thinking=thinking,
             ),  # type: ignore[call-arg]  # mypy doesn't handle to_thread kwargs well
             timeout=timeout,
         )
@@ -338,8 +346,11 @@ async def _invoke_reviewer(
         raw_content = result.stdout
         extracted_content = _extract_code_review_report(raw_content)
 
+        # Use actual provider name for benchmarking (not composite reviewer_id)
+        actual_provider = provider_name or provider.provider_name
+
         output = ValidationOutput(
-            provider=reviewer_id,
+            provider=actual_provider,
             model=result.model or "unknown",
             content=extracted_content,
             timestamp=review_timestamp,
@@ -559,24 +570,28 @@ async def run_code_review_phase(
         provider = get_provider(multi_config.provider)
         # Use display_model (model_name if set) for logging, model for CLI invocation
         reviewer_id = f"{multi_config.provider}-{multi_config.display_model}"
-        task = asyncio.create_task(
-            _invoke_reviewer(
-                provider,
-                prompt,
-                timeout,
-                reviewer_id,
-                model=multi_config.model,
-                allowed_tools=_REVIEWER_ALLOWED_TOOLS,
-                run_timestamp=run_timestamp,
-                epic_num=epic_num,
-                story_num=story_num,
-                benchmarking_enabled=benchmarking_enabled,
-                settings_file=multi_config.settings_path,
-                color_index=idx,
-                cwd=project_path,
-                display_model=multi_config.display_model,
-            )
+        # Staggered start: each task waits idx * delay before starting
+        # Parse delay at runtime for each task (randomization per-call if range configured)
+        delay = parse_parallel_delay(config.parallel_delay) * idx
+        coro = _invoke_reviewer(
+            provider,
+            prompt,
+            timeout,
+            reviewer_id,
+            model=multi_config.model,
+            allowed_tools=_REVIEWER_ALLOWED_TOOLS,
+            run_timestamp=run_timestamp,
+            epic_num=epic_num,
+            story_num=story_num,
+            benchmarking_enabled=benchmarking_enabled,
+            settings_file=multi_config.settings_path,
+            color_index=idx,
+            cwd=project_path,
+            display_model=multi_config.display_model,
+            provider_name=multi_config.provider,
+            thinking=multi_config.thinking,
         )
+        task = asyncio.create_task(delayed_invoke(delay, coro))
         tasks.append(task)
 
     # Add master as reviewer ONLY when using global providers.multi fallback
@@ -586,24 +601,26 @@ async def run_code_review_phase(
         master_provider = get_provider(config.providers.master.provider)
         master_id = f"master-{config.providers.master.display_model}"
         master_color_index = len(multi_configs)
-        master_task = asyncio.create_task(
-            _invoke_reviewer(
-                master_provider,
-                prompt,
-                timeout,
-                master_id,
-                model=config.providers.master.model,
-                allowed_tools=_REVIEWER_ALLOWED_TOOLS,
-                run_timestamp=run_timestamp,
-                epic_num=epic_num,
-                story_num=story_num,
-                benchmarking_enabled=benchmarking_enabled,
-                settings_file=config.providers.master.settings_path,
-                color_index=master_color_index,
-                cwd=project_path,
-                display_model=config.providers.master.display_model,
-            )
+        # Staggered start for master: uses next index after all multi configs
+        master_delay = parse_parallel_delay(config.parallel_delay) * master_color_index
+        master_coro = _invoke_reviewer(
+            master_provider,
+            prompt,
+            timeout,
+            master_id,
+            model=config.providers.master.model,
+            allowed_tools=_REVIEWER_ALLOWED_TOOLS,
+            run_timestamp=run_timestamp,
+            epic_num=epic_num,
+            story_num=story_num,
+            benchmarking_enabled=benchmarking_enabled,
+            settings_file=config.providers.master.settings_path,
+            color_index=master_color_index,
+            cwd=project_path,
+            display_model=config.providers.master.display_model,
+            provider_name=config.providers.master.provider,
         )
+        master_task = asyncio.create_task(delayed_invoke(master_delay, master_coro))
         tasks.append(master_task)
     else:
         logger.debug(

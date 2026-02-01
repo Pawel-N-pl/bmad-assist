@@ -85,8 +85,8 @@ class TestTelegramProviderClass:
         assert "12345***" in result
         # Full token should NOT be visible
         assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ" not in result
-        # Chat ID should be masked - only last 3 digits visible
-        assert "***777" in result
+        # Chat ID should be masked - uses mask_token with prefix_length=3
+        assert "999***" in result
         assert "999888777" not in result
 
     def test_repr_when_token_short(self) -> None:

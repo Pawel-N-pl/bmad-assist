@@ -730,3 +730,114 @@ def mock_cursor_popen_not_found():
     with patch("bmad_assist.providers.cursor_agent.Popen") as mock:
         mock.side_effect = FileNotFoundError("cursor-agent")
         yield mock
+
+
+# =============================================================================
+# Kimi Provider Popen Fixtures
+# =============================================================================
+
+
+def make_kimi_json_output(
+    text: str = "Mock response",
+    reasoning_content: str | None = None,
+    tool_calls: list[dict] | None = None,
+) -> str:
+    """Create Kimi OpenAI-style JSONL output for testing.
+
+    Args:
+        text: Response text to include in content field.
+        reasoning_content: Optional thinking content (for --thinking mode).
+        tool_calls: Optional list of tool call dicts to include.
+
+    Returns:
+        Multi-line string with Kimi JSONL messages.
+    """
+    msg: dict = {"role": "assistant", "content": text}
+    if reasoning_content:
+        msg["reasoning_content"] = reasoning_content
+    if tool_calls:
+        msg["tool_calls"] = tool_calls
+    return json.dumps(msg) + "\n"
+
+
+def make_kimi_multi_message_output(messages: list[str]) -> str:
+    """Create Kimi JSONL with multiple assistant messages.
+
+    Args:
+        messages: List of content strings for each assistant message.
+
+    Returns:
+        Multi-line string with multiple Kimi JSONL messages.
+    """
+    lines = [json.dumps({"role": "assistant", "content": text}) for text in messages]
+    return "\n".join(lines) + "\n"
+
+
+def create_kimi_mock_process(
+    stdout_content: str | None = None,
+    stderr_content: str = "",
+    returncode: int = 0,
+    wait_side_effect: Exception | None = None,
+    response_text: str = "Mock response",
+) -> MagicMock:
+    """Create a mock Popen process for Kimi testing.
+
+    Args:
+        stdout_content: Raw stdout content. If None, generates from response_text.
+        stderr_content: Content for stderr.
+        returncode: Exit code for wait().
+        wait_side_effect: Exception to raise from wait() (e.g., TimeoutExpired).
+        response_text: Text to use if stdout_content is None.
+
+    Returns:
+        MagicMock configured to behave like a Popen process.
+    """
+    if stdout_content is None:
+        stdout_content = make_kimi_json_output(response_text)
+    return create_mock_process(
+        stdout_content=stdout_content,
+        stderr_content=stderr_content,
+        returncode=returncode,
+        wait_side_effect=wait_side_effect,
+    )
+
+
+@pytest.fixture
+def mock_kimi_popen_success():
+    """Fixture that mocks Popen for successful Kimi invocation."""
+    with patch("bmad_assist.providers.kimi.Popen") as mock:
+        mock.return_value = create_kimi_mock_process(
+            response_text="Mock Kimi response",
+            returncode=0,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_kimi_popen_timeout():
+    """Fixture that mocks Popen for Kimi timeout."""
+    with patch("bmad_assist.providers.kimi.Popen") as mock:
+        mock.return_value = create_kimi_mock_process(
+            wait_side_effect=TimeoutExpired(cmd=["kimi"], timeout=5)
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_kimi_popen_error():
+    """Fixture that mocks Popen for non-zero Kimi exit."""
+    with patch("bmad_assist.providers.kimi.Popen") as mock:
+        mock.return_value = create_kimi_mock_process(
+            stdout_content="",
+            stderr_content="Kimi error message",
+            returncode=1,
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_kimi_popen_not_found():
+    """Fixture that mocks Popen when Kimi CLI not found."""
+    with patch("bmad_assist.providers.kimi.Popen") as mock:
+        mock.side_effect = FileNotFoundError("kimi")
+        yield mock

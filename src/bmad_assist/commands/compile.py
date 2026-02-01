@@ -21,6 +21,7 @@ from bmad_assist.cli_utils import (
     EXIT_TOKEN_BUDGET_ERROR,
     EXIT_VARIABLE_ERROR,
     _error,
+    _info,
     _setup_logging,
     _success,
     _validate_project_path,
@@ -48,6 +49,24 @@ EPIC_LEVEL_WORKFLOWS = {
     "testarch-trace",
     "testarch-atdd",
     "testarch-test-review",
+    # New TEA workflows
+    "testarch-automate",
+    "testarch-ci",
+    "testarch-framework",
+    "testarch-nfr-assess",
+    "testarch-test-design",
+}
+
+# Tri-modal workflows that support --mode flag
+TRI_MODAL_WORKFLOWS = {
+    "testarch-atdd",
+    "testarch-trace",
+    "testarch-test-review",
+    "testarch-automate",
+    "testarch-ci",
+    "testarch-framework",
+    "testarch-nfr-assess",
+    "testarch-test-design",
 }
 
 
@@ -112,6 +131,11 @@ def compile_command(
         "-v",
         help="Enable debug output",
     ),
+    mode: str | None = typer.Option(
+        None,
+        "--mode",
+        help="Workflow mode for tri-modal workflows: c|create, v|validate, e|edit (default: create)",
+    ),
 ) -> None:
     """Compile a BMAD workflow into a standalone prompt.
 
@@ -174,6 +198,26 @@ def compile_command(
             )
             raise typer.Exit(code=EXIT_ERROR)
 
+    # Validate and normalize mode flag
+    normalized_mode: str | None = None
+    if mode:
+        # Normalize mode name
+        from bmad_assist.compiler.tri_modal import normalize_mode
+
+        try:
+            normalized_mode = normalize_mode(mode)
+        except CompilerError as e:
+            _error(str(e))
+            raise typer.Exit(code=EXIT_CONFIG_ERROR) from None
+
+        # Check if workflow supports modes
+        if workflow not in TRI_MODAL_WORKFLOWS:
+            _error(
+                f"--mode flag is not supported for workflow '{workflow}'\n"
+                f"  Tri-modal workflows: {', '.join(sorted(TRI_MODAL_WORKFLOWS))}"
+            )
+            raise typer.Exit(code=EXIT_CONFIG_ERROR)
+
     # Validate project path
     project_path = _validate_project_path(project)
 
@@ -222,6 +266,14 @@ def compile_command(
     # Add category for qa-plan-execute
     if workflow == "qa-plan-execute" and category:
         resolved_vars["category"] = category
+
+    # Add mode for tri-modal workflows
+    if normalized_mode:
+        resolved_vars["workflow_mode"] = normalized_mode
+
+    # Display available modes if tri-modal workflow and no mode specified
+    if not mode and workflow in TRI_MODAL_WORKFLOWS:
+        _info(f"Available modes for {workflow}: c (create), v (validate), e (edit)")
 
     context = CompilerContext(
         project_root=project_path,

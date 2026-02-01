@@ -150,11 +150,10 @@ def guardian_check_anomaly(result: PhaseResult, state: State) -> GuardianDecisio
     # MVP: Halt on failure to prevent infinite loops with placeholder handlers
     if not result.success:
         decision = GuardianDecision.HALT
-        logger.warning(
-            "Guardian: phase=%s story=%s FAILED - halting for user intervention. Error: %s",
+        logger.debug(
+            "Guardian: phase=%s story=%s FAILED - stopping loop",
             state.current_phase.name if state.current_phase else "None",
             state.current_story,
-            result.error,
         )
     else:
         decision = GuardianDecision.CONTINUE

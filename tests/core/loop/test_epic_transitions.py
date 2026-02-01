@@ -386,7 +386,8 @@ class TestAdvanceToNextEpic:
         assert new_state is not None
         assert new_state.current_epic == 20
         assert new_state.current_story == "20.3"  # Last story
-        assert new_state.current_phase == Phase.RETROSPECTIVE  # Not CREATE_STORY!
+        # Minimal loop: RETROSPECTIVE is first (and only) in epic_teardown
+        assert new_state.current_phase == Phase.RETROSPECTIVE
 
     def test_advance_to_next_epic_some_stories_done_starts_at_first_incomplete(
         self,

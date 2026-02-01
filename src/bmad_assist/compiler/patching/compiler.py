@@ -38,15 +38,24 @@ logger = logging.getLogger(__name__)
 _WORKFLOW_LOCATIONS = [
     # New BMAD v6 structure (_bmad/)
     "_bmad/bmm/workflows/4-implementation",  # Implementation workflows
+    "_bmad/bmm/workflows/testarch",  # TEA workflows
     "_bmad/bmm/workflows/3-solutioning",  # Solutioning workflows
     "_bmad/bmm/workflows",  # Generic workflows
     "_bmad/core/workflows",  # Core workflows
-    # Legacy structure (.bmad/)
-    ".bmad/bmm/workflows/4-implementation",  # Implementation workflows
-    ".bmad/bmm/workflows/3-solutioning",  # Solutioning workflows
-    ".bmad/bmm/workflows",  # Generic workflows
-    ".bmad/core/workflows",  # Core workflows
 ]
+
+# Mapping from workflow name to BMAD directory structure
+# testarch workflows use different naming in BMAD (without 'testarch-' prefix)
+_WORKFLOW_TO_BMAD_DIR = {
+    "testarch-atdd": "atdd",
+    "testarch-trace": "trace",
+    "testarch-test-review": "test-review",
+    "testarch-automate": "automate",
+    "testarch-ci": "ci",
+    "testarch-framework": "framework",
+    "testarch-nfr-assess": "nfr-assess",
+    "testarch-test-design": "test-design",
+}
 
 
 def _find_workflow_files(
@@ -70,8 +79,11 @@ def _find_workflow_files(
         PatchError: If workflow files not found.
 
     """
+    # Use mapping for testarch workflows (testarch-ci -> ci)
+    bmad_dir_name = _WORKFLOW_TO_BMAD_DIR.get(workflow, workflow)
+
     for location in _WORKFLOW_LOCATIONS:
-        workflow_dir = project_root / location / workflow
+        workflow_dir = project_root / location / bmad_dir_name
         workflow_yaml = workflow_dir / "workflow.yaml"
 
         if not workflow_yaml.exists():
@@ -88,7 +100,7 @@ def _find_workflow_files(
 
     # Not found in project - try global ~/.bmad/
     for location in _WORKFLOW_LOCATIONS:
-        workflow_dir = Path.home() / location / workflow
+        workflow_dir = Path.home() / location / bmad_dir_name
         workflow_yaml = workflow_dir / "workflow.yaml"
 
         if not workflow_yaml.exists():
@@ -119,7 +131,7 @@ def _find_workflow_files(
 
     raise PatchError(
         f"Workflow not found: {workflow}\n"
-        f"  Searched in: {project_root}/.bmad/**/workflows/{workflow}/\n"
+        f"  Searched in: {project_root}/_bmad/**/workflows/{bmad_dir_name}/\n"
         f"  Suggestion: Ensure BMAD is installed in the project or use bundled workflows"
     )
 

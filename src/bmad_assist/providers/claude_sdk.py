@@ -243,6 +243,8 @@ class ClaudeSDKProvider(BaseProvider):
         allowed_tools: list[str] | None = None,
         no_cache: bool = False,
         color_index: int | None = None,
+        display_model: str | None = None,
+        thinking: bool | None = None,
     ) -> ProviderResult:
         """Execute Claude Code SDK with the given prompt.
 

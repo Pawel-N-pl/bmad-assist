@@ -140,12 +140,12 @@ class TestPromptCounter:
         assert path1.name.startswith("prompt-22-2-01-create_story-")
         assert path1.name.endswith(".md")
 
-        # Save second prompt - dev_story is phase 05
+        # Save second prompt - dev_story is phase 04 in minimal loop (no ATDD)
         path2 = save_prompt(project_root, 22, 2, "dev_story", sample_prompt_content)
         assert path2.name.startswith("prompt-22-2-04-dev_story-")
         assert path2.name.endswith(".md")
 
-        # Save third prompt - code_review is phase 06
+        # Save third prompt - code_review is phase 05
         path3 = save_prompt(project_root, 22, 2, "code_review", sample_prompt_content)
         assert path3.name.startswith("prompt-22-2-05-code_review-")
         assert path3.name.endswith(".md")
@@ -166,6 +166,7 @@ class TestPromptCounter:
         assert _get_prompt_counter() == 0
 
         # Save prompt in new run - uses descriptive naming
+        # dev_story is phase 04 in minimal loop (no ATDD in default config)
         path = save_prompt(project_root, 22, 2, "dev_story", sample_prompt_content)
         assert path.name.startswith("prompt-22-2-04-dev_story-")
         assert path.parent.name == "run-20260115T030000Z"
@@ -198,13 +199,14 @@ class TestPhaseSequence:
     """Tests for _get_phase_sequence() phase-to-number mapping.
 
     Note: _get_phase_sequence uses LoopConfig.story (from DEFAULT_LOOP_CONFIG) which has
-    6 phases: create_story, validate_story, validate_story_synthesis, dev_story,
-    code_review, code_review_synthesis. Phases not in this list return 99.
+    8 phases (Story 25.12): create_story, validate_story, validate_story_synthesis,
+    atdd, dev_story, code_review, code_review_synthesis, test_review.
+    Phases not in this list return 99.
     """
 
     def test_default_loop_config_phases_have_correct_sequence(self):
         """Phases in DEFAULT_LOOP_CONFIG.story return correct 1-based sequence numbers."""
-        # These are the 6 phases in DEFAULT_LOOP_CONFIG.story
+        # These are the 6 phases in DEFAULT_LOOP_CONFIG.story (minimal, no TEA)
         assert _get_phase_sequence("create_story") == 1
         assert _get_phase_sequence("validate_story") == 2
         assert _get_phase_sequence("validate_story_synthesis") == 3
@@ -214,12 +216,13 @@ class TestPhaseSequence:
 
     def test_phases_not_in_loop_config_return_99(self):
         """Phases not in DEFAULT_LOOP_CONFIG.story return 99."""
-        # These are NOT in DEFAULT_LOOP_CONFIG.story
-        assert _get_phase_sequence("atdd") == 99  # testarch phase
-        assert _get_phase_sequence("test_review") == 99  # testarch phase
+        # These are NOT in DEFAULT_LOOP_CONFIG.story (minimal loop has no TEA)
         assert _get_phase_sequence("retrospective") == 99  # epic_teardown
         assert _get_phase_sequence("qa_plan_generate") == 99  # QA phase
         assert _get_phase_sequence("qa_plan_execute") == 99  # QA phase
+        assert _get_phase_sequence("trace") == 99  # epic_teardown (TEA)
+        assert _get_phase_sequence("atdd") == 99  # TEA phase
+        assert _get_phase_sequence("test_review") == 99  # TEA phase
 
     def test_unknown_phase_returns_99(self):
         """Unknown phase returns 99 to sort last."""
@@ -506,7 +509,8 @@ class TestSavePrompt:
 
         prompt_path = save_prompt(project_root, 16, "16.1", "dev_story", sample_prompt_content)
 
-        # Verify path - dev_story is phase 05, story "16.1" extracts to "1"
+        # Verify path - dev_story is phase 04 in minimal loop (no ATDD)
+        # story "16.1" extracts to "1"
         assert prompt_path.parent.name == f"run-{run_timestamp}"
         assert prompt_path.name.startswith("prompt-16-1-04-dev_story-")
         assert prompt_path.suffix == ".md"
@@ -527,6 +531,7 @@ class TestSavePrompt:
         prompt_path = save_prompt(project_root, 16, "16.1", "dev_story", sample_prompt_content)
 
         # Verify run-scoped format path (auto-initialized)
+        # dev_story is phase 04 in minimal loop (no ATDD)
         assert prompt_path.parent.name.startswith("run-")
         assert prompt_path.suffix == ".md"
         assert "prompt-16-1-04-dev_story-" in prompt_path.name

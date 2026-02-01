@@ -488,6 +488,14 @@ def _repair_sprint_status_impl(
         divergence_pct,
     )
 
+    # Print NEW entries loudly to console (user visible)
+    new_entries = [c for c in reconciliation_result.changes if c.old_status is None]
+    if new_entries:
+        print(f"\n[Sprint Repair] Adding {len(new_entries)} new entries:")
+        for change in new_entries:
+            print(f"  + {change.key} ({change.new_status})")
+        print()
+
     # Log individual changes for debugging
     for change in reconciliation_result.changes:
         logger.debug("Change: %s", change.as_log_line())

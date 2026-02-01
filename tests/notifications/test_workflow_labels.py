@@ -43,8 +43,8 @@ class TestConstants:
         assert MAX_LABEL_LENGTH == 16
 
     def test_default_icon(self) -> None:
-        """Test DEFAULT_ICON is neutral diamond."""
-        assert DEFAULT_ICON == "🔷"
+        """Test DEFAULT_ICON is clipboard for unknown workflows."""
+        assert DEFAULT_ICON == "📋"
 
     def test_icon_patterns_order(self) -> None:
         """Test icon patterns are in correct order (synth before dev)."""
@@ -119,19 +119,19 @@ class TestPredefinedLabels:
         assert config.icon == "📋"
         assert config.label == "Sprint"
 
-    def test_testarch_workflows_predefined(self) -> None:
-        """Test testarch module workflows have predefined configs."""
-        testarch_workflows = [
-            ("testarch:framework", "🧪", "Framework"),
-            ("testarch:nfr", "🧪", "NFR"),
-            ("testarch:test-design", "🧪", "TestDesign"),
-            ("testarch:ci", "🧪", "CI"),
-            ("testarch:trace", "🧪", "Trace"),
-            ("testarch:automate", "🧪", "Automate"),
-            ("testarch:atdd", "🧪", "ATDD"),
-            ("testarch:test-review", "🧪", "TestReview"),
+    def test_tea_workflows_predefined(self) -> None:
+        """Test TEA module workflows have predefined configs (keys match Phase enum conversion)."""
+        tea_workflows = [
+            ("tea-framework", "🧪", "Framework"),
+            ("tea-nfr-assess", "🧪", "NFR"),
+            ("tea-test-design", "🧪", "TestDesign"),
+            ("tea-ci", "🧪", "CI"),
+            ("tea-trace", "🧪", "Trace"),
+            ("tea-automate", "🧪", "Automate"),
+            ("atdd", "🧪", "ATDD"),
+            ("test-review", "🧪", "TestReview"),
         ]
-        for workflow, expected_icon, expected_label in testarch_workflows:
+        for workflow, expected_icon, expected_label in tea_workflows:
             assert workflow in PREDEFINED_LABELS, f"Missing predefined: {workflow}"
             config = PREDEFINED_LABELS[workflow]
             assert config.icon == expected_icon, f"Wrong icon for {workflow}"
@@ -203,9 +203,9 @@ class TestMatchIconPattern:
 
     def test_no_pattern_match_default(self) -> None:
         """Test no pattern match returns default icon."""
-        assert _match_icon_pattern("unknown-workflow") == "🔷"
-        assert _match_icon_pattern("random-task") == "🔷"
-        assert _match_icon_pattern("xyz") == "🔷"
+        assert _match_icon_pattern("unknown-workflow") == "📋"
+        assert _match_icon_pattern("random-task") == "📋"
+        assert _match_icon_pattern("xyz") == "📋"
 
     def test_first_match_wins(self) -> None:
         """Test first pattern match wins (order matters)."""
@@ -294,7 +294,7 @@ class TestWorkflowNotificationConfig:
         """Test config is frozen (immutable)."""
         config = WorkflowNotificationConfig(icon="📝", label="Test")
         with pytest.raises(AttributeError):
-            config.icon = "🔷"  # type: ignore
+            config.icon = "📋"  # type: ignore
 
     def test_config_hashable(self) -> None:
         """Test config is hashable (can be used in sets/dicts)."""
@@ -489,7 +489,7 @@ class TestComputeConfig:
         """Test fallback for unknown workflow."""
         clear_workflow_label_cache()
         config = _compute_config("unknown-xyz-workflow")
-        assert config.icon == "🔷"  # Default icon
+        assert config.icon == "📋"  # Default icon
         assert config.label == "Unknown-xyz-wor…"  # Truncated to 16 chars
 
 
@@ -613,7 +613,7 @@ class TestPublicAPI:
     def test_get_workflow_icon_default(self) -> None:
         """Test get_workflow_icon returns default for no match."""
         clear_workflow_label_cache()
-        assert get_workflow_icon("unknown-xyz") == "🔷"
+        assert get_workflow_icon("unknown-xyz") == "📋"
 
     def test_get_workflow_label_predefined(self) -> None:
         """Test get_workflow_label for predefined workflow."""
@@ -631,9 +631,9 @@ class TestPublicAPI:
     def test_get_workflow_label_module_prefix(self) -> None:
         """Test get_workflow_label handles module prefixes."""
         clear_workflow_label_cache()
-        # Predefined
-        assert get_workflow_label("testarch:nfr") == "NFR"
-        # Unknown module workflow
+        # Predefined TEA workflow (key matches Phase enum after _phase_to_workflow_name)
+        assert get_workflow_label("tea-nfr-assess") == "NFR"
+        # Unknown module workflow - strips prefix and capitalizes
         label = get_workflow_label("unknown:short")
         assert label == "Short"
 
@@ -648,7 +648,7 @@ class TestPublicAPI:
         """Test get_workflow_notification_config fallback."""
         clear_workflow_label_cache()
         config = get_workflow_notification_config("unknown-workflow")
-        assert config.icon == "🔷"
+        assert config.icon == "📋"
         assert config.label == "Unknown-workflow"
 
 
@@ -659,14 +659,14 @@ class TestEdgeCases:
         """Test empty workflow name."""
         clear_workflow_label_cache()
         config = get_workflow_notification_config("")
-        assert config.icon == "🔷"
+        assert config.icon == "📋"
         assert config.label == ""
 
     def test_single_char_workflow(self) -> None:
         """Test single character workflow name."""
         clear_workflow_label_cache()
         config = get_workflow_notification_config("x")
-        assert config.icon == "🔷"
+        assert config.icon == "📋"
         assert config.label == "X"
 
     def test_unicode_in_workflow_name(self) -> None:
@@ -704,9 +704,9 @@ class TestParametrized:
             ("dev-story", "💻", "Develop"),
             ("code-review", "👀", "Review"),
             ("retrospective", "📊", "Retro"),
-            # Testarch workflows
-            ("testarch:nfr", "🧪", "NFR"),
-            ("testarch:framework", "🧪", "Framework"),
+            # TEA workflows (keys match Phase enum conversion)
+            ("tea-nfr-assess", "🧪", "NFR"),
+            ("tea-framework", "🧪", "Framework"),
         ],
     )
     def test_predefined_workflows(
@@ -729,7 +729,7 @@ class TestParametrized:
             ("data-synthesis", "🔄"),
             ("sprint-planner", "📋"),
             ("epic-retro", "📊"),
-            ("unknown-xyz", "🔷"),
+            ("unknown-xyz", "📋"),
         ],
     )
     def test_pattern_icon_matching(self, workflow: str, expected_icon: str) -> None:

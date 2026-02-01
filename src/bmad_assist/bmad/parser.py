@@ -38,6 +38,12 @@ STATUS_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Pattern: **Priority:** P0 - Foundation (captures priority value)
+PRIORITY_PATTERN = re.compile(
+    r"\*\*Priority:\*\*\s*(.+?)(?:\n|$)",
+    re.IGNORECASE,
+)
+
 # Pattern: **Dependencies:** Story 3.2, Story 3.4
 DEPENDENCIES_PATTERN = re.compile(
     r"\*\*Dependencies:\*\*\s*(.+?)(?:\n|$)",
@@ -213,6 +219,39 @@ def _extract_status(section: str) -> str | None:
     return None
 
 
+def _extract_priority(section: str) -> str | None:
+    """Extract priority from a story section.
+
+    Args:
+        section: The markdown content of a story section.
+
+    Returns:
+        The priority string (cleaned), or None if no explicit priority is found.
+
+    """
+    match = PRIORITY_PATTERN.search(section)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _has_story_anchor(section: str) -> bool:
+    """Check if section contains a story anchor (Status or Priority).
+
+    Used by fallback parser to detect story boundaries.
+
+    Args:
+        section: The markdown content of a story section.
+
+    Returns:
+        True if section contains **Status:** or **Priority:** field.
+
+    """
+    return bool(
+        STATUS_PATTERN.search(section) or PRIORITY_PATTERN.search(section)
+    )
+
+
 def _extract_dependencies(section: str) -> list[str]:
     """Extract dependency story numbers from a story section.
 
@@ -277,26 +316,48 @@ def _is_multi_epic_file(content: str) -> bool:
 
 
 def _find_stories_section(content: str) -> tuple[str, int] | None:
-    """Find Stories section and return (section_content, marker_level).
+    """Find all Stories sections and return combined (section_content, marker_level).
+
+    Supports multiple Stories sections (e.g., "## Stories - Section A", "## Stories - Section B").
+    Returns combined content from all Stories sections.
 
     Returns None if no Stories section found.
     """
-    # Pattern: ## Stories, ### Stories by Phase, etc.
-    marker = re.search(r"^(#{2,})\s+.*Stories.*$", content, re.MULTILINE | re.IGNORECASE)
-    if not marker:
+    # Find ALL headers containing "Stories"
+    stories_markers = list(
+        re.finditer(r"^(#{2,})\s+.*Stories.*$", content, re.MULTILINE | re.IGNORECASE)
+    )
+    if not stories_markers:
         return None
 
-    marker_level = len(marker.group(1))
-    section_start = marker.end()
+    # Use the level of the first Stories header as reference
+    marker_level = len(stories_markers[0].group(1))
 
-    # Find end: next header at EXACTLY same level (not more #'s)
-    # Build regex: exactly N hashes followed by space (not another #)
-    # Use string concat to avoid f-string escaping issues with {N}
-    end_pattern = r"^" + "#" * marker_level + r"(?!#)\s"
-    end_match = re.search(end_pattern, content[section_start:], re.MULTILINE)
-    section_end = section_start + end_match.start() if end_match else len(content)
+    # Find all same-level headers (Stories and non-Stories)
+    same_level_pattern = r"^" + "#" * marker_level + r"(?!#)\s+(.*)$"
+    all_headers = list(re.finditer(same_level_pattern, content, re.MULTILINE))
 
-    return content[section_start:section_end], marker_level
+    # Collect content from all Stories sections
+    combined_sections: list[str] = []
+
+    for i, header in enumerate(all_headers):
+        header_text = header.group(1).lower()
+        if "stories" not in header_text:
+            continue
+
+        # Get content from this header to the next same-level header
+        section_start = header.end()
+        if i + 1 < len(all_headers):
+            section_end = all_headers[i + 1].start()
+        else:
+            section_end = len(content)
+
+        combined_sections.append(content[section_start:section_end])
+
+    if not combined_sections:
+        return None
+
+    return "\n".join(combined_sections), marker_level
 
 
 def _parse_fallback_story_sections(
@@ -304,10 +365,12 @@ def _parse_fallback_story_sections(
     epic_num: EpicId,
     path: str,
 ) -> list[EpicStory]:
-    """Fallback parser using Status-anchored detection.
+    """Fallback parser using Status/Priority-anchored detection.
 
-    Finds stories by locating **Status:** fields and mapping them
+    Finds stories by locating **Status:** or **Priority:** fields and mapping them
     to their nearest preceding header. Numbers sequentially.
+
+    When only Priority is present (no Status), defaults status to "backlog".
     """
     result = _find_stories_section(content)
     if result is None:
@@ -318,11 +381,11 @@ def _parse_fallback_story_sections(
     # Find all headers in section
     headers = list(re.finditer(r"^(#{2,})\s+(.+)$", section, re.MULTILINE))
     if not headers:
-        # No headers but check if Status exists - that's malformed
-        if re.search(r"\*\*Status:\*\*", section, re.IGNORECASE):
+        # No headers but check if anchor exists - that's malformed
+        if _has_story_anchor(section):
             raise ParserError(
-                f"Malformed epic file {path}: Found **Status:** field(s) but no valid "
-                "story headers. Status must appear AFTER a header, not before."
+                f"Malformed epic file {path}: Found **Status:** or **Priority:** field(s) "
+                "but no valid story headers. These fields must appear AFTER a header."
             )
         return []
 
@@ -333,10 +396,16 @@ def _parse_fallback_story_sections(
         area_end = headers[i + 1].start() if i + 1 < len(headers) else len(section)
         area = section[area_start:area_end]
 
-        # Check if this area has **Status:** - the story anchor
+        # Check if this area has a story anchor (Status or Priority)
         status = _extract_status(area)
-        if status is None:
+        priority = _extract_priority(area)
+
+        if status is None and priority is None:
             continue  # Not a story, skip (e.g., phase header)
+
+        # If no explicit status but has priority, default to "backlog"
+        if status is None:
+            status = "backlog"
 
         # Parse header: "CODE: Title" or just "Title"
         header_text = header.group(2).strip()

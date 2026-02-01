@@ -138,6 +138,7 @@ class CopilotProvider(BaseProvider):
         no_cache: bool = False,
         color_index: int | None = None,
         display_model: str | None = None,
+        thinking: bool | None = None,
     ) -> ProviderResult:
         """Execute Copilot CLI with the given prompt.
 

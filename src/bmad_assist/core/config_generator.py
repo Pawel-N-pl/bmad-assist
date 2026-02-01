@@ -1,8 +1,16 @@
 """Configuration generator with interactive questionnaire.
 
-This module provides interactive config generation via Rich prompts.
-When bmad-assist runs without a config file, this wizard guides users
-through creating a valid bmad-assist.yaml.
+This module provides interactive config generation via questionary prompts
+with arrow-key navigation. When bmad-assist runs without a config file,
+this wizard guides users through creating a valid bmad-assist.yaml.
+
+Features:
+- Scrollable provider/model selection with arrow keys
+- Multi-validator add/remove loop
+- Optional helper provider configuration
+- CI/non-interactive environment detection
+- Atomic file writes
+- Ctrl+C handling at every step
 
 Usage:
     from bmad_assist.core.config_generator import run_config_wizard
@@ -14,13 +22,15 @@ Usage:
 import contextlib
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, TypeVar
 
+import questionary
+import typer
 import yaml
 from rich.console import Console
-from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 logger = logging.getLogger(__name__)
@@ -28,7 +38,58 @@ logger = logging.getLogger(__name__)
 # Default config filename (same as PROJECT_CONFIG_NAME in config.py)
 CONFIG_FILENAME: Final[str] = "bmad-assist.yaml"
 
-# Provider and model definitions
+# Type variable for _check_cancelled
+T = TypeVar("T")
+
+# Provider and model definitions for wizard
+# Alphabetically ordered for consistent display
+# Note: "claude" SDK provider is excluded (incomplete implementation)
+# Note: "claude-subprocess" is the primary Claude provider for bmad-assist
+PROVIDER_MODELS: Final[dict[str, dict[str, Any]]] = {
+    "amp": {
+        "display": "Amp (Sourcegraph)",
+        "models": ["smart"],
+        "default": "smart",
+    },
+    "claude-subprocess": {
+        "display": "Claude (Anthropic)",
+        "models": ["opus", "sonnet", "haiku"],
+        "default": "opus",
+    },
+    "codex": {
+        "display": "Codex (OpenAI)",
+        "models": ["o3", "o3-mini", "gpt-4o"],
+        "default": "o3-mini",
+    },
+    "copilot": {
+        "display": "GitHub Copilot",
+        "models": ["gpt-4o", "claude-haiku-4.5"],
+        "default": "gpt-4o",
+    },
+    "cursor-agent": {
+        "display": "Cursor Agent",
+        "models": ["auto", "claude-sonnet-4"],
+        "default": "auto",
+    },
+    "gemini": {
+        "display": "Gemini (Google)",
+        "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash-preview"],
+        "default": "gemini-2.5-flash",
+    },
+    "kimi": {
+        "display": "Kimi (MoonshotAI)",
+        "models": ["kimi-code/kimi-for-coding"],
+        "default": "kimi-code/kimi-for-coding",
+        "extras": {"thinking": True},
+    },
+    "opencode": {
+        "display": "OpenCode",
+        "models": ["opencode/claude-sonnet-4", "opencode/gemini-3-flash"],
+        "default": "opencode/claude-sonnet-4",
+    },
+}
+
+# Legacy mapping for backward compatibility with existing tests
 AVAILABLE_PROVIDERS: Final[dict[str, dict[str, Any]]] = {
     "claude": {
         "display_name": "Claude (Anthropic)",
@@ -59,12 +120,61 @@ AVAILABLE_PROVIDERS: Final[dict[str, dict[str, Any]]] = {
 }
 
 
+def _is_interactive() -> bool:
+    """Check if running in an interactive terminal environment.
+
+    Returns False for:
+    - Non-TTY stdin (piped input)
+    - CI environments (GitHub Actions, GitLab CI, Jenkins, etc.)
+
+    Returns:
+        True if interactive terminal, False otherwise.
+
+    """
+    if not sys.stdin.isatty():
+        return False
+
+    # Check for CI environment variables
+    ci_vars = [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "JENKINS_URL",
+        "TRAVIS",
+        "CIRCLECI",
+        "BUILDKITE",
+        "TF_BUILD",
+        "CODEBUILD_BUILD_ID",
+    ]
+    return not any(os.environ.get(v) for v in ci_vars)
+
+
+def _check_cancelled(result: T | None, console: Console) -> T:
+    """Check if questionary returned None (Ctrl+C pressed).
+
+    Args:
+        result: Result from questionary.select/confirm.
+        console: Rich console for output.
+
+    Returns:
+        The result if not None.
+
+    Raises:
+        typer.Exit: With code 130 if cancelled.
+
+    """
+    if result is None:
+        console.print("[yellow]Cancelled[/yellow]")
+        raise typer.Exit(130)
+    return result
+
+
 class ConfigGenerator:
-    """Interactive configuration generator using Rich prompts.
+    """Interactive configuration generator using questionary prompts.
 
     This class provides an interactive wizard for generating bmad-assist
-    configuration files. It prompts users for provider and model selection,
-    displays a summary, and saves the config with atomic write semantics.
+    configuration files. It uses questionary for arrow-key navigation
+    and Rich for formatted output.
 
     Attributes:
         console: Rich console for output.
@@ -98,30 +208,53 @@ class ConfigGenerator:
             Path to the generated config file.
 
         Raises:
-            KeyboardInterrupt: If user presses Ctrl+C.
-            EOFError: If running in non-interactive environment (piped input).
+            typer.Exit: With code 1 for non-interactive, 130 for Ctrl+C.
             OSError: If config file cannot be written.
-            SystemExit: If user rejects save confirmation (exit code 1).
 
         """
+        # Check for non-interactive environment first
+        if not _is_interactive():
+            self._display_non_interactive_fallback()
+            raise typer.Exit(1)
+
+        # Check if config already exists
+        config_path = project_path / CONFIG_FILENAME
+        if config_path.exists():
+            overwrite = questionary.confirm(
+                f"Config file already exists: {config_path}\nOverwrite?",
+                default=False,
+            ).ask()
+            _check_cancelled(overwrite, self.console)
+            if not overwrite:
+                self.console.print("[yellow]Cancelled - existing config preserved[/yellow]")
+                raise typer.Exit(130)
+
         self._display_welcome()
 
-        # Prompt for provider and model
-        provider = self._prompt_provider()
-        model = self._prompt_model(provider)
+        # Prompt for master provider and model
+        provider = self._select_provider("Select master provider")
+        model = self._select_model(provider)
+
+        # Prompt for multi-validators
+        multi_validators = self._select_multi_validators()
+
+        # Prompt for helper provider (optional)
+        helper_config = self._select_helper_provider()
 
         # Build config dictionary
-        config = self._build_config(provider, model)
+        config = self._build_config(provider, model, multi_validators, helper_config)
 
         # Display summary and confirm
-        self._display_summary(config)
+        self._show_summary(config, config_path)
 
-        if not self._confirm_save():
+        save = questionary.confirm("Save this configuration?", default=True).ask()
+        _check_cancelled(save, self.console)
+        if not save:
             self.console.print("[yellow]Setup cancelled - no configuration saved[/yellow]")
-            raise SystemExit(1)
+            raise typer.Exit(0)  # User choice to not save is not an error
 
         # Save config with atomic write
-        config_path = self._save_config(project_path, config)
+        self._save_config(project_path, config)
 
         self.console.print(f"[green]✓[/green] Configuration saved to {config_path}")
         logger.info("Generated config at %s", config_path)
@@ -137,10 +270,330 @@ class ConfigGenerator:
         self.console.print(
             "This wizard will create a [cyan]bmad-assist.yaml[/cyan] configuration file."
         )
+        self.console.print("[dim]Use arrow keys to navigate, Enter to select.[/dim]")
         self.console.print()
 
+    def _display_non_interactive_fallback(self) -> None:
+        """Display message and example config for non-interactive environments."""
+        self.console.print("[yellow]Non-interactive environment detected.[/yellow]")
+        self.console.print()
+        self.console.print("Create [cyan]bmad-assist.yaml[/cyan] manually with this template:")
+        self.console.print()
+        example = """# bmad-assist.yaml - minimal configuration
+providers:
+  master:
+    provider: claude-subprocess
+    model: opus
+"""
+        self.console.print(f"[dim]{example}[/dim]")
+        self.console.print()
+        self.console.print("Or run interactively: [cyan]bmad-assist config wizard[/cyan]")
+
+    def _select_provider(self, message: str) -> str:
+        """Select a provider using arrow-key navigation.
+
+        Args:
+            message: Prompt message to display.
+
+        Returns:
+            Selected provider key.
+
+        """
+        choices = [
+            questionary.Choice(
+                title=f"{info['display']}",
+                value=key,
+            )
+            for key, info in PROVIDER_MODELS.items()
+        ]
+
+        result = questionary.select(
+            message,
+            choices=choices,
+            default="claude-subprocess",
+        ).ask()
+
+        return _check_cancelled(result, self.console)
+
+    def _select_model(self, provider: str) -> str:
+        """Select a model for the chosen provider.
+
+        Args:
+            provider: Provider key.
+
+        Returns:
+            Selected model name.
+
+        """
+        provider_info = PROVIDER_MODELS[provider]
+        models = provider_info["models"]
+        default = provider_info["default"]
+
+        choices = [questionary.Choice(title=model, value=model) for model in models]
+
+        result = questionary.select(
+            f"Select model for {provider_info['display']}",
+            choices=choices,
+            default=default,
+        ).ask()
+
+        return _check_cancelled(result, self.console)
+
+    def _select_multi_validators(self) -> list[dict[str, Any]]:
+        """Select multi-validators using add/remove loop.
+
+        Returns:
+            List of validator configurations (may be empty).
+
+        """
+        validators: list[dict[str, Any]] = []
+
+        self.console.print()
+        self.console.print("[bold]Multi-Validators[/bold] (optional)")
+        self.console.print("[dim]Add validators for parallel code review/validation[/dim]")
+        self.console.print()
+
+        while True:
+            # Build action choices
+            action_choices = [
+                questionary.Choice(title="Add validator", value="add"),
+            ]
+            if validators:
+                action_choices.append(
+                    questionary.Choice(
+                        title=f"Remove validator ({len(validators)} configured)", value="remove"
+                    )
+                )
+            action_choices.append(
+                questionary.Choice(
+                    title=f"Done ({len(validators)} validators)" if validators else "Skip",
+                    value="done",
+                )
+            )
+
+            action = questionary.select(
+                "Multi-validator configuration:",
+                choices=action_choices,
+            ).ask()
+            _check_cancelled(action, self.console)
+
+            if action == "done":
+                break
+            elif action == "add":
+                # Select provider
+                provider = self._select_provider("Select validator provider")
+                model = self._select_model(provider)
+
+                validator_config: dict[str, Any] = {
+                    "provider": provider,
+                    "model": model,
+                }
+
+                # Add extras for specific providers
+                if provider in PROVIDER_MODELS and "extras" in PROVIDER_MODELS[provider]:
+                    validator_config.update(PROVIDER_MODELS[provider]["extras"])
+
+                validators.append(validator_config)
+                self.console.print(
+                    f"[green]Added:[/green] {provider} / {model} "
+                    f"[dim]({len(validators)} total)[/dim]"
+                )
+            elif action == "remove":
+                # Build removal choices
+                remove_choices = [
+                    questionary.Choice(
+                        title=f"{v['provider']} / {v['model']}",
+                        value=i,
+                    )
+                    for i, v in enumerate(validators)
+                ]
+                remove_choices.append(questionary.Choice(title="Cancel", value=-1))
+
+                remove_idx = questionary.select(
+                    "Select validator to remove:",
+                    choices=remove_choices,
+                ).ask()
+                _check_cancelled(remove_idx, self.console)
+
+                if remove_idx >= 0:
+                    removed = validators.pop(remove_idx)
+                    self.console.print(
+                        f"[yellow]Removed:[/yellow] {removed['provider']} / {removed['model']}"
+                    )
+
+        return validators
+
+    def _select_helper_provider(self) -> dict[str, Any] | None:
+        """Select optional helper provider.
+
+        Returns:
+            Helper configuration dict or None if skipped.
+
+        """
+        self.console.print()
+        self.console.print("[bold]Helper Provider[/bold] (optional)")
+        self.console.print("[dim]Used for LLM extraction and benchmarking[/dim]")
+        self.console.print()
+
+        configure = questionary.confirm(
+            "Configure helper provider?",
+            default=False,
+        ).ask()
+        _check_cancelled(configure, self.console)
+
+        if not configure:
+            return None
+
+        provider = self._select_provider("Select helper provider")
+        model = self._select_model(provider)
+
+        helper_config: dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+        }
+
+        # Add extras for specific providers
+        if provider in PROVIDER_MODELS and "extras" in PROVIDER_MODELS[provider]:
+            helper_config.update(PROVIDER_MODELS[provider]["extras"])
+
+        return helper_config
+
+    def _build_config(
+        self,
+        provider: str,
+        model: str,
+        multi_validators: list[dict[str, Any]],
+        helper_config: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Build configuration dictionary with selected values.
+
+        Args:
+            provider: Master provider key.
+            model: Master model name.
+            multi_validators: List of validator configurations.
+            helper_config: Helper provider configuration or None.
+
+        Returns:
+            Configuration dictionary ready for YAML serialization.
+
+        """
+        master_config: dict[str, Any] = {
+            "provider": provider,
+            "model": model,
+        }
+
+        # Add extras for specific providers (e.g., kimi.thinking)
+        if provider in PROVIDER_MODELS and "extras" in PROVIDER_MODELS[provider]:
+            master_config.update(PROVIDER_MODELS[provider]["extras"])
+
+        providers_config: dict[str, Any] = {"master": master_config}
+
+        # Only add multi section if validators were configured
+        if multi_validators:
+            providers_config["multi"] = multi_validators
+
+        # Add helper if configured
+        if helper_config:
+            providers_config["helper"] = helper_config
+
+        return {
+            "providers": providers_config,
+            "timeout": 300,
+        }
+
+    def _show_summary(self, config: dict[str, Any], config_path: Path) -> None:
+        """Display configuration summary in a Rich table.
+
+        Args:
+            config: Configuration dictionary to summarize.
+            config_path: Path where config will be saved.
+
+        """
+        self.console.print()
+
+        table = Table(title="Configuration Summary", show_header=True)
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="green")
+
+        master = config["providers"]["master"]
+        provider_display = PROVIDER_MODELS.get(master["provider"], {}).get(
+            "display", master["provider"]
+        )
+
+        table.add_row("Master Provider", f"{master['provider']} ({provider_display})")
+        table.add_row("Master Model", master["model"])
+
+        # Multi-validators count
+        multi = config["providers"].get("multi", [])
+        if multi:
+            table.add_row("Multi-Validators", f"{len(multi)} configured")
+        else:
+            table.add_row("Multi-Validators", "[dim]None[/dim]")
+
+        # Helper provider
+        helper = config["providers"].get("helper")
+        if helper:
+            helper_display = PROVIDER_MODELS.get(helper["provider"], {}).get(
+                "display", helper["provider"]
+            )
+            table.add_row("Helper Provider", f"{helper['provider']} ({helper_display})")
+        else:
+            table.add_row("Helper Provider", "[dim]None[/dim]")
+
+        table.add_row("Timeout", f"{config['timeout']} seconds")
+        table.add_row("Output Path", str(config_path))
+
+        self.console.print(table)
+        self.console.print()
+
+    def _display_summary(self, config: dict[str, Any]) -> None:
+        """Display configuration summary in a Rich table (legacy method).
+
+        Args:
+            config: Configuration dictionary to summarize.
+
+        """
+        self.console.print()
+
+        table = Table(title="Configuration Summary", show_header=True)
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="green")
+
+        master = config["providers"]["master"]
+        provider_name = AVAILABLE_PROVIDERS.get(master["provider"], {}).get(
+            "display_name", master["provider"]
+        )
+
+        table.add_row("Provider", f"{master['provider']} ({provider_name})")
+        table.add_row("Model", master["model"])
+        state_path = config.get("state_path", "{project}/.bmad-assist/state.yaml")
+        table.add_row("State Path", state_path)
+        table.add_row("Timeout", f"{config['timeout']} seconds")
+        table.add_row("Config File", CONFIG_FILENAME)
+
+        self.console.print(table)
+        self.console.print()
+
+    def _confirm_save(self) -> bool:
+        """Ask user to confirm saving the configuration (legacy method).
+
+        Returns:
+            True if user confirms, False if user rejects.
+
+        Raises:
+            KeyboardInterrupt: If user presses Ctrl+C.
+            EOFError: If no input available (piped input scenario).
+
+        """
+        from rich.prompt import Confirm
+
+        return Confirm.ask(
+            "[bold]Save this configuration?[/bold]",
+            default=True,
+        )
+
     def _prompt_provider(self) -> str:
-        """Prompt user to select CLI provider.
+        """Prompt user to select CLI provider (legacy method).
 
         Returns:
             Selected provider key (e.g., "claude", "codex", "gemini").
@@ -150,6 +603,8 @@ class ConfigGenerator:
             EOFError: If no input available (piped input scenario).
 
         """
+        from rich.prompt import Prompt
+
         # Display provider options with descriptions
         self.console.print("[bold]Available CLI providers:[/bold]")
         for provider_key, provider_info in AVAILABLE_PROVIDERS.items():
@@ -166,7 +621,7 @@ class ConfigGenerator:
         )
 
     def _prompt_model(self, provider: str) -> str:
-        """Prompt user to select model for chosen provider.
+        """Prompt user to select model for chosen provider (legacy method).
 
         Args:
             provider: Provider key (e.g., "claude").
@@ -179,6 +634,8 @@ class ConfigGenerator:
             EOFError: If no input available (piped input scenario).
 
         """
+        from rich.prompt import Prompt
+
         provider_info = AVAILABLE_PROVIDERS[provider]
         models = provider_info["models"]
         default = provider_info["default_model"]
@@ -195,70 +652,6 @@ class ConfigGenerator:
             "[bold]Select model[/bold]",
             choices=list(models.keys()),
             default=default,
-        )
-
-    def _build_config(self, provider: str, model: str) -> dict[str, Any]:
-        """Build configuration dictionary with selected values and defaults.
-
-        Args:
-            provider: Selected provider key.
-            model: Selected model key.
-
-        Returns:
-            Configuration dictionary ready for YAML serialization.
-
-        """
-        return {
-            "providers": {
-                "master": {
-                    "provider": provider,
-                    "model": model,
-                },
-            },
-            # state_path not set - defaults to {project}/.bmad-assist/state.yaml
-            "timeout": 300,
-        }
-
-    def _display_summary(self, config: dict[str, Any]) -> None:
-        """Display configuration summary in a Rich table.
-
-        Args:
-            config: Configuration dictionary to summarize.
-
-        """
-        self.console.print()
-
-        table = Table(title="Configuration Summary", show_header=True)
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="green")
-
-        master = config["providers"]["master"]
-        provider_name = AVAILABLE_PROVIDERS[master["provider"]]["display_name"]
-
-        table.add_row("Provider", f"{master['provider']} ({provider_name})")
-        table.add_row("Model", master["model"])
-        state_path = config.get("state_path", "{project}/.bmad-assist/state.yaml")
-        table.add_row("State Path", state_path)
-        table.add_row("Timeout", f"{config['timeout']} seconds")
-        table.add_row("Config File", CONFIG_FILENAME)
-
-        self.console.print(table)
-        self.console.print()
-
-    def _confirm_save(self) -> bool:
-        """Ask user to confirm saving the configuration.
-
-        Returns:
-            True if user confirms, False if user rejects.
-
-        Raises:
-            KeyboardInterrupt: If user presses Ctrl+C.
-            EOFError: If no input available (piped input scenario).
-
-        """
-        return Confirm.ask(
-            "[bold]Save this configuration?[/bold]",
-            default=True,
         )
 
     def _save_config(self, project_path: Path, config: dict[str, Any]) -> Path:
@@ -345,10 +738,8 @@ def run_config_wizard(
         Path to the generated config file.
 
     Raises:
-        KeyboardInterrupt: If user cancels with Ctrl+C.
-        EOFError: If running in non-interactive environment (piped input).
+        typer.Exit: With code 1 for non-interactive/rejection, 130 for Ctrl+C.
         OSError: If config file cannot be written (permission denied, disk full).
-        SystemExit: If user rejects save confirmation (exit code 1).
 
     Example:
         >>> from pathlib import Path

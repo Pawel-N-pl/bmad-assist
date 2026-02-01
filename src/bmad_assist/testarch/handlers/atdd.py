@@ -12,14 +12,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from bmad_assist.compiler import compile_workflow
-from bmad_assist.compiler.types import CompilerContext
-from bmad_assist.core.io import get_original_cwd
-from bmad_assist.core.loop.handlers.base import BaseHandler
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.state import State, get_state_path, save_state
-from bmad_assist.providers import get_provider
+from bmad_assist.testarch.core import extract_checklist_path
+from bmad_assist.testarch.handlers.base import TestarchBaseHandler
 
 if TYPE_CHECKING:
     from bmad_assist.core.config import Config
@@ -28,7 +25,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ATDDHandler(BaseHandler):
+class ATDDHandler(TestarchBaseHandler):
     """Handler for ATDD phase.
 
     Executes the testarch-atdd workflow when stories are eligible for ATDD.
@@ -56,6 +53,11 @@ class ATDDHandler(BaseHandler):
         """Return the phase name."""
         return "atdd"
 
+    @property
+    def workflow_id(self) -> str:
+        """Return the workflow identifier for engagement model checks."""
+        return "atdd"
+
     def build_context(self, state: State) -> dict[str, Any]:
         """Build context for ATDD prompt template.
 
@@ -63,49 +65,6 @@ class ATDDHandler(BaseHandler):
 
         """
         return self._build_common_context(state)
-
-    def _check_atdd_mode(self) -> tuple[str, bool]:
-        """Check ATDD mode and return (mode, should_check_eligibility).
-
-        Returns:
-            Tuple of (mode: str, should_check: bool)
-            - ("off", False) - skip ATDD entirely
-            - ("on", False) - run ATDD without eligibility check
-            - ("auto", True) - check eligibility first
-            - ("not_configured", False) - no testarch config
-
-        """
-        if not hasattr(self.config, "testarch") or self.config.testarch is None:
-            return ("not_configured", False)
-
-        mode = self.config.testarch.atdd_mode
-        if mode == "off":
-            return ("off", False)
-        elif mode == "on":
-            return ("on", False)
-        else:  # auto
-            return ("auto", True)
-
-    def _is_first_story_in_epic(self, state: State) -> bool:
-        """Check if current story is the first story in the epic.
-
-        Supports both numeric (1.1) and module (testarch.1) story IDs.
-
-        Args:
-            state: Current loop state.
-
-        Returns:
-            True if this is story 1 of the current epic.
-
-        """
-        if state.current_story is None:
-            return False
-
-        parts = state.current_story.split(".")
-        if len(parts) != 2:
-            return False
-
-        return parts[-1] == "1"
 
     def _run_preflight_if_needed(self, state: State) -> None:
         """Run preflight check if this is first story in epic.
@@ -159,9 +118,6 @@ class ATDDHandler(BaseHandler):
     def _load_story_content(self, state: State) -> str:
         """Load story content for eligibility analysis.
 
-        Finds story file by globbing for pattern {epic}-{story}-*.md in
-        the stories directory.
-
         Args:
             state: Current loop state with story info.
 
@@ -169,38 +125,13 @@ class ATDDHandler(BaseHandler):
             Story file content as string (empty if not found).
 
         """
-        if state.current_epic is None or state.current_story is None:
-            logger.warning("Cannot load story: missing epic or story ID")
+        path = self._get_story_file_path(state)
+        if not path:
+            logger.warning("Story file not found for %s", state.current_story)
             return ""
 
-        # Extract story number from story ID (e.g., "1.2" -> "2")
-        story_parts = state.current_story.split(".")
-        if len(story_parts) != 2:
-            logger.warning("Invalid story ID format: %s", state.current_story)
-            return ""
-
-        story_num = story_parts[-1]
-
-        try:
-            from bmad_assist.core.paths import get_paths
-
-            stories_dir = get_paths().stories_dir
-        except RuntimeError:
-            # Fallback if paths not initialized - stories are in implementation_artifacts directly
-            stories_dir = self.project_path / "_bmad-output" / "implementation-artifacts"
-
-        # Glob for story file pattern
-        pattern = f"{state.current_epic}-{story_num}-*.md"
-        matches = sorted(stories_dir.glob(pattern))
-
-        if not matches:
-            logger.warning("Story file not found: %s in %s", pattern, stories_dir)
-            return ""
-
-        story_path = matches[0]
-        logger.debug("Loading story content from: %s", story_path)
-
-        return story_path.read_text(encoding="utf-8")
+        logger.debug("Loading story content from: %s", path)
+        return path.read_text(encoding="utf-8")
 
     def _check_eligibility(self, state: State) -> ATDDEligibilityResult:
         """Run eligibility check using hybrid detector.
@@ -235,27 +166,10 @@ class ATDDHandler(BaseHandler):
 
         return detector.detect(story_content)
 
-    def _extract_story_num(self, story_id: str | None) -> str | None:
-        """Extract story number from story ID.
-
-        Args:
-            story_id: Story ID like "1.2" or "testarch.1".
-
-        Returns:
-            Story number as string, or None if invalid.
-
-        """
-        if story_id is None:
-            return None
-        parts = story_id.split(".")
-        if len(parts) != 2:
-            return None
-        return parts[-1]
-
     def _extract_checklist_path(self, output: str) -> str | None:
         """Extract ATDD checklist path from workflow output.
 
-        Searches for common patterns indicating where the checklist was saved.
+        Delegates to centralized extraction function from testarch.core.
 
         Args:
             output: Raw workflow output from provider.
@@ -264,30 +178,13 @@ class ATDDHandler(BaseHandler):
             Path to checklist file or None if not found.
 
         """
-        import re
-
-        # Common patterns for checklist path in output
-        patterns = [
-            r"(?:saved|written|created|checklist).*?[:\s]+([^\s]+atdd-checklist[^\s]*\.md)",
-            r"([^\s]+atdd-checklist[^\s]*\.md)",
-            r"(?:output|file)[:\s]+([^\s]+\.md)",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, output, re.IGNORECASE)
-            if match:
-                path = match.group(1).strip()
-                # Basic sanity check - path should look like a valid file path
-                if "/" in path or "\\" in path or path.endswith(".md"):
-                    return path
-
-        return None
+        return extract_checklist_path(output)
 
     def _invoke_atdd_workflow(self, state: State) -> PhaseResult:
         """Invoke the ATDD workflow using master provider.
 
-        Creates a CompilerContext with state variables, compiles the
-        testarch-atdd workflow, and invokes the master provider.
+        Delegates to base handler's _invoke_generic_workflow with ATDD-specific
+        parameters.
 
         Args:
             state: Current loop state.
@@ -296,77 +193,35 @@ class ATDDHandler(BaseHandler):
             PhaseResult with workflow output containing:
             - response: Provider output
             - tests_generated: Whether tests were generated
-            - atdd_checklist: Path to checklist file (if generated)
+            - atdd_checklist: Path to extracted checklist (if found)
+            - file: Path to saved report
 
         """
-        from bmad_assist.core.exceptions import CompilerError
-
-        story_id = state.current_story or "unknown"
-        logger.info("Invoking ATDD workflow for story %s", story_id)
-
         try:
-            # 1. Create CompilerContext from state
-            # Use get_original_cwd() to preserve original CWD when running as subprocess
             paths = get_paths()
-            context = CompilerContext(
-                project_root=self.project_path,
-                output_folder=paths.output_folder,
-                project_knowledge=paths.project_knowledge,
-                cwd=get_original_cwd(),
-            )
+            report_dir = paths.output_folder / "atdd-checklists"
+        except RuntimeError:
+            logger.error("Paths not initialized")
+            return PhaseResult.fail("Paths not initialized")
 
-            # Set resolved variables
-            story_num = self._extract_story_num(state.current_story)
-            context.resolved_variables = {
-                "epic_num": state.current_epic,
-                "story_num": story_num,
-            }
+        result = self._invoke_generic_workflow(
+            workflow_name="testarch-atdd",
+            state=state,
+            extractor_fn=self._extract_checklist_path,
+            report_dir=report_dir,
+            report_prefix="atdd-checklist",
+            story_id=state.current_story,
+            metric_key="atdd_checklist",
+            file_key="file",
+        )
 
-            # 2. Compile workflow
-            compiled = compile_workflow("testarch-atdd", context)
-            logger.debug("ATDD workflow compiled successfully")
+        # Add tests_generated flag for success cases
+        if result.success:
+            outputs = dict(result.outputs)
+            outputs["tests_generated"] = True
+            return PhaseResult.ok(outputs)
 
-            # 3. Get provider from config
-            provider_name = self.config.providers.master.provider
-            provider = get_provider(provider_name)
-            model = self.config.providers.master.model
-
-            logger.debug("Using provider %s with model %s", provider_name, model)
-
-            # 4. Invoke provider with compiled prompt
-            result = provider.invoke(
-                prompt=compiled.context,
-                model=model,
-                timeout=getattr(self.config, "timeout", 120),
-                cwd=self.project_path,
-            )
-
-            # 5. Parse result
-            if result.exit_code != 0:
-                logger.error("ATDD provider error for %s: %s", story_id, result.stderr)
-                return PhaseResult.fail(f"Provider error: {result.stderr}")
-
-            logger.info("ATDD workflow completed for story %s", story_id)
-
-            # Parse atdd_checklist path from output (AC #3)
-            atdd_checklist = self._extract_checklist_path(result.stdout)
-            if atdd_checklist:
-                logger.debug("ATDD checklist path extracted: %s", atdd_checklist)
-
-            return PhaseResult.ok(
-                {
-                    "response": result.stdout,
-                    "tests_generated": True,
-                    "atdd_checklist": atdd_checklist,
-                }
-            )
-
-        except CompilerError as e:
-            logger.error("ATDD compiler error for %s: %s", story_id, e)
-            return PhaseResult.fail(f"Compiler error: {e}")
-        except Exception as e:
-            logger.error("ATDD workflow failed for %s: %s", story_id, e)
-            return PhaseResult.fail(f"ATDD workflow failed: {e}")
+        return result
 
     def execute(self, state: State) -> PhaseResult:
         """Execute the ATDD phase handler.
@@ -388,11 +243,18 @@ class ATDDHandler(BaseHandler):
         story_id = state.current_story or "unknown"
         logger.info("ATDD handler starting for story %s", story_id)
 
+        # Engagement model check (before all other checks)
+        should_run, skip_reason = self._check_engagement_model()
+        if not should_run:
+            logger.info("ATDD skipped: %s", skip_reason)
+            return self._make_engagement_skip_result(skip_reason or "engagement_model disabled")
+
         # Reset atdd_ran_for_story at START for idempotency (AC #6)
         state.atdd_ran_for_story = False
 
         # Check ATDD mode
-        mode, should_check_eligibility = self._check_atdd_mode()
+        mode, _ = self._check_mode(state, "atdd_mode")
+        should_check_eligibility = (mode == "auto")
 
         # Handle not configured case
         if mode == "not_configured":

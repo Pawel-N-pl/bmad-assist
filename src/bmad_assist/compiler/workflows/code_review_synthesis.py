@@ -60,6 +60,7 @@ from bmad_assist.compiler.workflows.code_review import (
     _extract_modified_files_from_stat,
 )
 from bmad_assist.core.exceptions import CompilerError
+from bmad_assist.testarch.context import collect_tea_context
 from bmad_assist.validation.anonymizer import AnonymizedValidation
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,9 @@ class CodeReviewSynthesisCompiler:
         from bmad_assist.compiler.strategic_context import load_antipatterns
 
         files.update(load_antipatterns(context, "code"))
+
+        # 1c. TEA Context (test-review findings) for synthesis decisions
+        files.update(collect_tea_context(context, "code_review_synthesis", resolved))
 
         # 2. Reviews (each as a separate file for clean CDATA handling)
         # Sort by reviewer_id for deterministic ordering

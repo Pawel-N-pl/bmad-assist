@@ -318,6 +318,8 @@ class TestBaseProviderAbstractMethods:
             "allowed_tools",
             "no_cache",
             "color_index",
+            "display_model",
+            "thinking",
         ]
 
         # Check prompt is positional

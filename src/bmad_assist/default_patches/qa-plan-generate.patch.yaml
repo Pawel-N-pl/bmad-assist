@@ -113,7 +113,7 @@ post_process:
 # Embed content paths
 embed_content:
   # UX elements are embedded by compiler, but ensure path is documented
-  - source: "{project_root}/docs/modules/dashboard/ux-elements.md"
+  - source: "{project-root}/docs/modules/dashboard/ux-elements.md"
     target: "{{UX_ELEMENTS}}"
     required: false
     note: "Embedded by compiler _load_ux_elements()"

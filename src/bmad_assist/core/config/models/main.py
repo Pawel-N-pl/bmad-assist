@@ -120,6 +120,12 @@ class Config(BaseModel):
         description="Workflow variant identifier for A/B testing",
         json_schema_extra={"security": "safe", "ui_widget": "text"},
     )
+    parallel_delay: str | float | None = Field(
+        default=1.0,
+        description="Delay between parallel LLM calls in seconds. "
+        "Float for fixed delay (e.g., 1.0), string for random range (e.g., '0.5-1.5').",
+        json_schema_extra={"security": "safe", "ui_widget": "text"},
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -181,3 +187,18 @@ class Config(BaseModel):
             # Use object.__setattr__ since model is frozen
             object.__setattr__(self, "state_path", str(Path(self.state_path).expanduser()))
         return self
+
+
+def _rebuild_models_for_forward_refs() -> None:
+    """Rebuild models to resolve forward references.
+
+    TestarchConfig has a forward reference to TEAContextConfig which
+    needs to be resolved. We do this here after all modules are loaded.
+    """
+    from bmad_assist.testarch.context.config import TEAContextConfig
+
+    TestarchConfig.model_rebuild(_types_namespace={"TEAContextConfig": TEAContextConfig})
+
+
+# Resolve forward references after all models are defined
+_rebuild_models_for_forward_refs()

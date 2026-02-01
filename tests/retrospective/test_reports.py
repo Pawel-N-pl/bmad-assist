@@ -337,14 +337,12 @@ Test content
             parent_result = PhaseResult.ok({"response": llm_output})
 
             with patch.object(RetrospectiveHandler, "execute", wraps=handler.execute):
-                # Mock _run_trace_if_enabled to skip trace
-                with patch.object(handler, "_run_trace_if_enabled", return_value=None):
-                    # Mock parent's execute (BaseHandler.execute)
-                    with patch(
-                        "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
-                        return_value=parent_result,
-                    ):
-                        result = handler.execute(state)
+                # Mock parent's execute (BaseHandler.execute)
+                with patch(
+                    "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
+                    return_value=parent_result,
+                ):
+                    result = handler.execute(state)
 
             # Verify report was saved
             assert result.success
@@ -381,17 +379,16 @@ Test content
 
             parent_result = PhaseResult.ok({"response": "some output"})
 
-            with patch.object(handler, "_run_trace_if_enabled", return_value=None):
+            with patch(
+                "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
+                return_value=parent_result,
+            ):
+                # Make save fail
                 with patch(
-                    "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
-                    return_value=parent_result,
+                    "bmad_assist.retrospective.reports.atomic_write",
+                    side_effect=OSError("Disk full"),
                 ):
-                    # Make save fail
-                    with patch(
-                        "bmad_assist.retrospective.reports.atomic_write",
-                        side_effect=OSError("Disk full"),
-                    ):
-                        result = handler.execute(state)
+                    result = handler.execute(state)
 
             # Should still succeed (graceful degradation)
             assert result.success
@@ -427,12 +424,11 @@ Test content
             # No response in outputs
             parent_result = PhaseResult.ok({})
 
-            with patch.object(handler, "_run_trace_if_enabled", return_value=None):
-                with patch(
-                    "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
-                    return_value=parent_result,
-                ):
-                    result = handler.execute(state)
+            with patch(
+                "bmad_assist.core.loop.handlers.base.BaseHandler.execute",
+                return_value=parent_result,
+            ):
+                result = handler.execute(state)
 
             assert result.success
             assert "report_file" not in result.outputs

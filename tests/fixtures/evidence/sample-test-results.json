@@ -1,0 +1,23 @@
+{
+  "report": {
+    "summary": {
+      "total": 150,
+      "passed": 142,
+      "failed": 5,
+      "error": 2,
+      "skipped": 1,
+      "duration": 45200
+    }
+  },
+  "tests": [
+    {"name": "test_api::test_get_users", "outcome": "passed", "duration": 500},
+    {"name": "test_api::test_create_user", "outcome": "passed", "duration": 1200},
+    {"name": "test_api::test_delete_user", "outcome": "failed", "duration": 800},
+    {"name": "test_api::test_update_user", "outcome": "passed", "duration": 600},
+    {"name": "test_auth::test_login", "outcome": "passed", "duration": 1500},
+    {"name": "test_auth::test_token_refresh", "outcome": "failed", "duration": 2000},
+    {"name": "test_auth::test_rate_limit", "outcome": "error", "duration": 5000},
+    {"name": "test_utils::test_parse_date", "outcome": "failed", "duration": 100},
+    {"name": "test_utils::test_format_currency", "outcome": "passed", "duration": 50}
+  ]
+}

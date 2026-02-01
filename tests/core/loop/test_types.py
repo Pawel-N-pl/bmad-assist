@@ -27,10 +27,10 @@ class TestPhaseReExports:
         assert config1 is config2  # Identity, not equality
 
     def test_default_loop_config_story_phases(self) -> None:
-        """AC7: DEFAULT_LOOP_CONFIG.story contains 6 phases."""
+        """AC7: DEFAULT_LOOP_CONFIG.story contains 6 phases (minimal, no TEA)."""
         from bmad_assist.core.config import DEFAULT_LOOP_CONFIG
 
-        # 6 phases in story sequence
+        # 6 phases in minimal story sequence (no atdd, no test_review)
         assert len(DEFAULT_LOOP_CONFIG.story) == 6
 
     def test_default_loop_config_first_is_create_story(self) -> None:
@@ -40,7 +40,7 @@ class TestPhaseReExports:
         assert DEFAULT_LOOP_CONFIG.story[0] == "create_story"
 
     def test_default_loop_config_last_is_code_review_synthesis(self) -> None:
-        """Last story phase is code_review_synthesis."""
+        """Last story phase is code_review_synthesis (minimal loop, no TEA)."""
         from bmad_assist.core.config import DEFAULT_LOOP_CONFIG
 
         assert DEFAULT_LOOP_CONFIG.story[-1] == "code_review_synthesis"

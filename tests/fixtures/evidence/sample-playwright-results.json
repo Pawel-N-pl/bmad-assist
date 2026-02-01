@@ -1,0 +1,52 @@
+{
+  "stats": {
+    "expected": 45,
+    "unexpected": 3,
+    "flaky": 2,
+    "skipped": 5,
+    "duration": 120000
+  },
+  "suites": [
+    {
+      "title": "Login Page",
+      "specs": [
+        {
+          "title": "should display login form",
+          "tests": [{"status": "expected", "duration": 1500}]
+        },
+        {
+          "title": "should login with valid credentials",
+          "tests": [{"status": "expected", "duration": 2500}]
+        },
+        {
+          "title": "should show error for invalid password",
+          "tests": [{"status": "unexpected", "duration": 3000}]
+        }
+      ],
+      "suites": [
+        {
+          "title": "Social Login",
+          "specs": [
+            {
+              "title": "should login with Google",
+              "tests": [{"status": "expected", "duration": 5000}]
+            },
+            {
+              "title": "should login with GitHub",
+              "tests": [{"status": "unexpected", "duration": 4500}]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Dashboard",
+      "specs": [
+        {
+          "title": "should display user profile",
+          "tests": [{"status": "expected", "duration": 2000}]
+        }
+      ]
+    }
+  ]
+}

@@ -1574,14 +1574,14 @@ document_output_language: English
 
         content = instructions_path.read_text()
 
-        # AC8: Output format sections (Evidence Score TIER 2 format)
+        # AC8: Output format sections (actual severity levels used in workflow)
         format_sections = [
             "Synthesis Summary",
             "Issues Verified",
-            "CRITICAL",  # Evidence Score severity
-            "IMPORTANT",  # Evidence Score severity
-            "MINOR",  # Evidence Score severity
-            "CLEAN PASS",  # Evidence Score clean pass
+            "Critical",  # Blocks implementation
+            "High",  # Significant gaps
+            "Medium",  # Quality improvements
+            "Low",  # Nice-to-have suggestions
             "Issues Dismissed",
             "Changes Applied",
         ]

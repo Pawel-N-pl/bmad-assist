@@ -571,47 +571,35 @@ def read_project_state(
     if not bmad_path.exists():
         raise FileNotFoundError(f"BMAD path does not exist: {bmad_path}")
 
-    # Step 1: Load sprint-status.yaml first if enabled (AC13, AC14)
-    # This allows sprint-status to be the primary source when available
-    sprint_stories_from_status: list[EpicStory] | None = None
+    # Step 1: Always load epics from BMAD files (supports both sharded and single-file patterns)
+    epics = _load_epics(bmad_path)
+
+    # AC8: Handle missing epic files gracefully
+    if not epics:
+        return ProjectState(
+            epics=[],
+            all_stories=[],
+            completed_stories=[],
+            current_epic=None,
+            current_story=None,
+            bmad_path=str(bmad_path),
+        )
+
+    # Step 2: Flatten and sort all stories from epic files (AC6, AC7, AC12)
+    all_stories = _flatten_stories(epics)
+
+    # Step 3: Apply default status to stories without status (AC11)
+    all_stories = _apply_default_status(all_stories)
+
+    # Step 4: Load sprint-status.yaml if enabled and merge (AC13, AC14)
+    # Sprint-status takes precedence for status values, but new stories
+    # from epic files (not in sprint-status) are preserved
     if use_sprint_status:
-        sprint_stories_from_status = _load_sprint_status_stories(bmad_path)
-
-    # Step 2: Load epics from BMAD files (supports both sharded and single-file patterns)
-    # Skip if sprint-status already provided all stories
-    if sprint_stories_from_status is not None:
-        # Use sprint-status as primary source
-        all_stories = sprint_stories_from_status
-        # Create synthetic epics from stories for compatibility
-        epics = _create_epics_from_stories(all_stories)
-    else:
-        # Fallback to epic file parsing
-        epics = _load_epics(bmad_path)
-
-        # AC8: Handle missing epic files gracefully
-        if not epics:
-            return ProjectState(
-                epics=[],
-                all_stories=[],
-                completed_stories=[],
-                current_epic=None,
-                current_story=None,
-                bmad_path=str(bmad_path),
-            )
-
-        # Step 3: Flatten and sort all stories (AC6, AC7, AC12)
-        all_stories = _flatten_stories(epics)
-
-        # Step 4: Apply default status to stories without status (AC11)
-        all_stories = _apply_default_status(all_stories)
-
-        # Step 5: Load sprint-status.yaml if enabled (AC13, AC14)
-        if use_sprint_status:
-            sprint_statuses = _load_sprint_status(bmad_path)
-            if sprint_statuses:
-                all_stories = _apply_sprint_statuses(all_stories, sprint_statuses)
-                # Also update stories within epics to keep them in sync
-                epics = _sync_epic_stories(epics, all_stories)
+        sprint_statuses = _load_sprint_status(bmad_path)
+        if sprint_statuses:
+            all_stories = _apply_sprint_statuses(all_stories, sprint_statuses)
+            # Also update stories within epics to keep them in sync
+            epics = _sync_epic_stories(epics, all_stories)
 
     # Step 5: Compile completed stories (AC3)
     completed_stories = [s.number for s in all_stories if _normalize_status(s.status) == "done"]

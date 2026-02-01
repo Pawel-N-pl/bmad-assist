@@ -1,8 +1,11 @@
 """Loop and sprint configuration models."""
 
+import logging
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class LoopConfig(BaseModel):
@@ -16,12 +19,29 @@ class LoopConfig(BaseModel):
 
     Attributes:
         epic_setup: Phases to run once at the start of each epic
-            (before first story's CREATE_STORY). Example: ["testarch_setup"]
+            (before first story's CREATE_STORY).
+            TEA phases available: tea_framework, tea_ci, tea_test_design, tea_automate
         story: Phases to run for each story in sequence.
             Standard: ["create_story", "validate_story", "validate_story_synthesis",
-                      "dev_story", "code_review", "code_review_synthesis"]
+                      "atdd", "dev_story", "code_review", "code_review_synthesis",
+                      "test_review"]
+            TEA phases available: atdd (before dev_story), test_review (after code_review_synthesis)
         epic_teardown: Phases to run once at the end of each epic
-            (after last story's CODE_REVIEW_SYNTHESIS). Example: ["retrospective"]
+            (after last story's CODE_REVIEW_SYNTHESIS).
+            TEA phases available: trace (before retrospective), tea_nfr_assess (after trace)
+
+    Available TEA Phases:
+        - epic_setup scope:
+            - tea_framework: Initialize test framework (Playwright/Cypress)
+            - tea_ci: Initialize CI pipeline (GitHub Actions/GitLab CI)
+            - tea_test_design: Test design planning (system-level for first epic)
+            - tea_automate: Expand test automation (TEA Lite model)
+        - story scope:
+            - atdd: Acceptance TDD before implementation
+            - test_review: Test quality review after code review
+        - epic_teardown scope:
+            - trace: Requirements traceability matrix generation
+            - tea_nfr_assess: Non-functional requirements assessment
 
     Example:
         >>> config = LoopConfig(
@@ -63,8 +83,69 @@ class LoopConfig(BaseModel):
             raise ValueError("LoopConfig.story must contain at least one phase")
         return self
 
+    @model_validator(mode="after")
+    def validate_phase_ordering(self) -> Self:
+        """Warn about potentially incorrect TEA phase ordering.
 
-# Default loop configuration when no loop config found in any config file
+        Logs warnings for common misconfiguration patterns:
+        - atdd after dev_story (should be before for TDD flow)
+        - test_review before code_review_synthesis (should be after)
+        - trace after retrospective (should be before)
+        - epic_setup phases out of expected order
+        """
+        story = self.story
+        teardown = self.epic_teardown
+        setup = self.epic_setup
+
+        # ATDD should come before dev_story
+        if "atdd" in story and "dev_story" in story:
+            atdd_idx = story.index("atdd")
+            dev_idx = story.index("dev_story")
+            if atdd_idx > dev_idx:
+                logger.warning(
+                    "Phase ordering: 'atdd' appears after 'dev_story'. "
+                    "ATDD should run before implementation for TDD flow."
+                )
+
+        # test_review should come after code_review_synthesis
+        if "test_review" in story and "code_review_synthesis" in story:
+            review_idx = story.index("test_review")
+            synthesis_idx = story.index("code_review_synthesis")
+            if review_idx < synthesis_idx:
+                logger.warning(
+                    "Phase ordering: 'test_review' appears before 'code_review_synthesis'. "
+                    "Test review should run after code review is complete."
+                )
+
+        # trace should come before retrospective in teardown
+        if "trace" in teardown and "retrospective" in teardown:
+            trace_idx = teardown.index("trace")
+            retro_idx = teardown.index("retrospective")
+            if trace_idx > retro_idx:
+                logger.warning(
+                    "Phase ordering: 'trace' appears after 'retrospective'. "
+                    "Traceability matrix should be generated before retrospective."
+                )
+
+        # epic_setup phases should be ordered: framework → ci → test_design → automate
+        setup_order = ["tea_framework", "tea_ci", "tea_test_design", "tea_automate"]
+        for i in range(len(setup_order) - 1):
+            if setup_order[i] in setup and setup_order[i + 1] in setup:
+                first_idx = setup.index(setup_order[i])
+                second_idx = setup.index(setup_order[i + 1])
+                if first_idx > second_idx:
+                    logger.warning(
+                        "Phase ordering: epic_setup has '%s' before '%s'. "
+                        "Recommended order: tea_framework → tea_ci → tea_test_design → tea_automate",
+                        setup_order[i + 1],
+                        setup_order[i],
+                    )
+
+        return self
+
+
+# Default loop configuration - basic workflow without TEA phases.
+# Use --tea flag or configure loop in bmad-assist.yaml for TEA integration.
 DEFAULT_LOOP_CONFIG: LoopConfig = LoopConfig(
     epic_setup=[],
     story=[
@@ -75,7 +156,37 @@ DEFAULT_LOOP_CONFIG: LoopConfig = LoopConfig(
         "code_review",
         "code_review_synthesis",
     ],
-    epic_teardown=["retrospective"],
+    epic_teardown=[
+        "retrospective",
+    ],
+)
+
+# Full TEA Enterprise loop configuration with all phases enabled.
+# Activated via --tea CLI flag or by configuring loop in bmad-assist.yaml.
+# Individual phases can be disabled via testarch.{workflow}_mode = "off"
+# or globally via testarch.engagement_model = "off".
+TEA_FULL_LOOP_CONFIG: LoopConfig = LoopConfig(
+    epic_setup=[
+        "tea_framework",    # Initialize test framework (Playwright/Cypress)
+        "tea_ci",           # Initialize CI pipeline
+        "tea_test_design",  # System-level test design (first epic)
+        "tea_automate",     # Expand test automation (TEA Lite)
+    ],
+    story=[
+        "create_story",
+        "validate_story",
+        "validate_story_synthesis",
+        "atdd",             # Acceptance TDD before implementation
+        "dev_story",
+        "code_review",
+        "code_review_synthesis",
+        "test_review",      # Test quality review after code review
+    ],
+    epic_teardown=[
+        "trace",            # Requirements traceability matrix
+        "tea_nfr_assess",   # NFR assessment (release-level)
+        "retrospective",
+    ],
 )
 
 

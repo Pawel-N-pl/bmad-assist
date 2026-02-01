@@ -12,10 +12,16 @@ __all__ = [
     "validate_story_handler",
     "validate_story_synthesis_handler",
     "atdd_handler",
+    "tea_framework_handler",
+    "tea_ci_handler",
+    "tea_test_design_handler",
+    "tea_automate_handler",
     "dev_story_handler",
     "code_review_handler",
     "code_review_synthesis_handler",
     "test_review_handler",
+    "trace_handler",
+    "tea_nfr_assess_handler",
     "retrospective_handler",
     "WORKFLOW_HANDLERS",
 ]
@@ -104,6 +110,83 @@ def atdd_handler(state: State) -> PhaseResult:
     return PhaseResult.fail(f"Handler for {Phase.ATDD.value} not yet implemented")
 
 
+def tea_framework_handler(state: State) -> PhaseResult:
+    """Handle the TEA_FRAMEWORK phase.
+
+    Initializes test framework (Playwright/Cypress) during epic_setup.
+    Runs once per epic before first story implementation.
+
+    Args:
+        state: Current loop state at epic start.
+
+    Returns:
+        PhaseResult with framework setup status in outputs.
+
+    Note:
+        Stub implementation - real handler is FrameworkHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TEA_FRAMEWORK.value} not yet implemented")
+
+
+def tea_ci_handler(state: State) -> PhaseResult:
+    """Handle the TEA_CI phase.
+
+    Initializes CI pipeline (GitHub Actions/GitLab CI) during epic_setup.
+    Runs once per epic before first story implementation.
+
+    Args:
+        state: Current loop state at epic start.
+
+    Returns:
+        PhaseResult with CI setup status in outputs.
+
+    Note:
+        Stub implementation - real handler is CIHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TEA_CI.value} not yet implemented")
+
+
+def tea_test_design_handler(state: State) -> PhaseResult:
+    """Handle the TEA_TEST_DESIGN phase.
+
+    Executes test design planning in dual-mode:
+    - System-level: First epic or no sprint-status.yaml - creates architecture + QA docs.
+    - Epic-level: Subsequent epics - creates per-epic test plan.
+
+    Args:
+        state: Current loop state at epic start or during story.
+
+    Returns:
+        PhaseResult with test design status in outputs.
+
+    Note:
+        Stub implementation - real handler is TestDesignHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TEA_TEST_DESIGN.value} not yet implemented")
+
+
+def tea_automate_handler(state: State) -> PhaseResult:
+    """Handle the TEA_AUTOMATE phase.
+
+    Expands test automation coverage during epic_setup scope.
+    Runs testarch-automate workflow if mode allows and no existing automation.
+
+    Args:
+        state: Current loop state at epic start.
+
+    Returns:
+        PhaseResult with automation status and test count in outputs.
+
+    Note:
+        Stub implementation - real handler is AutomateHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TEA_AUTOMATE.value} not yet implemented")
+
+
 def dev_story_handler(state: State) -> PhaseResult:
     """Handle the DEV_STORY phase.
 
@@ -180,6 +263,44 @@ def test_review_handler(state: State) -> PhaseResult:
     return PhaseResult.fail(f"Handler for {Phase.TEST_REVIEW.value} not yet implemented")
 
 
+def trace_handler(state: State) -> PhaseResult:
+    """Handle the TRACE phase.
+
+    Generates requirements traceability matrix and quality gate decision.
+    Runs at epic completion when ATDD was used for any story in the epic.
+
+    Args:
+        state: Current loop state at epic completion.
+
+    Returns:
+        PhaseResult with traceability matrix and gate decision in outputs.
+
+    Note:
+        Stub implementation - real handler is TraceHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TRACE.value} not yet implemented")
+
+
+def tea_nfr_assess_handler(state: State) -> PhaseResult:
+    """Handle the TEA_NFR_ASSESS phase.
+
+    Assesses non-functional requirements during epic_teardown scope.
+    Runs testarch-nfr workflow if mode allows and no existing assessment.
+
+    Args:
+        state: Current loop state at epic completion.
+
+    Returns:
+        PhaseResult with NFR status and blocked domains in outputs.
+
+    Note:
+        Stub implementation - real handler is NFRAssessHandler from testarch.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.TEA_NFR_ASSESS.value} not yet implemented")
+
+
 def retrospective_handler(state: State) -> PhaseResult:
     """Handle the RETROSPECTIVE phase.
 
@@ -250,10 +371,16 @@ WORKFLOW_HANDLERS: dict[Phase, PhaseHandler] = {
     Phase.VALIDATE_STORY: validate_story_handler,
     Phase.VALIDATE_STORY_SYNTHESIS: validate_story_synthesis_handler,
     Phase.ATDD: atdd_handler,
+    Phase.TEA_FRAMEWORK: tea_framework_handler,
+    Phase.TEA_CI: tea_ci_handler,
+    Phase.TEA_TEST_DESIGN: tea_test_design_handler,
+    Phase.TEA_AUTOMATE: tea_automate_handler,
     Phase.DEV_STORY: dev_story_handler,
     Phase.CODE_REVIEW: code_review_handler,
     Phase.CODE_REVIEW_SYNTHESIS: code_review_synthesis_handler,
     Phase.TEST_REVIEW: test_review_handler,
+    Phase.TRACE: trace_handler,
+    Phase.TEA_NFR_ASSESS: tea_nfr_assess_handler,
     Phase.RETROSPECTIVE: retrospective_handler,
     Phase.QA_PLAN_GENERATE: qa_plan_generate_handler,
     Phase.QA_PLAN_EXECUTE: qa_plan_execute_handler,

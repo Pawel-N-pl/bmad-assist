@@ -1,15 +1,15 @@
 patch:
   name: "code-review-optimizer"
-  version: "1.0.0"
+  version: "1.1.0"
   author: "Pawel N"
   description: "Optimizes code-review workflow for Multi-LLM automation - removes interactive steps, produces code review report to stdout only"
 
 compatibility:
   bmad_version: "6.0.0-alpha.22"
   workflow: "code-review"
-  # NOTE: This patch is compatible with the 5-step code-review workflow
+  # NOTE: This patch is compatible with the 6-step code-review workflow (customized with Evidence Score)
   # Steps: 1 (file discovery), 2 (attack plan), 3 (adversarial review),
-  #        4 (findings + fixes), 5 (status sync)
+  #        4 (Evidence Score assessment), 5 (findings + fixes), 6 (status sync)
 
 git_intelligence:
   enabled: true
@@ -28,20 +28,21 @@ git_intelligence:
 
 transforms:
   # === STEP REMOVAL (handled by compiler) ===
-  # Original workflow has 5 steps:
+  # Original workflow has 6 steps (customized with Evidence Score system):
   #   1. Load story and discover changes (file/git discovery)
   #   2. Build review attack plan
   #   3. Execute adversarial review
-  #   4. Present findings and fix them (has <o> output block + <ask>)
-  #   5. Update story status and sync sprint tracking
+  #   4. Systematic Code Quality Assessment (Evidence Score, substeps 4a-4l)
+  #   5. Present findings and fix them (has <o> output block + <ask>)
+  #   6. Update story status and sync sprint tracking
 
   # NOTE: Step removal and renumbering is now handled deterministically by post_process rules.
-  # Original workflow has 5 steps, steps 1 and 5 are removed, remaining steps 2-4 renumbered to 1-3.
+  # Original workflow has 6 steps, steps 1 and 6 are removed, remaining steps 2-5 renumbered to 1-4.
   - "Remove step 1 completely - all file discovery and git diff analysis is handled by the compiler which embeds story file, modified source files, architecture, and project context in the <context> section"
-  - "Remove step 5 completely - story status updates and sprint-status.yaml sync are handled by the orchestrator after synthesis; validator only produces a report"
-  - "CRITICAL: KEEP steps 2, 3, and 4 WITHOUT content modifications - these contain the core adversarial review logic"
-  - "In step 4 (becomes step 3 after renumbering): Remove the <ask> block asking user for fix options, and remove all <check if='user chooses...'> blocks - validator cannot interact with user"
-  - "In step 4 (becomes step 3 after renumbering): KEEP the <o> output block containing the code review report template - this is the validator's output format"
+  - "Remove step 6 completely - story status updates and sprint-status.yaml sync are handled by the orchestrator after synthesis; validator only produces a report"
+  - "CRITICAL: KEEP steps 2, 3, 4, and 5 WITHOUT content modifications - these contain the core adversarial review logic and Evidence Score system"
+  - "In step 5 (becomes step 4 after renumbering): Remove the <ask> block asking user for fix options, and remove all <check if='user chooses...'> blocks - validator cannot interact with user"
+  - "In step 5 (becomes step 4 after renumbering): KEEP the <o> output block containing the code review report template - this is the validator's output format"
 
   # === REFERENCE UPDATES ===
   - "Replace all {installed_path} references with 'embedded context' - compiler pre-loads all needed files"
@@ -57,11 +58,11 @@ transforms:
   # === SCOPE LIMITATION (READ-ONLY) ===
   - "Add ONE CRITICAL instruction at workflow start (first element after <workflow>): 'SCOPE LIMITATION: You are a READ-ONLY VALIDATOR. Output your code review report to stdout ONLY. Do NOT create files, do NOT modify files, do NOT use Write/Edit/Bash tools. Your stdout output will be captured and saved by the orchestration system.'"
 
-  # === STEP 4 SIMPLIFICATION (stdout output only) ===
-  - "In step 4 (Present findings), simplify to: (1) Generate the code review report using the <o> block template as FORMAT GUIDE, (2) Replace all {{placeholders}} with actual values from your analysis, (3) Output the complete report to stdout, (4) Do NOT save to any file - orchestrator handles persistence"
+  # === STEP 5 SIMPLIFICATION (stdout output only) ===
+  - "In step 5 (Present findings, becomes step 4 after renumbering), simplify to: (1) Generate the code review report using the <o> block template as FORMAT GUIDE, (2) Replace all {{placeholders}} with actual values from your analysis, (3) Output the complete report to stdout, (4) Do NOT save to any file - orchestrator handles persistence"
 
   # === REPORT EXTRACTION MARKERS (critical for Multi-LLM) ===
-  - "Add a <critical> instruction in step 4 (Present findings) with EXACT text: 'OUTPUT MARKERS REQUIRED: Your code review report MUST start with the marker <!-- CODE_REVIEW_REPORT_START --> on its own line BEFORE the report content, and MUST end with the marker <!-- CODE_REVIEW_REPORT_END --> on its own line AFTER the final line. The orchestrator extracts ONLY content between these markers. Any text outside the markers (thinking, commentary) will be discarded.'"
+  - "Add a <critical> instruction in step 5 (Present findings, becomes step 4) with EXACT text: 'OUTPUT MARKERS REQUIRED: Your code review report MUST start with the marker <!-- CODE_REVIEW_REPORT_START --> on its own line BEFORE the report content, and MUST end with the marker <!-- CODE_REVIEW_REPORT_END --> on its own line AFTER the final line. The orchestrator extracts ONLY content between these markers. Any text outside the markers (thinking, commentary) will be discarded.'"
 
   # === PLACEHOLDER HANDLING ===
   - "Replace {{fixed_count}} with literal '0' - validators do not fix issues"
@@ -77,13 +78,13 @@ post_process:
     replacement: "<!-- Step 1 removed: file discovery handled by compiler -->"
     flags: "DOTALL"
 
-  # Remove step 5 entirely (story status sync - orchestrator handles)
-  - pattern: '<step n="5"[^>]*>.*?</step>'
-    replacement: "<!-- Step 5 removed: status sync handled by orchestrator -->"
+  # Remove step 6 entirely (story status sync - orchestrator handles)
+  - pattern: '<step n="6"[^>]*>.*?</step>'
+    replacement: "<!-- Step 6 removed: status sync handled by orchestrator -->"
     flags: "DOTALL"
 
   # === STEP RENUMBERING (after step removal) ===
-  # Remaining steps: 2, 3, 4 → renumber to 1, 2, 3
+  # Remaining steps: 2, 3, 4, 5 → renumber to 1, 2, 3, 4
   - pattern: '<step n="2"'
     replacement: '<step n="1"'
     flags: ""
@@ -92,6 +93,9 @@ post_process:
     flags: ""
   - pattern: '<step n="4"'
     replacement: '<step n="3"'
+    flags: ""
+  - pattern: '<step n="5"'
+    replacement: '<step n="4"'
     flags: ""
 
   # === USER INTERACTION REMOVAL (must run BEFORE marker insertion) ===
@@ -132,11 +136,16 @@ post_process:
 
   # === CODE_REVIEW_REPORT MARKERS (after step renumbering and user interaction removal) ===
   # NOTE: code-review has template: false - output is in <o> block, not <output-template>
-  # CRITICAL ORDERING: These patterns run AFTER step renumbering, so step 4 is now step 3.
+  # IMPORTANT: Target the "Present findings" step by goal, not by number (LLM may merge/remove steps)
 
-  # Add start marker after <o> opening tag in step 3 (was step 4 before renumbering)
-  - pattern: '(<step n="3"[^>]*>.*?<o>)'
+  # Add start marker after <o> opening tag in "Present findings" step (matches any step number)
+  - pattern: '(<step[^>]*goal="Present findings[^"]*"[^>]*>.*?<o>)'
     replacement: '\1\n<!-- CODE_REVIEW_REPORT_START -->'
+    flags: "DOTALL"
+
+  # Fallback: Add start marker after first <o> in any step with "ADVERSARIAL CODE REVIEW" output
+  - pattern: '(<step[^>]*>.*?<o>\*\*.*?ADVERSARIAL CODE REVIEW)'
+    replacement: '\n<!-- CODE_REVIEW_REPORT_START -->\n\1'
     flags: "DOTALL"
 
   # Add end marker before </o> closing tag

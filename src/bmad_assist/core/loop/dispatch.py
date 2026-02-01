@@ -70,17 +70,32 @@ def init_handlers(config: "Config", project_path: Path) -> None:
         ValidateStoryHandler,
         ValidateStorySynthesisHandler,
     )
-    from bmad_assist.testarch.handlers import ATDDHandler, TestReviewHandler
+    from bmad_assist.testarch.handlers import (
+        ATDDHandler,
+        AutomateHandler,
+        CIHandler,
+        FrameworkHandler,
+        NFRAssessHandler,
+        TestDesignHandler,
+        TestReviewHandler,
+        TraceHandler,
+    )
 
     _handler_instances = {
         Phase.CREATE_STORY: CreateStoryHandler(config, project_path),
         Phase.VALIDATE_STORY: ValidateStoryHandler(config, project_path),
         Phase.VALIDATE_STORY_SYNTHESIS: ValidateStorySynthesisHandler(config, project_path),
         Phase.ATDD: ATDDHandler(config, project_path),
+        Phase.TEA_FRAMEWORK: FrameworkHandler(config, project_path),
+        Phase.TEA_CI: CIHandler(config, project_path),
+        Phase.TEA_TEST_DESIGN: TestDesignHandler(config, project_path),
+        Phase.TEA_AUTOMATE: AutomateHandler(config, project_path),
         Phase.DEV_STORY: DevStoryHandler(config, project_path),
         Phase.CODE_REVIEW: CodeReviewHandler(config, project_path),
         Phase.CODE_REVIEW_SYNTHESIS: CodeReviewSynthesisHandler(config, project_path),
         Phase.TEST_REVIEW: TestReviewHandler(config, project_path),
+        Phase.TRACE: TraceHandler(config, project_path),
+        Phase.TEA_NFR_ASSESS: NFRAssessHandler(config, project_path),
         Phase.RETROSPECTIVE: RetrospectiveHandler(config, project_path),
         Phase.QA_PLAN_GENERATE: QaPlanGenerateHandler(config, project_path),
         Phase.QA_PLAN_EXECUTE: QaPlanExecuteHandler(config, project_path),

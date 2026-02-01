@@ -1,7 +1,7 @@
 """Small utility functions for the loop runner.
 
-These are pure functions with no side effects, easy to test in isolation.
-Extracted from runner.py as part of the runner refactoring (Story standalone-03).
+These are utility functions extracted from runner.py as part of the runner
+refactoring (Story standalone-03).
 
 """
 
@@ -9,9 +9,44 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bmad_assist.core.state import State
+from rich.console import Console
 
-__all__ = ["_count_epic_stories", "_get_story_title"]
+from bmad_assist.core.state import State
+from bmad_assist.core.types import EpicId
+
+__all__ = ["_count_epic_stories", "_get_story_title", "_print_phase_banner"]
+
+# Console for CLI output (shared with runner.py)
+console = Console()
+
+
+def _print_phase_banner(phase: str, epic: EpicId | None, story: int | str | None) -> None:
+    """Print phase banner regardless of log level.
+
+    This ensures visibility of phase transitions even when log level is WARNING.
+    When stdout is piped, Rich automatically strips ANSI codes.
+
+    Args:
+        phase: Phase name (e.g., 'CREATE_STORY').
+        epic: Epic identifier (int or str), or None.
+        story: Story number or identifier, or None.
+
+    """
+    try:
+        banner = f"[{phase.upper().replace('_', ' ')}]"
+        if epic is not None:
+            banner += f" Epic {epic}"
+        if story is not None:
+            banner += f" Story {story}"
+        console.print(banner, style="bold bright_white")
+    except Exception:
+        # F10 FIX: Fallback banner with proper None handling
+        parts = [f"[{phase.upper().replace('_', ' ')}]"]
+        if epic is not None:
+            parts.append(f"Epic {epic}")
+        if story is not None:
+            parts.append(f"Story {story}")
+        print(" ".join(parts))
 
 # Type alias for state parameter
 LoopState = State

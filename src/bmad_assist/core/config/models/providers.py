@@ -106,6 +106,8 @@ class MultiProviderConfig(BaseModel):
         model_name: Display name for the model (e.g., "glm-4.7"). If set,
             used in logs/reports instead of model.
         settings: Optional path to provider settings JSON file (tilde expanded).
+        thinking: Enable thinking mode for supported providers (e.g., kimi).
+            If None, auto-detected from model name.
 
     """
 
@@ -130,6 +132,11 @@ class MultiProviderConfig(BaseModel):
         None,
         description="Path to provider settings JSON (tilde expanded)",
         json_schema_extra={"security": "dangerous"},
+    )
+    thinking: bool | None = Field(
+        None,
+        description="Enable thinking mode for supported providers (kimi). None=auto-detect.",
+        json_schema_extra={"security": "safe", "ui_widget": "checkbox"},
     )
 
     @property

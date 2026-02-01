@@ -107,6 +107,47 @@ def _validate_story_synthesis_defaults() -> StrategicContextWorkflowConfig:
     )
 
 
+# TEA workflow default factories (per ADR-4 in tech-spec-tea-context-loader.md)
+def _testarch_atdd_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-atdd: minimal context - focuses on story requirements."""
+    return StrategicContextWorkflowConfig(include=("project-context",))
+
+
+def _testarch_trace_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-trace: needs architecture for traceability mapping."""
+    return StrategicContextWorkflowConfig(include=("project-context", "architecture"))
+
+
+def _testarch_test_review_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-test-review: minimal - reviews test code."""
+    return StrategicContextWorkflowConfig(include=("project-context",))
+
+
+def _testarch_framework_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-framework: needs tech stack from architecture."""
+    return StrategicContextWorkflowConfig(include=("project-context", "architecture"))
+
+
+def _testarch_ci_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-ci: needs CI/CD patterns from architecture."""
+    return StrategicContextWorkflowConfig(include=("project-context", "architecture"))
+
+
+def _testarch_test_design_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-test-design: needs full context for test strategy."""
+    return StrategicContextWorkflowConfig(include=("project-context", "prd", "architecture"))
+
+
+def _testarch_automate_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-automate: needs PRD/Arch for feature discovery."""
+    return StrategicContextWorkflowConfig(include=("project-context", "prd", "architecture"))
+
+
+def _testarch_nfr_assess_defaults() -> StrategicContextWorkflowConfig:
+    """testarch-nfr-assess: needs PRD for NFR requirements, Arch for patterns."""
+    return StrategicContextWorkflowConfig(include=("project-context", "prd", "architecture"))
+
+
 class StrategicContextConfig(BaseModel):
     """Strategic context configuration for workflow compilers.
 
@@ -167,6 +208,39 @@ class StrategicContextConfig(BaseModel):
     code_review_synthesis: StrategicContextWorkflowConfig = Field(
         default_factory=StrategicContextWorkflowConfig,
         description="Overrides for code_review_synthesis (defaults to project-context only)",
+    )
+    # TEA workflow configs (per ADR-4 in tech-spec-tea-context-loader.md)
+    testarch_atdd: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_atdd_defaults,
+        description="Overrides for testarch-atdd (project-context only)",
+    )
+    testarch_trace: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_trace_defaults,
+        description="Overrides for testarch-trace (project-context + architecture)",
+    )
+    testarch_test_review: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_test_review_defaults,
+        description="Overrides for testarch-test-review (project-context only)",
+    )
+    testarch_framework: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_framework_defaults,
+        description="Overrides for testarch-framework (project-context + architecture)",
+    )
+    testarch_ci: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_ci_defaults,
+        description="Overrides for testarch-ci (project-context + architecture)",
+    )
+    testarch_test_design: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_test_design_defaults,
+        description="Overrides for testarch-test-design (project-context + prd + architecture)",
+    )
+    testarch_automate: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_automate_defaults,
+        description="Overrides for testarch-automate (project-context + prd + architecture)",
+    )
+    testarch_nfr_assess: StrategicContextWorkflowConfig = Field(
+        default_factory=_testarch_nfr_assess_defaults,
+        description="Overrides for testarch-nfr-assess (project-context + prd + architecture)",
     )
 
     def get_workflow_config(self, workflow_name: str) -> tuple[tuple[StrategicDocType, ...], bool]:

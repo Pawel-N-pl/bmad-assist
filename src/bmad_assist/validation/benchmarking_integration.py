@@ -159,22 +159,20 @@ def _create_evaluator_info(
     """Create EvaluatorInfo from validation output.
 
     Args:
-        validation_output: Contains provider-model and session info.
+        validation_output: Contains provider and model info.
         role: EvaluatorRole.VALIDATOR for validators.
         anonymized_id: Anonymized validator ID like "Validator A".
         sequence_position: Order in which validator completed.
 
     Returns:
-        EvaluatorInfo with split provider/model and derived role_id.
+        EvaluatorInfo with provider/model and derived role_id.
 
     """
-    # Split provider-model format (e.g., "claude-sonnet" -> "claude", "sonnet")
-    provider_id = validation_output.provider
-    if "-" in provider_id:
-        provider, model = provider_id.split("-", 1)
-    else:
-        provider = provider_id
-        model = validation_output.model
+    # Use provider and model directly from ValidationOutput
+    # provider is now the actual provider name (e.g., "claude-subprocess", "gemini", "kimi")
+    # model is the actual model from ProviderResult (e.g., "opus", "gemini-2.5-flash")
+    provider = validation_output.provider
+    model = validation_output.model
 
     # Derive role_id from anonymized ID with fallback: "Validator A" -> "a"
     role_id = _parse_role_id(anonymized_id, sequence_position, role)

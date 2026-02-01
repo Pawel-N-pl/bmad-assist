@@ -1,0 +1,77 @@
+{
+  "vulnerabilities": {
+    "lodash": {
+      "name": "lodash",
+      "severity": "high",
+      "range": "<4.17.21",
+      "fixAvailable": true,
+      "via": [
+        {
+          "title": "Prototype Pollution",
+          "url": "https://github.com/advisories/GHSA-jf85-cpcp-j695"
+        }
+      ]
+    },
+    "axios": {
+      "name": "axios",
+      "severity": "high",
+      "range": "<0.21.1",
+      "fixAvailable": true,
+      "via": [
+        {
+          "title": "Server-Side Request Forgery",
+          "url": "https://github.com/advisories/GHSA-4w2v-q235-vp99"
+        }
+      ]
+    },
+    "minimist": {
+      "name": "minimist",
+      "severity": "moderate",
+      "range": "<1.2.6",
+      "fixAvailable": true,
+      "via": [
+        {
+          "title": "Prototype Pollution",
+          "url": "https://github.com/advisories/GHSA-xvch-5gv4-984h"
+        }
+      ]
+    },
+    "node-fetch": {
+      "name": "node-fetch",
+      "severity": "moderate",
+      "range": "<2.6.7",
+      "fixAvailable": false,
+      "via": [
+        {
+          "title": "Improper Certificate Validation",
+          "url": "https://github.com/advisories/GHSA-r683-j2x4-v87g"
+        }
+      ]
+    },
+    "debug": {
+      "name": "debug",
+      "severity": "low",
+      "range": "<4.3.1",
+      "fixAvailable": true,
+      "via": ["Inefficient Regular Expression Complexity"]
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "critical": 0,
+      "high": 2,
+      "moderate": 2,
+      "low": 1,
+      "info": 0,
+      "total": 5
+    },
+    "dependencies": {
+      "prod": 120,
+      "dev": 45,
+      "optional": 3,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 168
+    }
+  }
+}

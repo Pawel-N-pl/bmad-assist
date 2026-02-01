@@ -666,6 +666,8 @@ class BaseProvider(ABC):
         allowed_tools: list[str] | None = None,
         no_cache: bool = False,
         color_index: int | None = None,
+        display_model: str | None = None,
+        thinking: bool | None = None,
     ) -> ProviderResult:
         """Execute LLM provider with the given prompt.
 
@@ -690,6 +692,12 @@ class BaseProvider(ABC):
             color_index: Index for console output color (0-7). Used for visual
                 distinction when multiple providers run concurrently. Not all
                 providers support this; implementations should ignore if unsupported.
+            display_model: Human-readable model name for progress output. Used
+                when the actual model differs from CLI model (e.g., "glm-4.7"
+                instead of "sonnet" when using GLM via settings file).
+            thinking: Enable extended thinking mode for supported providers.
+                If None, auto-detected from model name. Currently only kimi
+                provider supports this; other providers should ignore.
 
         Returns:
             ProviderResult containing stdout, stderr, exit code, and timing.

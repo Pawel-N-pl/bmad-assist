@@ -29,6 +29,7 @@ from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, Workfl
 from bmad_assist.compiler.variable_utils import substitute_variables
 from bmad_assist.compiler.variables import resolve_variables
 from bmad_assist.core.exceptions import CompilerError
+from bmad_assist.testarch.context import collect_tea_context
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +318,10 @@ class RetrospectiveCompiler:
         if epic_num is not None:
             story_files = self._collect_story_files(context, epic_num)
             files.update(story_files)
+
+        # 6b. TEA Context (trace matrix) for traceability review
+        # F19 Fix: Trace matrix may not exist on first retrospective (created BY trace workflow)
+        files.update(collect_tea_context(context, "retrospective", resolved))
 
         # 7. Previous retrospective (LAST - closest to instructions)
         prev_epic_num = resolved.get("prev_epic_num")

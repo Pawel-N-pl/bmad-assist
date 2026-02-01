@@ -187,12 +187,26 @@ def _build_field_schema(
         and field_info.default is not ...
         and not isinstance(field_info.default, PydanticUndefinedType)
     ):
-        result["default"] = field_info.default
+        default_val = field_info.default
+        # Convert Pydantic models to dicts for JSON serializability
+        if isinstance(default_val, BaseModel):
+            default_val = default_val.model_dump()
+        result["default"] = default_val
     elif field_info.default_factory is not None:
         try:
             # default_factory may be a type (like list) or a callable
             factory: Any = field_info.default_factory
-            result["default"] = factory()
+            default_val = factory()
+            # Convert Pydantic models to dicts for JSON serializability
+            if isinstance(default_val, BaseModel):
+                default_val = default_val.model_dump()
+            elif isinstance(default_val, dict):
+                # Handle dict of Pydantic models
+                default_val = {
+                    k: v.model_dump() if isinstance(v, BaseModel) else v
+                    for k, v in default_val.items()
+                }
+            result["default"] = default_val
         except Exception:
             pass
 

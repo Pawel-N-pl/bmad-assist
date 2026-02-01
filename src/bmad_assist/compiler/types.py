@@ -1,6 +1,7 @@
 """Data models for the BMAD workflow compiler.
 
 This module defines the core data structures used throughout the compiler:
+- StepIR: Intermediate representation of a tri-modal step file
 - WorkflowIR: Intermediate representation of parsed workflow
 - CompiledWorkflow: Final compiled output ready for LLM consumption
 - CompilerContext: Context passed to workflow-specific compilers
@@ -9,6 +10,31 @@ This module defines the core data structures used throughout the compiler:
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+@dataclass(frozen=True)
+class StepIR:
+    """Intermediate representation of a tri-modal step file.
+
+    Step files are used in TEA Enterprise tri-modal workflows.
+    Each step has frontmatter with metadata and markdown content.
+
+    Attributes:
+        path: Absolute path to the step file.
+        name: Step name from frontmatter (e.g., 'step-01-preflight-and-context').
+        description: Step description from frontmatter.
+        next_step_file: Relative path to next step (e.g., './step-02.md'), or None for final step.
+        knowledge_index: Path to knowledge CSV from frontmatter, or None.
+        raw_content: Markdown content after frontmatter.
+
+    """
+
+    path: Path
+    name: str
+    description: str
+    next_step_file: str | None
+    knowledge_index: str | None
+    raw_content: str
 
 
 @dataclass(frozen=True)
@@ -27,6 +53,15 @@ class WorkflowIR:
             When loading from cached patched template, this contains the embedded template.
             When loading from original files, this is None and template_path is used.
 
+        workflow_type: Type of workflow ("macro" for traditional, "tri_modal" for TEA).
+        has_tri_modal: True if workflow has tri-modal step directories.
+        steps_c_dir: Path to create mode step directory (steps-c/), or None.
+        steps_v_dir: Path to validate mode step directory (steps-v/), or None.
+        steps_e_dir: Path to edit mode step directory (steps-e/), or None.
+        first_step_c: Path to first step file in create mode, or None.
+        first_step_v: Path to first step file in validate mode, or None.
+        first_step_e: Path to first step file in edit mode, or None.
+
     """
 
     name: str
@@ -37,6 +72,15 @@ class WorkflowIR:
     raw_config: dict[str, Any]
     raw_instructions: str
     output_template: str | None = None
+    # Tri-modal fields (default to macro workflow)
+    workflow_type: str = "macro"
+    has_tri_modal: bool = False
+    steps_c_dir: Path | None = None
+    steps_v_dir: Path | None = None
+    steps_e_dir: Path | None = None
+    first_step_c: Path | None = None
+    first_step_v: Path | None = None
+    first_step_e: Path | None = None
 
 
 @dataclass(frozen=True)

@@ -1,11 +1,14 @@
 """RETROSPECTIVE phase handler.
 
 Runs epic retrospective after the last story completes.
-Integrates with testarch trace handler when enabled.
 
 Bug Fix: Retrospective Report Persistence
 - Extracts report from LLM output using markers
 - Saves report to retrospectives directory
+
+Note: Trace is now a separate Phase (Phase.TRACE) and can be configured
+in loop.epic_teardown to run before retrospective. The trace invocation
+has been removed from this handler to decouple core from testarch.
 
 """
 
@@ -32,21 +35,11 @@ class RetrospectiveHandler(BaseHandler):
     """Handler for RETROSPECTIVE phase.
 
     Invokes Master LLM to conduct epic retrospective.
-    When testarch is configured, runs trace handler first to generate
-    traceability matrices and quality gate decisions.
+
+    Note: Trace is now a separate Phase (Phase.TRACE) and should be
+    configured in loop.epic_teardown to run before retrospective.
 
     """
-
-    def __init__(self, config: Config, project_path: Path) -> None:
-        """Initialize handler with trace result storage.
-
-        Args:
-            config: Application configuration.
-            project_path: Path to project root.
-
-        """
-        super().__init__(config, project_path)
-        self._trace_result: PhaseResult | None = None
 
     @property
     def phase_name(self) -> str:
@@ -56,78 +49,23 @@ class RetrospectiveHandler(BaseHandler):
     def build_context(self, state: State) -> dict[str, Any]:
         """Build context for retrospective prompt template.
 
-        Includes trace results if available (gate decision, trace file path).
-
         Args:
             state: Current loop state.
 
         Returns:
-            Context dict with common variables plus trace results if available.
+            Context dict with common variables.
 
         """
-        context = self._build_common_context(state)
-
-        # Include trace results in context (AC #7)
-        if self._trace_result and self._trace_result.success:
-            outputs = self._trace_result.outputs
-            if not outputs.get("skipped"):
-                context["trace_gate_decision"] = outputs.get("gate_decision")
-                context["trace_file"] = outputs.get("trace_file")
-                context["trace_response"] = outputs.get("response")
-
-        return context
-
-    def _run_trace_if_enabled(self, state: State) -> PhaseResult | None:
-        """Run trace handler if testarch configured.
-
-        Non-blocking: handles both exceptions and PhaseResult.fail().
-        Uses lazy import to avoid core→testarch coupling.
-
-        Args:
-            state: Current loop state.
-
-        Returns:
-            PhaseResult from trace handler if successful, None otherwise.
-
-        """
-        try:
-            # Lazy import to avoid core→testarch coupling
-            from bmad_assist.testarch.handlers import TraceHandler
-
-            handler = TraceHandler(self.config, self.project_path)
-            result = handler.run(state)
-
-            # Handle PhaseResult.fail() - non-blocking
-            if not result.success:
-                logger.warning(
-                    "Trace failed (continuing retrospective): %s",
-                    result.error or "unknown error",
-                )
-                return None
-
-            return result
-
-        except ImportError:
-            # testarch module not installed - skip silently
-            logger.debug("Trace skipped: testarch module not available")
-            return None
-        except Exception as e:
-            # Any other error - log warning, continue retrospective
-            logger.warning("Trace failed (continuing retrospective): %s", e)
-            return None
+        return self._build_common_context(state)
 
     def execute(self, state: State) -> PhaseResult:
         """Execute the retrospective handler.
 
-        First runs trace handler (non-blocking), then proceeds with
-        the retrospective workflow. After successful execution, extracts
+        Runs the retrospective workflow. After successful execution, extracts
         and saves the retrospective report.
 
-        Trace results are passed to the retrospective context via build_context().
-
-        Note: Trace execution time is not included in timing tracking.
-        This is intentional - trace is a pre-step, not part of the
-        retrospective workflow itself.
+        Note: Trace is now a separate Phase and should be configured in
+        loop.epic_teardown to run before retrospective.
 
         Args:
             state: Current loop state.
@@ -136,22 +74,7 @@ class RetrospectiveHandler(BaseHandler):
             PhaseResult from retrospective execution, with report_file in outputs.
 
         """
-        # Run trace before retrospective (non-blocking)
-        # Store result for build_context() to include in prompt (AC #7)
-        self._trace_result = self._run_trace_if_enabled(state)
-
-        # Log trace results
-        if self._trace_result and self._trace_result.success:
-            outputs = self._trace_result.outputs
-            if not outputs.get("skipped"):
-                logger.info(
-                    "Trace completed: gate_decision=%s, trace_file=%s",
-                    outputs.get("gate_decision"),
-                    outputs.get("trace_file"),
-                )
-
         # Run parent's execute() for actual retrospective
-        # build_context() will include trace results in prompt
         result = super().execute(state)
 
         # Extract and save retrospective report if successful

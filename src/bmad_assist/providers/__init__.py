@@ -39,9 +39,15 @@ Example:
     >>> from bmad_assist.providers import resolve_settings_file, validate_settings_file
     >>> from bmad_assist.core.exceptions import ProviderError, ProviderExitCodeError
 
+NOTE: This module uses lazy loading for heavy provider imports (ClaudeSDKProvider)
+to avoid slow startup times. The claude_agent_sdk package pulls in mcp, scipy,
+and nltk which add ~1.5s to import time.
+
 """
 
-from .amp import AmpProvider
+from typing import TYPE_CHECKING
+
+# Light imports - these are fast and always needed
 from .base import (
     MAX_RETRIES,
     RETRY_BASE_DELAY,
@@ -57,13 +63,6 @@ from .base import (
     start_stream_reader_threads,
     validate_settings_file,
 )
-from .claude import ClaudeSubprocessProvider
-from .claude_sdk import ClaudeSDKProvider
-from .codex import CodexProvider
-from .copilot import CopilotProvider
-from .cursor_agent import CursorAgentProvider
-from .gemini import GeminiProvider
-from .opencode import OpenCodeProvider
 from .registry import (
     denormalize_model_name,
     get_provider,
@@ -73,9 +72,19 @@ from .registry import (
     register_provider,
 )
 
-# ClaudeProvider is an alias for ClaudeSDKProvider (primary implementation)
-# Use ClaudeSubprocessProvider explicitly for benchmarking only
-ClaudeProvider = ClaudeSDKProvider
+# Type hints only - no runtime import
+if TYPE_CHECKING:
+    from .amp import AmpProvider as AmpProvider
+    from .claude import ClaudeSubprocessProvider as ClaudeSubprocessProvider
+    from .claude_sdk import ClaudeSDKProvider as ClaudeSDKProvider
+    from .codex import CodexProvider as CodexProvider
+    from .copilot import CopilotProvider as CopilotProvider
+    from .cursor_agent import CursorAgentProvider as CursorAgentProvider
+    from .gemini import GeminiProvider as GeminiProvider
+    from .kimi import KimiProvider as KimiProvider
+    from .opencode import OpenCodeProvider as OpenCodeProvider
+
+    ClaudeProvider = ClaudeSDKProvider
 
 __all__ = [
     "AmpProvider",
@@ -88,6 +97,7 @@ __all__ = [
     "CursorAgentProvider",
     "ExitStatus",
     "GeminiProvider",
+    "KimiProvider",
     "OpenCodeProvider",
     "ProviderResult",
     # Registry functions
@@ -110,3 +120,31 @@ __all__ = [
     "read_stream_lines",
     "start_stream_reader_threads",
 ]
+
+# Lazy loading for heavy provider imports
+# ClaudeSDKProvider pulls in claude_agent_sdk -> mcp -> scipy/nltk (~1.5s)
+_lazy_imports = {
+    "AmpProvider": ".amp",
+    "ClaudeSubprocessProvider": ".claude",
+    "ClaudeSDKProvider": ".claude_sdk",
+    "ClaudeProvider": ".claude_sdk",  # Alias
+    "CodexProvider": ".codex",
+    "CopilotProvider": ".copilot",
+    "CursorAgentProvider": ".cursor_agent",
+    "GeminiProvider": ".gemini",
+    "KimiProvider": ".kimi",
+    "OpenCodeProvider": ".opencode",
+}
+
+
+def __getattr__(name: str):
+    """Lazy load provider classes on first access."""
+    if name in _lazy_imports:
+        import importlib
+
+        module = importlib.import_module(_lazy_imports[name], __package__)
+        # ClaudeProvider is an alias for ClaudeSDKProvider
+        if name == "ClaudeProvider":
+            return getattr(module, "ClaudeSDKProvider")
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

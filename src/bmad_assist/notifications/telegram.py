@@ -28,6 +28,7 @@ import httpx
 from .base import NotificationProvider
 from .events import EventPayload, EventType
 from .formatter import format_notification
+from .masking import mask_token
 
 logger = logging.getLogger(__name__)
 
@@ -171,18 +172,12 @@ class TelegramProvider(NotificationProvider):
         Per project_context.md: Providers with credentials MUST implement
         __repr__ with masked values to prevent credential leakage in logs.
         """
-        token = self._bot_token
-        if token and len(token) > 10:
-            masked_token = f"{token[:5]}***"
-        else:
-            masked_token = "***" if token else "(not configured)"
-        # Mask chat_id too - showing only last 3 digits
-        chat = self._chat_id
-        if chat and len(chat) > 3:
-            masked_chat = f"***{chat[-3:]}"
-        else:
-            masked_chat = "***" if chat else "(not configured)"
-        return f"TelegramProvider(bot_token={masked_token}, chat_id={masked_chat})"
+        return (
+            f"TelegramProvider("
+            f"bot_token={mask_token(self._bot_token)}, "
+            f"chat_id={mask_token(self._chat_id, prefix_length=3)}"
+            f")"
+        )
 
     async def _send_with_retry(self, message: str) -> bool:
         """Send message with retry on transient failures.
@@ -214,9 +209,12 @@ class TelegramProvider(NotificationProvider):
                     # Non-retryable client error
                     if not _is_retryable_error(response.status_code, None):
                         logger.error(
-                            "Telegram API error: status=%s, response=%s",
+                            "Telegram API error: status=%s",
                             response.status_code,
-                            response.text,
+                        )
+                        logger.debug(
+                            "Telegram API response body: %s",
+                            response.text[:200] if response.text else "(empty)",
                         )
                         return False
 
@@ -243,10 +241,10 @@ class TelegramProvider(NotificationProvider):
 
         # All retries exhausted
         logger.error(
-            "Telegram notification failed after %d attempts: %s",
+            "Telegram notification failed after %d attempts",
             self.MAX_RETRIES + 1,
-            str(last_error),
         )
+        logger.debug("Last error type: %s", type(last_error).__name__)
         return False
 
     async def send(self, event: EventType, payload: EventPayload) -> bool:
@@ -271,8 +269,8 @@ class TelegramProvider(NotificationProvider):
             return await self._send_with_retry(message)
         except Exception as e:
             logger.error(
-                "Telegram notification failed: event=%s, error=%s",
-                event,
-                str(e),
+                "Telegram notification failed: event=%s, error_type=%s",
+                event.value,
+                type(e).__name__,  # F1 FIX: Only log type, not str(e)
             )
             return False

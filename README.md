@@ -32,12 +32,16 @@ BMAD (Breakthrough Method of Agile AI Driven Development) is a structured approa
 
 ## Features
 
-- **Multi-LLM Orchestration** - Claude Code, Gemini CLI, Codex, OpenCode, Amp, Cursor Agent, GitHub Copilot
+- **Multi-LLM Orchestration** - Claude Code, Gemini CLI, Codex, OpenCode, Amp, Cursor Agent, GitHub Copilot, Kimi CLI
 - **Evidence Score System** - Mathematical validation scoring with anti-bias checks
-- **Workflow Compiler** - Transform BMAD workflows into optimized prompts
-- **Strategic Context Optimization** - Smart loading of PRD/Architecture per workflow
-- **Patch System** - Customize workflows per-project without forking
-- **Bundled Workflows** - All BMAD workflows included, no extra setup
+- **Workflow Compiler** - Build single comprehensive prompts with resolved variables, embedded context files, and execution instructions - minimizes tool usage and LLM turns
+- **Strategic Context Loading** - Config-driven loading of PRD/Architecture per workflow with intelligent truncation to token limits
+- **Patch System** - Remove interactive elements, variable resolution, and knowledge gathering from BMAD workflows - these are handled deterministically in Python for automation
+- **Bundled Workflows** - BMAD workflows used by bmad-assist included, ready to use
+- **Antipatterns Module** - Incremental learning from validation and code review findings. Critical/high issues are extracted into `epic-N-story-antipatterns.md` and `epic-N-code-antipatterns.md`, then injected into subsequent `create-story` and `dev-story` prompts to prevent recurring mistakes
+- **Experiment Framework** - Benchmarking system with fixture isolation and statistical comparisons (Mann-Whitney U test, Cohen's d effect size) for rigorous A/B testing of configurations
+- **AST-aware Truncation** - Intelligent file truncation based on code structure (classes, functions) to fit token budgets without losing semantic context
+- **Python State Tracking** - Deterministic sequencing via `get_next_story_id()` maintains sprint status internally instead of relying on LLM inference for story progression
 
 ## Installation
 
@@ -57,11 +61,11 @@ pip install -e .
 # Initialize project
 bmad-assist init --project /path/to/your/project
 
-# Configure providers in bmad-assist.yaml (see docs/configuration.md)
-
 # Run the development loop
 bmad-assist run --project /path/to/your/project
 ```
+
+**Recommended:** Customize `bmad-assist.yaml` for your provider and model configuration before running. See [Configuration Reference](docs/configuration.md) for available options.
 
 Your project needs documentation in `docs/`:
 - `prd.md` - Product Requirements

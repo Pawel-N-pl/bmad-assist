@@ -2,6 +2,70 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.15] - 2026-02-01
+
+### Added
+- **Bundled TEA Knowledge Base** - All 34 knowledge fragments now ship with bmad-assist package, enabling TEA workflows to run without `_bmad/tea/testarch/` in target projects
+- **TEA Master Switch** - `testarch.enabled` config option to completely disable all TEA functionality
+- **Interactive Config Wizard** - `bmad-assist init --wizard` for guided configuration setup
+- **Config Verify Command** - `bmad-assist verify` to validate configuration files
+- **TEA Standalone Banners** - Visual phase banners and notifications for TEA standalone workflows
+- **TEA Prompt Saving** - Unit tests for context enhancement and prompt saving
+
+### Documentation
+- **TEA Configuration Guide** - New `docs-public/tea-configuration.md` explaining switch hierarchy, `auto` mode behavior, and common configurations
+
+### Fixed
+- **Provider Signatures** - Add `display_model` and `thinking` params to BaseProvider.invoke() - fixes validation orchestrator errors with multi-LLM configs
+- **Kimi Thinking Config** - Pass thinking configuration correctly to kimi provider
+- **Phase Banners** - Add banners to epic setup/teardown phases for better visibility
+- **TEA Patch Resolution** - Resolve `{installed_path}` placeholder in TEA workflow compilation
+- **Knowledge Fragment IDs** - Fix incorrect IDs in defaults.py (`test-levels`, `test-priorities`)
+
+### Changed
+- **Bundled Workflows** - All 8 TEA workflows now bundled for fallback when BMAD not installed
+- **Knowledge Fallback** - Loader now falls back to bundled knowledge base when project has none
+
+## [0.4.14] - 2026-01-31
+
+### Added
+- **Epic 25: TEA Enterprise Full Integration** - Complete Test Architect module with 8 workflows:
+  - `testarch-atdd` - ATDD checklist generation
+  - `testarch-trace` - Traceability matrix
+  - `testarch-test-review` - Test code review
+  - `testarch-framework` - Test framework setup
+  - `testarch-ci` - CI/CD test integration
+  - `testarch-test-design` - Test design documents
+  - `testarch-automate` - Test automation discovery
+  - `testarch-nfr-assess` - NFR assessment
+- **KimiProvider** - New provider for kimi-cli (MoonshotAI) integration
+- **TEA Context Loader** - Artifact injection from previous TEA runs (ATDD checklists, test-design docs) into workflow prompts
+- **Context services for TEA workflows** - StrategicContextService, TEAContextService, SourceContextService integration with per-workflow configuration
+- **Prompt saving for TEA workflows** - All TEA handlers now save compiled prompts to `.bmad-assist/prompts/` for debugging
+- **CLI observability** - Run tracking with timestamps and staggered parallel execution
+- **`--tea` flag** - Enable full TEA loop configuration (all 8 TEA phases)
+- **TEA workflow configs** - Per-workflow strategic context settings (project-context, prd, architecture)
+- **TEA source budgets** - 10000 tokens for automate/nfr-assess, disabled for other TEA workflows
+- **Notifications:** Credential masking and phase completion events
+- **Sprint repair logging** - Loud logging when new entries added during repair
+
+### Fixed
+- **Notifications:** Eliminate duplicate `phase_completed` events, add TEA phase support with proper labels
+- **Workflow paths:** Two bugs in workflow path resolution
+- **Placeholders:** Standardize format to `{project-root}` across codebase
+- **Patch compiler:** Add testarch workflow name mapping (testarch-atdd → tea-atdd)
+- **Loop messages:** Remove misleading "guardian halt" message on normal phase failure
+- **Parser:** Support non-standard story formats with Priority anchor
+- **Kimi:** Handle array content format in kimi-cli responses
+- **Kimi:** Use full model name `kimi-code/kimi-for-coding`
+- **Benchmarking:** Use actual provider names in evaluation records
+- **Patches:** Update code-review patch for 6-step workflow
+
+### Changed
+- **Performance:** Lazy loading for heavy imports (providers, core, handlers) - faster CLI startup
+- **Loop config:** `DEFAULT_LOOP_CONFIG` now minimal (standard phases only), use `--tea` for full TEA integration
+- **README:** Improved feature descriptions and added community section
+
 ## [0.4.13] - 2026-01-29
 
 ### Added

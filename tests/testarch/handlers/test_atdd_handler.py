@@ -38,6 +38,13 @@ def mock_config() -> MagicMock:
     config.testarch.eligibility = None
     config.benchmarking = MagicMock()
     config.benchmarking.enabled = False
+    
+    # Provider config
+    config.providers = MagicMock()
+    config.providers.master = MagicMock()
+    config.providers.master.provider = "mock-provider"
+    config.providers.master.model = "mock-model"
+    config.timeout = 30
     return config
 
 
@@ -181,6 +188,9 @@ class TestModeAuto:
             mock_result.reasoning = "No testable patterns found"
             mock_check.return_value = mock_result
 
+            # Mock _check_mode to behave correctly or let it run
+            # It will return ("auto", True) if we don't mock it, which is correct
+            
             result = handler.execute(state_story_1_1)
 
         assert result.success is True
@@ -384,17 +394,13 @@ class TestPreflightAdvisory:
     def test_preflight_advisory_warnings_continue(
         self, mock_config: MagicMock, tmp_path: Path, state_story_1_1: State
     ) -> None:
-        """Preflight warnings don't block ATDD (AC #12.19).
-
-        When preflight check has warnings (all_passed=False), the handler
-        should log warnings but continue with eligibility check.
-        """
+        """Preflight warnings don't block ATDD (AC #12.19)."""
         from bmad_assist.testarch.handlers import ATDDHandler
 
         mock_config.testarch.atdd_mode = "on"
         handler = ATDDHandler(mock_config, tmp_path)
 
-        # Mock PreflightChecker to return warnings (imported inside _run_preflight_if_needed)
+        # Mock PreflightChecker to return warnings
         with (
             patch("bmad_assist.testarch.PreflightChecker") as MockChecker,
             patch.object(handler, "_invoke_atdd_workflow") as mock_invoke,
@@ -475,7 +481,7 @@ class TestFirstStoryDetection:
 
 
 class TestEligibilityCheckLogic:
-    """Test _check_atdd_mode helper."""
+    """Test _check_mode helper with atdd_mode."""
 
     def test_check_atdd_mode_off(self, mock_config: MagicMock, tmp_path: Path) -> None:
         """Returns ('off', False) for mode=off."""
@@ -484,20 +490,20 @@ class TestEligibilityCheckLogic:
         mock_config.testarch.atdd_mode = "off"
         handler = ATDDHandler(mock_config, tmp_path)
 
-        mode, should_check = handler._check_atdd_mode()
+        mode, should_check = handler._check_mode(State(), "atdd_mode")
         assert mode == "off"
         assert should_check is False
 
     def test_check_atdd_mode_on(self, mock_config: MagicMock, tmp_path: Path) -> None:
-        """Returns ('on', False) for mode=on."""
+        """Returns ('on', True) for mode=on."""
         from bmad_assist.testarch.handlers import ATDDHandler
 
         mock_config.testarch.atdd_mode = "on"
         handler = ATDDHandler(mock_config, tmp_path)
 
-        mode, should_check = handler._check_atdd_mode()
+        mode, should_check = handler._check_mode(State(), "atdd_mode")
         assert mode == "on"
-        assert should_check is False
+        assert should_check is True
 
     def test_check_atdd_mode_auto(self, mock_config: MagicMock, tmp_path: Path) -> None:
         """Returns ('auto', True) for mode=auto."""
@@ -506,7 +512,7 @@ class TestEligibilityCheckLogic:
         mock_config.testarch.atdd_mode = "auto"
         handler = ATDDHandler(mock_config, tmp_path)
 
-        mode, should_check = handler._check_atdd_mode()
+        mode, should_check = handler._check_mode(State(), "atdd_mode")
         assert mode == "auto"
         assert should_check is True
 
@@ -517,7 +523,7 @@ class TestEligibilityCheckLogic:
         mock_config.testarch = None
         handler = ATDDHandler(mock_config, tmp_path)
 
-        mode, should_check = handler._check_atdd_mode()
+        mode, should_check = handler._check_mode(State(), "atdd_mode")
         assert mode == "not_configured"
         assert should_check is False
 

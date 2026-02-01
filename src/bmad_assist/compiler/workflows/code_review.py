@@ -35,6 +35,7 @@ from bmad_assist.compiler.variable_utils import substitute_variables
 from bmad_assist.compiler.variables import resolve_variables
 from bmad_assist.core.exceptions import CompilerError
 from bmad_assist.git import get_validated_diff
+from bmad_assist.testarch.context import collect_tea_context
 
 logger = logging.getLogger(__name__)
 
@@ -505,6 +506,9 @@ class CodeReviewCompiler:
         from bmad_assist.compiler.strategic_context import load_antipatterns
 
         files.update(load_antipatterns(context, "code"))
+
+        # 1c. TEA Context (test-design) for reviewing against test plan
+        files.update(collect_tea_context(context, "code_review", resolved))
 
         # 2. Git diff (embedded as virtual file, not in variables)
         if git_diff:

@@ -134,11 +134,17 @@ PHASE_TO_STATUS: dict[Phase, ValidStatus] = {
     Phase.VALIDATE_STORY_SYNTHESIS: "in-progress",
     # Development phases
     Phase.ATDD: "in-progress",
+    Phase.TEA_FRAMEWORK: "in-progress",  # Epic setup phase
+    Phase.TEA_CI: "in-progress",  # Epic setup phase
+    Phase.TEA_TEST_DESIGN: "in-progress",  # Epic setup phase (dual-level)
+    Phase.TEA_AUTOMATE: "in-progress",  # Epic setup phase (after test_design)
     Phase.DEV_STORY: "in-progress",
     # Review phases: code review in progress
     Phase.CODE_REVIEW: "review",
     Phase.CODE_REVIEW_SYNTHESIS: "review",
     Phase.TEST_REVIEW: "review",
+    Phase.TRACE: "review",  # Traceability review at epic end
+    Phase.TEA_NFR_ASSESS: "review",  # NFR assessment at epic end
     # Completion: story done only at retrospective
     Phase.RETROSPECTIVE: "done",
     # QA phases (experimental): stories already done at this point

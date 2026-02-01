@@ -1,0 +1,47 @@
+{
+  "lighthouseVersion": "10.0.0",
+  "requestedUrl": "https://example.com",
+  "finalUrl": "https://example.com",
+  "categories": {
+    "performance": {
+      "id": "performance",
+      "title": "Performance",
+      "score": 0.89
+    },
+    "accessibility": {
+      "id": "accessibility",
+      "title": "Accessibility",
+      "score": 0.95
+    },
+    "best-practices": {
+      "id": "best-practices",
+      "title": "Best Practices",
+      "score": 0.92
+    },
+    "seo": {
+      "id": "seo",
+      "title": "SEO",
+      "score": 0.98
+    }
+  },
+  "audits": {
+    "first-contentful-paint": {
+      "id": "first-contentful-paint",
+      "title": "First Contentful Paint",
+      "numericValue": 1234.5,
+      "displayValue": "1.2 s"
+    },
+    "largest-contentful-paint": {
+      "id": "largest-contentful-paint",
+      "title": "Largest Contentful Paint",
+      "numericValue": 2500,
+      "displayValue": "2.5 s"
+    },
+    "total-blocking-time": {
+      "id": "total-blocking-time",
+      "title": "Total Blocking Time",
+      "numericValue": 150,
+      "displayValue": "150 ms"
+    }
+  }
+}

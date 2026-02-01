@@ -685,7 +685,7 @@ class TestRunLoopFailureHandling:
     ) -> None:
         """AC5: Guardian 'halt' response terminates loop gracefully."""
         from bmad_assist.core.config import load_config
-        from bmad_assist.core.loop import GuardianDecision, PhaseResult, run_loop
+        from bmad_assist.core.loop import GuardianDecision, LoopExitReason, PhaseResult, run_loop
         from bmad_assist.core.state import Phase, State
 
         config = load_config(
@@ -711,11 +711,12 @@ class TestRunLoopFailureHandling:
                         "bmad_assist.core.loop.runner.guardian_check_anomaly",
                         return_value=GuardianDecision.HALT,
                     ):
-                        with caplog.at_level(logging.INFO):
+                        with caplog.at_level(logging.DEBUG):
                             # Should return normally (not exception)
-                            run_loop(config, tmp_path, [1], lambda x: ["1.1"])
+                            result = run_loop(config, tmp_path, [1], lambda x: ["1.1"])
 
-        assert "halted by guardian" in caplog.text.lower()
+        # Guardian halt returns GUARDIAN_HALT exit reason
+        assert result == LoopExitReason.GUARDIAN_HALT
 
     def test_run_loop_retrospective_failure_moves_to_next_epic(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -920,8 +921,9 @@ class TestRunLoopIntegrationFull:
 
                                 run_loop(config, tmp_path, [1], lambda x: ["1.1"])
 
-        # Should have executed 7 phases (testarch disabled, ATDD and TEST_REVIEW skipped)
-        # With testarch enabled, would be 9 phases
+        # DEFAULT_LOOP_CONFIG is minimal (no TEA phases):
+        # 6 story phases + RETROSPECTIVE in epic_teardown = 7 total
+        # With --tea flag (TEA_FULL_LOOP_CONFIG), would be 10 phases
         assert len(phases_executed) == 7
         assert phases_executed[0] == Phase.CREATE_STORY
         assert phases_executed[-1] == Phase.RETROSPECTIVE

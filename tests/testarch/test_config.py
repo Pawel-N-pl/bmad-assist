@@ -656,3 +656,408 @@ class TestValidBrowsersConstant:
     def test_valid_browsers_count(self) -> None:
         """Test VALID_BROWSERS has exactly 3 items."""
         assert len(VALID_BROWSERS) == 3
+
+
+# =============================================================================
+# Story 25.5: Evidence & Knowledge Configuration Tests
+# =============================================================================
+
+
+class TestSourceConfigModel:
+    """Test SourceConfigModel Pydantic model (AC3)."""
+
+    def test_default_values(self) -> None:
+        """Test SourceConfigModel has correct default values."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        config = SourceConfigModel()
+        assert config.enabled is True
+        assert config.patterns == []
+        assert config.command is None
+        assert config.timeout == 30
+
+    def test_custom_values(self) -> None:
+        """Test SourceConfigModel accepts custom values."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        config = SourceConfigModel(
+            enabled=False,
+            patterns=["*.json", "**/*.xml"],
+            command="npm audit",
+            timeout=60,
+        )
+        assert config.enabled is False
+        assert config.patterns == ["*.json", "**/*.xml"]
+        assert config.command == "npm audit"
+        assert config.timeout == 60
+
+    def test_frozen_model(self) -> None:
+        """Test SourceConfigModel is immutable."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        config = SourceConfigModel()
+        with pytest.raises(ValidationError):
+            config.enabled = False  # type: ignore[misc]
+
+    def test_timeout_minimum_bound(self) -> None:
+        """Test timeout has minimum of 1."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceConfigModel(timeout=0)
+        assert "timeout" in str(exc_info.value).lower()
+
+    def test_timeout_maximum_bound(self) -> None:
+        """Test timeout has maximum of 300."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceConfigModel(timeout=301)
+        assert "timeout" in str(exc_info.value).lower()
+
+    def test_timeout_at_bounds(self) -> None:
+        """Test timeout accepts boundary values."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        config1 = SourceConfigModel(timeout=1)
+        assert config1.timeout == 1
+
+        config2 = SourceConfigModel(timeout=300)
+        assert config2.timeout == 300
+
+    def test_patterns_all_empty_strings_rejected_when_enabled(self) -> None:
+        """Test patterns with only empty strings rejected when enabled."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        with pytest.raises(ValidationError) as exc_info:
+            SourceConfigModel(enabled=True, patterns=["", "", ""])
+        assert "patterns" in str(exc_info.value).lower()
+
+    def test_patterns_all_empty_strings_allowed_when_disabled(self) -> None:
+        """Test patterns with only empty strings allowed when disabled."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        # When disabled, we don't validate patterns
+        config = SourceConfigModel(enabled=False, patterns=["", ""])
+        assert config.enabled is False
+
+    def test_patterns_mixed_with_one_valid_accepted(self) -> None:
+        """Test patterns with at least one non-empty string accepted."""
+        from bmad_assist.testarch.config import SourceConfigModel
+
+        config = SourceConfigModel(enabled=True, patterns=["", "*.json", ""])
+        assert "*.json" in config.patterns
+
+
+class TestEvidenceConfig:
+    """Test EvidenceConfig Pydantic model (AC1)."""
+
+    def test_default_values(self) -> None:
+        """Test EvidenceConfig has correct default values."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        config = EvidenceConfig()
+        assert config.enabled is True
+        assert config.storage_path is None
+        assert config.collect_before_step is True
+        assert config.coverage is None
+        assert config.test_results is None
+        assert config.security is None
+        assert config.performance is None
+
+    def test_custom_values(self) -> None:
+        """Test EvidenceConfig accepts custom values."""
+        from bmad_assist.testarch.config import EvidenceConfig, SourceConfigModel
+
+        config = EvidenceConfig(
+            enabled=False,
+            storage_path="{implementation_artifacts}/testarch/evidence/",
+            collect_before_step=False,
+            coverage=SourceConfigModel(enabled=True),
+        )
+        assert config.enabled is False
+        assert config.storage_path == "{implementation_artifacts}/testarch/evidence/"
+        assert config.collect_before_step is False
+        assert config.coverage is not None
+
+    def test_frozen_model(self) -> None:
+        """Test EvidenceConfig is immutable."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        config = EvidenceConfig()
+        with pytest.raises(ValidationError):
+            config.enabled = False  # type: ignore[misc]
+
+    def test_storage_path_rejects_path_traversal(self) -> None:
+        """Test storage_path rejects paths with .. (AC8)."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            EvidenceConfig(storage_path="../outside/evidence")
+        assert "path traversal" in str(exc_info.value).lower()
+
+    def test_storage_path_rejects_absolute_path_unix(self) -> None:
+        """Test storage_path rejects absolute Unix paths (AC8)."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            EvidenceConfig(storage_path="/etc/evidence")
+        assert "absolute" in str(exc_info.value).lower()
+
+    def test_storage_path_allows_placeholder(self) -> None:
+        """Test storage_path allows {implementation_artifacts} placeholder."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        config = EvidenceConfig(
+            storage_path="{implementation_artifacts}/testarch/evidence/"
+        )
+        assert "{implementation_artifacts}" in config.storage_path  # type: ignore[operator]
+
+    def test_storage_path_allows_relative_path(self) -> None:
+        """Test storage_path allows relative paths."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        config = EvidenceConfig(storage_path="testarch/evidence/")
+        assert config.storage_path == "testarch/evidence/"
+
+    def test_per_source_config_coverage(self) -> None:
+        """Test coverage source configuration."""
+        from bmad_assist.testarch.config import EvidenceConfig, SourceConfigModel
+
+        config = EvidenceConfig(
+            coverage=SourceConfigModel(
+                enabled=True,
+                patterns=["coverage/lcov.info", "**/coverage-summary.json"],
+            )
+        )
+        assert config.coverage is not None
+        assert config.coverage.enabled is True
+        assert len(config.coverage.patterns) == 2
+
+    def test_per_source_config_security(self) -> None:
+        """Test security source configuration."""
+        from bmad_assist.testarch.config import EvidenceConfig, SourceConfigModel
+
+        config = EvidenceConfig(
+            security=SourceConfigModel(
+                enabled=True,
+                command="npm audit --json",
+                timeout=60,
+            )
+        )
+        assert config.security is not None
+        assert config.security.command == "npm audit --json"
+        assert config.security.timeout == 60
+
+
+class TestKnowledgeConfig:
+    """Test KnowledgeConfig Pydantic model (AC2)."""
+
+    def test_default_values(self) -> None:
+        """Test KnowledgeConfig has correct default values."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig()
+        assert config.index_path == "_bmad/tea/testarch/tea-index.csv"
+        assert config.playwright_utils is True
+        assert config.mcp_enhancements is True
+        assert config.default_fragments is None
+
+    def test_custom_values(self) -> None:
+        """Test KnowledgeConfig accepts custom values."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig(
+            index_path="_custom/knowledge/index.csv",
+            playwright_utils=False,
+            mcp_enhancements=False,
+            default_fragments={"atdd": ["custom-fragment"]},
+        )
+        assert config.index_path == "_custom/knowledge/index.csv"
+        assert config.playwright_utils is False
+        assert config.mcp_enhancements is False
+        assert config.default_fragments == {"atdd": ["custom-fragment"]}
+
+    def test_frozen_model(self) -> None:
+        """Test KnowledgeConfig is immutable."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig()
+        with pytest.raises(ValidationError):
+            config.playwright_utils = False  # type: ignore[misc]
+
+    def test_index_path_must_end_with_csv(self) -> None:
+        """Test index_path must end with .csv (AC8)."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            KnowledgeConfig(index_path="_bmad/tea/index.yaml")
+        assert ".csv" in str(exc_info.value)
+
+    def test_index_path_rejects_absolute_path(self) -> None:
+        """Test index_path rejects absolute paths (AC8)."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        with pytest.raises(ValidationError) as exc_info:
+            KnowledgeConfig(index_path="/etc/index.csv")
+        assert "absolute" in str(exc_info.value).lower()
+
+    def test_get_workflow_fragments_returns_override(self) -> None:
+        """Test get_workflow_fragments returns user override when set."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig(
+            default_fragments={"atdd": ["my-custom-fragment", "another-one"]}
+        )
+        fragments = config.get_workflow_fragments("atdd")
+        assert fragments == ["my-custom-fragment", "another-one"]
+
+    def test_get_workflow_fragments_returns_default_when_no_override(self) -> None:
+        """Test get_workflow_fragments returns default when no user override."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig()  # No overrides
+        fragments = config.get_workflow_fragments("atdd")
+        # Should return from WORKFLOW_KNOWLEDGE_MAP
+        assert "fixture-architecture" in fragments
+
+    def test_get_workflow_fragments_returns_empty_for_unknown(self) -> None:
+        """Test get_workflow_fragments returns empty list for unknown workflow."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = KnowledgeConfig()
+        fragments = config.get_workflow_fragments("unknown-workflow")
+        assert fragments == []
+
+
+class TestTestarchConfigExtended:
+    """Test TestarchConfig extensions for Story 25.5 (AC4)."""
+
+    def test_new_fields_have_defaults(self) -> None:
+        """Test new fields have sensible defaults."""
+        config = TestarchConfig()
+        assert config.evidence is None
+        assert config.knowledge is None
+        assert config.test_dir == "tests/"
+
+    def test_evidence_field_accepts_config(self) -> None:
+        """Test evidence field accepts EvidenceConfig."""
+        from bmad_assist.testarch.config import EvidenceConfig
+
+        config = TestarchConfig(evidence=EvidenceConfig(enabled=True))
+        assert config.evidence is not None
+        assert config.evidence.enabled is True
+
+    def test_knowledge_field_accepts_config(self) -> None:
+        """Test knowledge field accepts KnowledgeConfig."""
+        from bmad_assist.testarch.config import KnowledgeConfig
+
+        config = TestarchConfig(knowledge=KnowledgeConfig(playwright_utils=False))
+        assert config.knowledge is not None
+        assert config.knowledge.playwright_utils is False
+
+    def test_test_dir_custom_value(self) -> None:
+        """Test test_dir accepts custom value."""
+        config = TestarchConfig(test_dir="spec/")
+        assert config.test_dir == "spec/"
+
+    def test_backward_compatibility(self) -> None:
+        """Test backward compatibility - existing config still works."""
+        config = TestarchConfig(
+            atdd_mode="on",
+            eligibility=EligibilityConfig(keyword_weight=0.3, llm_weight=0.7),
+            preflight=PreflightConfig(ci=False),
+        )
+        assert config.atdd_mode == "on"
+        assert config.eligibility.keyword_weight == 0.3
+        assert config.preflight.ci is False
+        # New fields default to None/default
+        assert config.evidence is None
+        assert config.knowledge is None
+        assert config.test_dir == "tests/"
+
+
+class TestTestarchConfigViaLoadConfig:
+    """Test TestarchConfig extensions via load_config (AC4)."""
+
+    def setup_method(self) -> None:
+        """Reset config singleton before each test."""
+        _reset_config()
+
+    def teardown_method(self) -> None:
+        """Reset config singleton after each test."""
+        _reset_config()
+
+    def test_load_config_with_evidence(self) -> None:
+        """Test load_config with evidence section."""
+        config = load_config(
+            {
+                "providers": {"master": {"provider": "claude", "model": "opus"}},
+                "testarch": {
+                    "evidence": {
+                        "enabled": True,
+                        "storage_path": "{implementation_artifacts}/testarch/evidence/",
+                        "coverage": {
+                            "enabled": True,
+                            "patterns": ["coverage/lcov.info"],
+                        },
+                    }
+                },
+            }
+        )
+        assert config.testarch is not None
+        assert config.testarch.evidence is not None
+        assert config.testarch.evidence.enabled is True
+        assert config.testarch.evidence.coverage is not None
+        assert config.testarch.evidence.coverage.patterns == ["coverage/lcov.info"]
+
+    def test_load_config_with_knowledge(self) -> None:
+        """Test load_config with knowledge section."""
+        config = load_config(
+            {
+                "providers": {"master": {"provider": "claude", "model": "opus"}},
+                "testarch": {
+                    "knowledge": {
+                        "index_path": "_bmad/custom/index.csv",
+                        "playwright_utils": False,
+                        "default_fragments": {
+                            "atdd": ["custom-1", "custom-2"],
+                        },
+                    }
+                },
+            }
+        )
+        assert config.testarch is not None
+        assert config.testarch.knowledge is not None
+        assert config.testarch.knowledge.index_path == "_bmad/custom/index.csv"
+        assert config.testarch.knowledge.playwright_utils is False
+
+    def test_load_config_invalid_storage_path_raises_error(self) -> None:
+        """Test load_config with invalid storage_path raises ConfigError."""
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(
+                {
+                    "providers": {"master": {"provider": "claude", "model": "opus"}},
+                    "testarch": {
+                        "evidence": {
+                            "storage_path": "../outside/evidence",
+                        }
+                    },
+                }
+            )
+        assert "path traversal" in str(exc_info.value).lower()
+
+    def test_load_config_invalid_index_path_raises_error(self) -> None:
+        """Test load_config with invalid index_path raises ConfigError."""
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(
+                {
+                    "providers": {"master": {"provider": "claude", "model": "opus"}},
+                    "testarch": {
+                        "knowledge": {
+                            "index_path": "_bmad/index.json",
+                        }
+                    },
+                }
+            )
+        assert ".csv" in str(exc_info.value)

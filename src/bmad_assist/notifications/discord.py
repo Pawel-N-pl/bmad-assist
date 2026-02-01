@@ -28,6 +28,7 @@ import httpx
 from .base import NotificationProvider
 from .events import EventPayload, EventType, is_high_priority
 from .formatter import format_notification
+from .masking import mask_url
 
 logger = logging.getLogger(__name__)
 
@@ -150,11 +151,8 @@ class DiscordProvider(NotificationProvider):
         return bool(self._webhook_url)
 
     def __repr__(self) -> str:
-        """Return string representation with fully masked webhook URL."""
-        url = self._webhook_url
-        # Fully mask webhook URL - it contains sensitive token
-        masked = "***" if url else "(not configured)"
-        return f"DiscordProvider(webhook_url={masked})"
+        """Return string representation with masked webhook URL."""
+        return f"DiscordProvider(webhook_url={mask_url(self._webhook_url)})"
 
     async def _send_with_retry(self, embed: dict[str, object]) -> bool:
         """Send embed with retry on transient failures.
@@ -182,9 +180,12 @@ class DiscordProvider(NotificationProvider):
                     # Non-retryable client error
                     if not _is_retryable_error(response.status_code, None):
                         logger.error(
-                            "Discord API error: status=%s, response=%s",
+                            "Discord API error: status=%s",
                             response.status_code,
-                            response.text,
+                        )
+                        logger.debug(
+                            "Discord API response body: %s",
+                            response.text[:200] if response.text else "(empty)",
                         )
                         return False
 
@@ -211,10 +212,10 @@ class DiscordProvider(NotificationProvider):
 
         # All retries exhausted
         logger.error(
-            "Discord notification failed after %d attempts: %s",
+            "Discord notification failed after %d attempts",
             self.MAX_RETRIES + 1,
-            str(last_error),
         )
+        logger.debug("Last error type: %s", type(last_error).__name__)
         return False
 
     async def send(self, event: EventType, payload: EventPayload) -> bool:
@@ -239,9 +240,9 @@ class DiscordProvider(NotificationProvider):
             return await self._send_with_retry(embed)
         except Exception as e:
             logger.error(
-                "Notification failed: event=%s, provider=%s, error=%s",
-                event,
+                "Notification failed: event=%s, provider=%s, error_type=%s",
+                event.value,
                 self.provider_name,
-                str(e),
+                type(e).__name__,  # F1 FIX: Only log type, not str(e)
             )
             return False

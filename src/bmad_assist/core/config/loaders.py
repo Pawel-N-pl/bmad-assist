@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import random
 from pathlib import Path
 from typing import Any, Literal
 
@@ -563,3 +564,69 @@ def reload_config(project_path: Path | None = None) -> Config:
     logger.info("Configuration reloaded")
 
     return _config
+
+
+class ParallelDelayError(ValueError):
+    """Invalid parallel_delay configuration."""
+
+    pass
+
+
+def parse_parallel_delay(value: str | float | None) -> float:
+    """Parse parallel_delay config value.
+
+    Returns delay in seconds. If range (e.g., '0.5-1.5'), returns random value.
+    Warns if > 5.0 seconds.
+
+    IMPORTANT: Call this at RUNTIME (per-invocation), not at config load time,
+    to ensure range values are randomized for each parallel call.
+
+    Args:
+        value: Fixed delay (float/int), range string ('min-max'), or None.
+
+    Returns:
+        Delay in seconds.
+
+    Raises:
+        ParallelDelayError: If value is negative, malformed, or invalid.
+
+    Example:
+        >>> parse_parallel_delay(1.0)
+        1.0
+        >>> parse_parallel_delay('0.5-1.5')  # Returns random value in range
+        0.823...
+        >>> parse_parallel_delay(None)
+        1.0
+
+    """
+    if value is None:
+        return 1.0
+
+    try:
+        if isinstance(value, (int, float)):
+            delay = float(value)
+        elif isinstance(value, str) and "-" in value:
+            parts = value.split("-")
+            if len(parts) != 2:
+                raise ParallelDelayError(
+                    f"Invalid range format: {value!r}. Use 'min-max' (e.g., '0.5-1.5')"
+                )
+            min_val, max_val = float(parts[0]), float(parts[1])
+            if min_val < 0 or max_val < 0:
+                raise ParallelDelayError(f"Negative delay not allowed: {value!r}")
+            if min_val > max_val:
+                raise ParallelDelayError(f"Min > max in range: {value!r}")
+            delay = random.uniform(min_val, max_val)
+        else:
+            delay = float(value)
+    except ValueError as e:
+        raise ParallelDelayError(f"Invalid parallel_delay value: {value!r}") from e
+
+    # Validate non-negative
+    if delay < 0:
+        raise ParallelDelayError(f"Negative delay not allowed: {delay}")
+
+    if delay > 5.0:
+        logger.warning("parallel_delay > 5s may cause slow multi-LLM phases")
+
+    return delay

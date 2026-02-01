@@ -32,6 +32,7 @@ from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, Workfl
 from bmad_assist.compiler.variable_utils import substitute_variables
 from bmad_assist.compiler.variables import resolve_variables
 from bmad_assist.core.exceptions import CompilerError
+from bmad_assist.testarch.context import collect_tea_context, is_tea_context_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -315,16 +316,23 @@ class DevStoryCompiler:
                 if content:
                     files[str(epic_path)] = content
 
-        # 3. ATDD checklist (if exists) - provides failing tests from ATDD phase
+        # 3. TEA Context (test-design, ATDD checklists) via TEAContextService
+        # F4 Fix: Backward compatible - uses TEA config if available, falls back to legacy
         story_id = resolved.get("story_id")
-        if story_id:
+
+        if is_tea_context_enabled(context):
+            # New TEA context loader (includes test-design + ATDD)
+            files.update(collect_tea_context(context, "dev_story", resolved))
+        elif story_id:
+            # F4 BACKWARD COMPATIBILITY: Legacy hardcoded ATDD for projects without TEA config
+            # This preserves existing behavior until project migrates to TEA config
             atdd_pattern = f"*atdd-checklist*{story_id}*.md"
             atdd_path = find_file_in_output_folder(context, atdd_pattern)
             if atdd_path:
                 content = safe_read_file(atdd_path, project_root)
                 if content:
                     files[str(atdd_path)] = content
-                    logger.debug("Embedded ATDD checklist: %s", atdd_path)
+                    logger.info("ATDD checklist loaded (legacy mode): %s", atdd_path)
 
         # 4. Source files from story's File List using SourceContextService
         story_path_str = resolved.get("story_file")

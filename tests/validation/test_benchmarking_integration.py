@@ -293,7 +293,7 @@ class TestCreateEvaluatorInfo:
     def sample_output(self) -> ValidationOutput:
         """Sample validation output."""
         return ValidationOutput(
-            provider="claude-sonnet",
+            provider="claude",
             model="sonnet-4",
             content="test",
             timestamp=datetime.now(UTC),
@@ -302,8 +302,8 @@ class TestCreateEvaluatorInfo:
             provider_session_id="session-abc",
         )
 
-    def test_splits_provider_model(self, sample_output: ValidationOutput) -> None:
-        """Splits provider-model format into separate fields."""
+    def test_uses_provider_model_directly(self, sample_output: ValidationOutput) -> None:
+        """Uses provider and model directly from ValidationOutput."""
         from bmad_assist.validation.benchmarking_integration import (
             _create_evaluator_info,
         )
@@ -316,7 +316,7 @@ class TestCreateEvaluatorInfo:
         )
 
         assert info.provider == "claude"
-        assert info.model == "sonnet"
+        assert info.model == "sonnet-4"
 
     def test_derives_role_id_from_anonymized(self, sample_output: ValidationOutput) -> None:
         """Derives role_id from anonymized ID: 'Validator A' -> 'a'."""
