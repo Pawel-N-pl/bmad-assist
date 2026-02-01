@@ -260,80 +260,87 @@ class BaseHandler(ABC):
     def render_prompt(self, state: State) -> str:
         """Render prompt using compiler with patching support.
 
-        First tries to compile using the new BMAD compiler which supports:
+        Uses the BMAD compiler which supports:
         - Patched templates from global cache
         - Variable resolution
         - Optimized instructions
 
-        Falls back to old handler YAML config if compilation fails
-        (e.g., no compiler for this workflow, or compilation error).
-
-        Set BMAD_FORCE_YAML=1 to skip compiler and use legacy YAML handlers.
+        Legacy handler YAML files are deprecated and no longer supported.
+        If compilation fails, raises ConfigError with clear instructions.
 
         Args:
             state: Current loop state.
 
         Returns:
-            Compiled or rendered prompt string ready for provider invocation.
+            Compiled prompt string ready for provider invocation.
+
+        Raises:
+            ConfigError: If workflow compilation fails.
 
         """
-        import os
-
-        # Allow forcing YAML fallback for testing/comparison
-        if os.environ.get("BMAD_FORCE_YAML") == "1":
-            logger.info("BMAD_FORCE_YAML=1, skipping compiler")
-            return self._render_from_yaml(state)
-
-        # Try new compiler first
+        # Try compiler
         compiled_prompt = self._try_compile_workflow(state)
         if compiled_prompt is not None:
             return compiled_prompt
 
-        # Fallback to old handler YAML config
-        return self._render_from_yaml(state)
+        # Compiler failed - give clear error message
+        workflow_name = self.phase_name.replace("_", "-")
+        raise ConfigError(
+            f"Failed to compile workflow: {workflow_name}\n\n"
+            "The workflow compiler could not load this workflow.\n"
+            "Handler YAML files are deprecated and no longer supported.\n\n"
+            "To fix:\n"
+            "  1. Run 'bmad-assist init' in your project directory\n"
+            "  2. If already initialized, reinstall: pip install -e .\n"
+            "  3. Check workflow exists: bmad-assist compile -w {workflow_name} --debug\n"
+        )
 
     def _try_compile_workflow(self, state: State) -> str | None:
-        """Try to compile workflow using the new compiler.
+        """Try to compile workflow using the compiler.
 
         Args:
             state: Current loop state.
 
         Returns:
-            Compiled prompt XML, or None if compilation not available/failed.
+            Compiled prompt XML, or None if workflow not found.
+
+        Raises:
+            ConfigError: If compilation fails for reasons other than workflow not found.
 
         """
+        import os
+
+        from bmad_assist.compiler import compile_workflow
+        from bmad_assist.compiler.types import CompilerContext
+        from bmad_assist.core.exceptions import CompilerError
+
+        # Convert phase_name to workflow name (e.g., create_story -> create-story)
+        workflow_name = self.phase_name.replace("_", "-")
+
+        # Check for debug links mode
+        links_only = os.environ.get("BMAD_DEBUG_LINKS") == "1"
+
+        # Build resolved variables
+        resolved_variables: dict[str, str | int | None] = {
+            "epic_num": state.current_epic,
+            "story_num": self._extract_story_num(state.current_story),
+        }
+
+        # Get configured paths
+        paths = get_paths()
+
+        # Build compiler context
+        # Use get_original_cwd() to preserve original CWD when running as subprocess
+        context = CompilerContext(
+            project_root=self.project_path,
+            output_folder=paths.implementation_artifacts,
+            project_knowledge=paths.project_knowledge,
+            cwd=get_original_cwd(),
+            resolved_variables=resolved_variables,
+            links_only=links_only,
+        )
+
         try:
-            import os
-
-            from bmad_assist.compiler import compile_workflow
-            from bmad_assist.compiler.types import CompilerContext
-
-            # Convert phase_name to workflow name (e.g., create_story -> create-story)
-            workflow_name = self.phase_name.replace("_", "-")
-
-            # Check for debug links mode
-            links_only = os.environ.get("BMAD_DEBUG_LINKS") == "1"
-
-            # Build resolved variables
-            resolved_variables: dict[str, str | int | None] = {
-                "epic_num": state.current_epic,
-                "story_num": self._extract_story_num(state.current_story),
-            }
-
-            # Get configured paths
-            paths = get_paths()
-
-            # Build compiler context
-            # Use get_original_cwd() to preserve original CWD when running as subprocess
-            context = CompilerContext(
-                project_root=self.project_path,
-                output_folder=paths.implementation_artifacts,
-                project_knowledge=paths.project_knowledge,
-                cwd=get_original_cwd(),
-                resolved_variables=resolved_variables,
-                links_only=links_only,
-            )
-
             # Compile workflow - returns CompiledWorkflow with full XML in context
             compiled = compile_workflow(workflow_name, context)
 
@@ -349,11 +356,21 @@ class BaseHandler(ABC):
 
             return prompt
 
+        except CompilerError as e:
+            # Compilation failed - log and return None to trigger clear error message
+            logger.warning("Workflow compilation failed for %s: %s", workflow_name, e)
+            return None
+        except FileNotFoundError as e:
+            # Workflow files not found
+            logger.warning("Workflow files not found for %s: %s", workflow_name, e)
+            return None
         except Exception as e:
-            logger.debug(
-                "Compiler not available for %s, using handler YAML: %s",
-                self.phase_name,
+            # Unexpected error - log with full traceback for debugging
+            logger.error(
+                "Unexpected error compiling %s: %s",
+                workflow_name,
                 e,
+                exc_info=True,
             )
             return None
 

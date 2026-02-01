@@ -4,7 +4,6 @@ Story 14.3: dev-story Loop Handler
 Tests for DevStoryHandler - verifies BaseHandler integration works correctly.
 """
 
-from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -73,40 +72,6 @@ def state_for_dev_story() -> State:
         current_story="14.3",
         current_phase=Phase.DEV_STORY,
     )
-
-
-@pytest.fixture
-def handler_yaml_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> Generator[Path, None, None]:
-    """Create minimal handler YAML config for fallback testing.
-
-    Uses isolated tmp_path to avoid touching real user home directory.
-    Monkeypatches HANDLERS_CONFIG_DIR to point to temp location.
-    """
-    # Create isolated handlers directory in tmp_path
-    handlers_dir = tmp_path / "fake_home" / ".bmad-assist" / "handlers"
-    handlers_dir.mkdir(parents=True, exist_ok=True)
-
-    config_file = handlers_dir / "dev_story.yaml"
-    config_file.write_text("""prompt_template: |
-  Implement story {{ epic_num }}.{{ story_num }}.
-  Project path: {{ project_path }}
-
-  Follow TDD principles. Run tests. Commit when complete.
-
-provider_type: master
-description: "DEV_STORY phase - Master LLM implements story"
-""")
-
-    # Monkeypatch the HANDLERS_CONFIG_DIR constant in base module
-    monkeypatch.setattr(
-        "bmad_assist.core.loop.handlers.base.HANDLERS_CONFIG_DIR",
-        handlers_dir,
-    )
-
-    yield config_file
-    # No cleanup needed - tmp_path auto-cleans
 
 
 # =============================================================================
@@ -226,34 +191,6 @@ class TestDevStoryCompilerIntegration:
             # Verify git intelligence was injected
             mock_inject.assert_called_once()
             assert "git-intelligence" in prompt
-
-
-# =============================================================================
-# Test YAML Fallback Mode
-# =============================================================================
-
-
-class TestDevStoryYamlFallback:
-    """Test BMAD_FORCE_YAML=1 skips compiler (AC: #2, Subtask 2.7)."""
-
-    def test_yaml_fallback_mode(
-        self,
-        dev_story_config: Config,
-        project_with_story: Path,
-        state_for_dev_story: State,
-        handler_yaml_config: Path,
-    ) -> None:
-        """BMAD_FORCE_YAML=1 forces YAML fallback, skipping compiler (Subtask 2.7)."""
-        from bmad_assist.core.loop.handlers.dev_story import DevStoryHandler
-
-        handler = DevStoryHandler(dev_story_config, project_with_story)
-
-        with patch.dict("os.environ", {"BMAD_FORCE_YAML": "1"}):
-            prompt = handler.render_prompt(state_for_dev_story)
-
-            # Should use YAML template, not compiler
-            assert "Implement story 14.3" in prompt
-            assert "Follow TDD principles" in prompt
 
 
 # =============================================================================

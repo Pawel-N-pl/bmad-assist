@@ -13,6 +13,7 @@ All notable changes to bmad-assist are documented in this file.
 - **Project Setup**: Show letter meanings inline in workflow conflict prompts (was cryptic `[a/s/i/d/?]`)
 - **Init Command**: Show options inline instead of cryptic shortcuts
 - **TEA Standalone**: Disable CWD config loading to prevent workspace config override
+- **Handler Error Messages**: Remove deprecated YAML fallback, show clear "Run bmad-assist init" instructions instead of confusing "Handler config not found: ~/.bmad-assist/handlers/*.yaml" errors
 - **Code Quality**: Resolve all ruff lint errors and mypy strict type checking errors
 
 

@@ -104,6 +104,7 @@ addopts = "-v --tb=short --ignore=tests/fixtures"
 markers = [
     "real_debug_logger: mark test to use real DebugJsonLogger instead of mock",
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "slow: marks tests as slow (>5s) - deselect with '-m \"not slow\"'",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
