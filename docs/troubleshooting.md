@@ -102,6 +102,8 @@ bmad-assist patch compile-all
 bmad-assist init --reset-workflows
 ```
 
+See [Workflow Patches](workflow-patches.md) for detailed patch configuration.
+
 ## Sprint Status Sync Issues
 
 **Symptoms:**

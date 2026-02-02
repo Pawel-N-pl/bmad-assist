@@ -122,3 +122,8 @@ compiler:
 ## Fallback Behavior
 
 When configuration is not available (e.g., standalone tests), hardcoded defaults are used matching the optimized settings above.
+
+## See Also
+
+- [Configuration Reference](configuration.md) - Main configuration options
+- [Workflow Patches](workflow-patches.md) - Customize workflow prompts
