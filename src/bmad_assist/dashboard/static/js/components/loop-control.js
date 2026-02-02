@@ -149,8 +149,57 @@ window.loopControlComponent = function() {
                 } else if (data.status === 'running') {
                     this.isPaused = false;
                 }
+                // Bug fix: Fetch current position when running to populate queue.current
+                if (data.running) {
+                    await this.fetchCurrentPosition();
+                } else {
+                    // Clear queue when not running
+                    this.queue.current = null;
+                }
             } catch (error) {
                 console.error('Failed to check loop status:', error);
+            }
+        },
+
+        /**
+         * Fetch current execution position from state.yaml
+         * Bug fix: Populate queue.current to show "Current task" in header
+         */
+        async fetchCurrentPosition() {
+            try {
+                const response = await fetch('/api/state');
+                const data = await response.json();
+                if (data.has_position && data.current_phase) {
+                    // Parse story ID (e.g., "4.6" -> epic_num=4, story_num=6)
+                    const storyParts = data.current_story?.split('.') || [];
+                    const epicNum = storyParts[0] || data.current_epic;
+                    const storyNum = storyParts[1] || '?';
+
+                    // Convert phase from snake_case to display name
+                    const phaseDisplayNames = {
+                        'create_story': 'Create Story',
+                        'validate_story': 'Validate Story',
+                        'validate_story_synthesis': 'Validate Synthesis',
+                        'dev_story': 'Develop Story',
+                        'code_review': 'Code Review',
+                        'code_review_synthesis': 'Review Synthesis',
+                        'retrospective': 'Retrospective',
+                        'qa_plan_generate': 'QA Plan',
+                        'qa_plan_execute': 'QA Execute'
+                    };
+                    const workflow = phaseDisplayNames[data.current_phase] || data.current_phase;
+
+                    this.queue.current = {
+                        workflow: workflow,
+                        epic_num: epicNum,
+                        story_num: storyNum,
+                        progress: 0  // Progress is tracked separately via SSE
+                    };
+                } else {
+                    this.queue.current = null;
+                }
+            } catch (error) {
+                console.error('Failed to fetch current position:', error);
             }
         },
 

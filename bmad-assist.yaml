@@ -173,7 +173,7 @@ compiler:
   source_context:
     # Per-workflow token budgets (0-99 = disabled)
     budgets:
-      create_story: 20000
+      create_story: 50000
       validate_story: 10000
       validate_story_synthesis: 10000
       dev_story: 15000
