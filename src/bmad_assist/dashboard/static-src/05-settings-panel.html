@@ -904,8 +904,8 @@
                                                     <div class="p-3 bg-muted/50 rounded-lg border border-border space-y-2">
                                                         <!-- Phase header -->
                                                         <div class="flex items-center gap-3">
-                                                            <span class="badge text-xs font-medium px-2 py-0.5"
-                                                                  :class="isMultiLLMPhase(phaseName) ? 'bg-accent/20 text-accent' : 'bg-primary/20 text-primary'"
+                                                            <span class="text-xs"
+                                                                  :class="isMultiLLMPhase(phaseName) ? 'badge' : 'badge-outline'"
                                                                   x-text="isMultiLLMPhase(phaseName) ? 'MULTI' : 'SINGLE'"></span>
                                                             <span class="font-medium text-sm" x-text="formatPhaseName(phaseName)"></span>
                                                             <span class="badge-secondary text-xs ml-auto flex-shrink-0">
