@@ -132,6 +132,42 @@ TRANSIENT_ERROR_PATTERNS: tuple[str, ...] = (
 )
 
 
+# Quota exhaustion patterns (case-insensitive substrings in stderr)
+# These indicate persistent quota/rate limit exhaustion (non-retryable)
+# Distinguished from transient errors: quota errors trigger model fallback
+QUOTA_ERROR_PATTERNS: tuple[str, ...] = (
+    "error when talking to gemini api",  # Actual Gemini CLI quota stderr
+    "resource exhausted",
+    "resource_exhausted",
+    "quota exceeded",
+    "quota_exceeded",
+    "daily limit",
+    "out of quota",
+    "requests per minute",
+    "tokens per minute",
+)
+
+
+def is_quota_error(stderr: str) -> bool:
+    """Check if stderr indicates quota exhaustion (non-retryable).
+
+    Quota errors are distinct from transient errors: they indicate the
+    model is unavailable for an extended period and should trigger
+    fallback to an alternative model rather than retry.
+
+    Args:
+        stderr: Standard error output from the failed command.
+
+    Returns:
+        True if stderr contains known quota exhaustion patterns.
+
+    """
+    if not stderr:
+        return False
+    stderr_lower = stderr.lower()
+    return any(pattern in stderr_lower for pattern in QUOTA_ERROR_PATTERNS)
+
+
 def calculate_retry_delay(attempt: int) -> float:
     """Calculate exponential backoff delay capped at MAX_DELAY.
 

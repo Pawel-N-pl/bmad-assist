@@ -142,6 +142,12 @@ class MultiProviderConfig(BaseModel):
         description="Enable thinking mode for supported providers (kimi). None=auto-detect.",
         json_schema_extra={"security": "safe", "ui_widget": "checkbox"},
     )
+    fallback_models: list[str] = Field(
+        default_factory=list,
+        description="Fallback models to try on quota exhaustion (same provider). "
+        "E.g., ['gemini-2.5-flash'] when primary is gemini-3-pro-preview.",
+        json_schema_extra={"security": "risky", "ui_widget": "list"},
+    )
 
     @property
     def display_model(self) -> str:

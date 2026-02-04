@@ -8,11 +8,6 @@ communication_language: English
 document_output_language: English
 user_skill_level: expert              # expert to minimize LLM verbosity
 
-# External paths (optional) - store docs/artifacts outside project root
-# paths:
-#   project_knowledge: /shared/docs/my-project    # PRD, architecture, epics
-#   output_folder: /data/bmad-output/my-project   # generated artifacts
-
 # Per-phase timeout configuration (seconds), for larger projects increase timeouts
 timeouts:
   default: 600                  # 10 m
@@ -20,158 +15,59 @@ timeouts:
   dev_story: 3600               # 1 h
   code_review_synthesis: 1200   # 20 m
   retrospective: 900            # 15 m
-  
+
 providers:
-  # Default provider used for single-LLM phases when no phase_models specified
   master:
     provider: claude-subprocess
     model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
 
-  # Helper model for simple and fast tasks
-  helper:
-    provider: claude-subprocess
-    model: haiku
-    model_name: glm-4.5
-    settings: ~/.claude/glm.json
-
-  # Additional providers for multi-provider scenarios
   multi:
-    # Gemini providers
     - provider: gemini
       model: gemini-3-pro-preview
-    - provider: gemini
-      model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
-    - provider: gemini
-      model: gemini-2.5-flash-lite
-    - provider: gemini
-      model: gemini-2.5-flash-lite
-      
-    # Claude subprocess providers
     - provider: claude-subprocess
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    - provider: claude-subprocess
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-
-    # OpenCode providers (NEW)
-    # - provider: opencode
-    #   model: opencode/claude-sonnet-4       # Claude Sonnet 4 via OpenCode
-    # - provider: opencode
-    #   model: opencode/claude-opus-4-5       # Claude Opus 4.5 via OpenCode
-    # - provider: opencode
-    #   model: zai-coding-plan/glm-4.7        # GLM 4.7 via Z.ai
-    # - provider: opencode
-    #   model: xai/grok-4                     # Grok 4 via xAI
-    # - provider: opencode
-    #   model: opencode/gemini-3-flash        # Gemini 3 Flash via OpenCode
-    # - provider: opencode
-    #   model: opencode/gemini-3-pro          # Gemini 3 Pro via OpenCode
-
-    # Amp providers - Sourcegraph's Claude wrapper
-    # Note: Amp uses "modes" instead of model names
-    # WARNING: Only "smart" mode works with bmad-assist (rush/free lack tool use)
-    # - provider: amp
-    #   model: smart                          # Claude Opus 4.5 (most capable)
-
-    # Cursor Agent providers
-    # Command: cursor-agent --print --model "<MODEL>" --force "<PROMPT>"
-    # - provider: cursor-agent
-    #   model: auto                # Default model
-    # - provider: cursor-agent
-    #   model: composer-1
-
-    # GitHub Copilot providers
-    # Command: copilot -p "<PROMPT>" --allow-all-tools --yolo --model "<MODEL>"
-    # - provider: copilot
-    #   model: claude-haiku-4.5                         # Default model
-
+      model: opus
 
 # Per-Phase Model Configuration
 phase_models:
-  # Single-LLM phases - object format
+  # Single-LLM phases
   create_story:
     provider: claude-subprocess
     model: opus
   validate_story_synthesis:
     provider: claude-subprocess
     model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
   dev_story:
     provider: claude-subprocess
     model: opus
   code_review_synthesis:
     provider: claude-subprocess
     model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
   retrospective:
     provider: claude-subprocess
     model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
 
-  # Multi-LLM phases - array format
-  # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
-  # Master is NOT auto-added - you have full control over the validator/reviewer list.
+  # Multi-LLM phases
   validate_story:
     - provider: gemini
       model: gemini-3-pro-preview
-    - provider: gemini
-      model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
-    - provider: gemini
-      model: gemini-2.5-flash-lite
-    - provider: kimi
-      model: kimi-code/kimi-for-coding
-      thinking: true
+      fallback_models:
+        - gemini-3-flash-preview
+        - gemini-2.5-flash
     - provider: claude-subprocess
       model: opus
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude-subprocess
-    #   model: opus
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
 
-  # Same for code_review - full control over reviewer list
   code_review:
     - provider: gemini
       model: gemini-3-pro-preview
-    - provider: gemini
-      model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
-    - provider: gemini
-      model: gemini-2.5-flash-lite
-    - provider: kimi
-      model: kimi-code/kimi-for-coding
-      thinking: true
+      fallback_models:
+        - gemini-3-flash-preview
+        - gemini-2.5-flash
     - provider: claude-subprocess
       model: opus
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude-subprocess
-    #   model: opus
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
-
 
 # Compiler configuration
 compiler:
-  # patch_path: .bmad-assist/patches  # Custom patch files directory
-
-  # Source files context collection for workflow prompts
   source_context:
-    # Per-workflow token budgets (0-99 = disabled)
     budgets:
       create_story: 20000
       validate_story: 10000
@@ -179,35 +75,29 @@ compiler:
       dev_story: 15000
       code_review: 15000
       code_review_synthesis: 15000
-      default: 20000             # Fallback for unlisted workflows
+      default: 20000
 
-    # File prioritization scoring weights
     scoring:
-      in_file_list: 50           # Bonus for files in story's File List
-      in_git_diff: 50            # Bonus for files in git diff
-      is_test_file: -10          # Penalty for test files
-      is_config_file: -5         # Penalty for config files (.yaml, .json, etc.)
-      change_lines_factor: 1     # Points per changed line
-      change_lines_cap: 50       # Max points from change_lines
+      in_file_list: 50
+      in_git_diff: 50
+      is_test_file: -10
+      is_config_file: -5
+      change_lines_factor: 1
+      change_lines_cap: 50
 
-    # Content extraction settings
     extraction:
-      adaptive_threshold: 0.25   # If file_tokens > (budget/files)*threshold → hunks only
-      hunk_context_lines: 20     # Min context lines around changes
-      hunk_context_scale: 0.3    # Context = max(hunk_context_lines, changes * scale)
-      max_files: 15              # Hard cap on files (prevents budget dilution)
+      adaptive_threshold: 0.25
+      hunk_context_lines: 20
+      hunk_context_scale: 0.3
+      max_files: 15
 
-  # Strategic document loading for workflow prompts
-  # Controls which docs (PRD, Architecture, UX, project-context) are included
   strategic_context:
-    budget: 10000                 # Total token cap for strategic docs (0 = disabled)
+    budget: 10000
 
-    # Default settings for all workflows
     defaults:
-      include: [project-context, architecture] # Doc types to include (order matters)
-      main_only: true            # For sharded docs: load only index.md
+      include: [project-context, architecture]
+      main_only: true
 
-    # Per-workflow overrides (null fields inherit from defaults)
     create_story:
       include: [project-context, architecture, ux, prd]
     validate_story:
@@ -217,42 +107,51 @@ compiler:
     code_review:
       include: [project-context, architecture, ux]
 
-
 benchmarking:
   enabled: true
 
 # Loop configuration - full TEA Enterprise integration
 loop:
   epic_setup:
-    - tea_framework           # Initialize Playwright/Cypress (once per epic)
-    - tea_ci                  # Scaffold CI pipeline
-    - tea_test_design         # Generate system/epic test design
+    - tea_framework
+    - tea_ci
+    - tea_test_design
   story:
     - create_story
     - validate_story
     - validate_story_synthesis
-    - atdd                    # Generate ATDD checklist before implementation
+    - atdd
     - dev_story
     - code_review
     - code_review_synthesis
-    - test_review             # Review test quality after code review
+    - test_review
   epic_teardown:
-    - trace                   # Generate traceability matrix
-    - tea_nfr_assess          # NFR assessment before release
+    - trace
+    - tea_nfr_assess
     - retrospective
 
 # TEA (Test Architect Enterprise) configuration
 testarch:
-  enabled: false                  # Set to true to enable TEA functionality
-  engagement_model: auto          # off | lite | solo | integrated | auto
-  atdd_mode: auto                 # off | auto | on
+  enabled: false
+  engagement_model: auto
+  atdd_mode: auto
 
-  # TEA Context Loader - injects TEA artifacts into workflow prompts
+  playwright:
+    base_url: "http://localhost:3000"
+    headless: true
+    timeout: 300
+    screenshot: only-on-failure
+    video: retain-on-failure
+    server:
+      command: ""                              # e.g. "npm run dev"
+      startup_timeout: 30
+      reuse_existing: true
+
   context:
     enabled: true
-    budget: 10000                  # Total token budget for TEA artifacts
+    budget: 10000
     max_tokens_per_artifact: 4000
-    max_files_per_resolver: 10    # For ATDD (multiple checklist files)
+    max_files_per_resolver: 10
     workflows:
       dev_story:
         include: [test-design, atdd]

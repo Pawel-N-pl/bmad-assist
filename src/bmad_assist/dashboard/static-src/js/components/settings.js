@@ -607,6 +607,53 @@ window.settingsComponent = function() {
             return validator?.model || 'Unknown';
         },
 
+        // Phase Models helpers
+        getPhaseModels() {
+            return this.getNestedValue(this.configData, 'phase_models') || {};
+        },
+
+        getPhaseModelNames() {
+            return Object.keys(this.getPhaseModels());
+        },
+
+        isMultiLLMPhase(phaseName) {
+            const phase = this.getPhaseModels()[phaseName];
+            // Multi-LLM phases are wrapped: {value: [...], source: "..."}
+            return Array.isArray(phase?.value);
+        },
+
+        getPhaseMultiProviders(phaseName) {
+            const phase = this.getPhaseModels()[phaseName];
+            return Array.isArray(phase?.value) ? phase.value : [];
+        },
+
+        getPhaseSingleProvider(phaseName) {
+            const phase = this.getPhaseModels()[phaseName];
+            // Single-LLM: {provider: {value: "...", source: "..."}, model: {value: "...", source: "..."}}
+            if (phase && !Array.isArray(phase?.value)) {
+                return {
+                    provider: phase?.provider?.value || 'Unknown',
+                    model: phase?.model?.value || 'Unknown',
+                    model_name: phase?.model_name?.value || null
+                };
+            }
+            return null;
+        },
+
+        getPhaseSource(phaseName) {
+            const phase = this.getPhaseModels()[phaseName];
+            if (Array.isArray(phase?.value)) {
+                return phase.source || 'default';
+            }
+            // Single-LLM: check provider field source
+            return phase?.provider?.source || 'default';
+        },
+
+        formatPhaseName(name) {
+            // "validate_story" → "Validate Story"
+            return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        },
+
         /**
          * Validate dropdown/text field (required non-empty)
          * Consolidated method for both benchmarking and provider fields

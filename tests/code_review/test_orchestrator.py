@@ -362,3 +362,121 @@ class TestRunCodeReviewPhaseInsufficientReviewers:
                 )
 
             assert exc_info.value.count < exc_info.value.minimum
+
+
+# ============================================================================
+# Task: Quota-Aware Model Fallback Tests
+# ============================================================================
+
+
+class TestQuotaFallback:
+    """Tests for quota-aware model fallback in _invoke_reviewer."""
+
+    def test_fallback_on_quota_exhaustion(self) -> None:
+        """Reviewer falls back to alternative model on QuotaExhaustedError."""
+        from bmad_assist.code_review.orchestrator import _invoke_reviewer
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+        from bmad_assist.providers.base import BaseProvider, ProviderResult
+
+        call_count = 0
+
+        def invoke_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            model = kwargs.get("model", "unknown")
+            if model == "gemini-3-pro-preview":
+                raise QuotaExhaustedError(
+                    "Quota exhausted",
+                    provider_name="gemini",
+                    model=model,
+                    stderr="Error when talking to Gemini API",
+                )
+            return ProviderResult(
+                stdout="Review from fallback",
+                stderr="",
+                exit_code=0,
+                duration_ms=2000,
+                model=model,
+                command=("gemini", "-m", model),
+            )
+
+        mock_provider = MagicMock(spec=BaseProvider)
+        mock_provider.provider_name = "gemini"
+        mock_provider.invoke.side_effect = invoke_side_effect
+
+        reviewer_id, output, _, error = asyncio.run(
+            _invoke_reviewer(
+                provider=mock_provider,
+                prompt="test prompt",
+                timeout=300,
+                reviewer_id="gemini-gemini-3-pro-preview",
+                model="gemini-3-pro-preview",
+                fallback_models=["gemini-2.5-flash"],
+            )
+        )
+
+        assert output is not None
+        assert error is None
+        assert output.model == "gemini-2.5-flash"
+        assert call_count == 2
+
+    def test_no_fallback_configured(self) -> None:
+        """Without fallback_models, quota exhaustion returns error."""
+        from bmad_assist.code_review.orchestrator import _invoke_reviewer
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+        from bmad_assist.providers.base import BaseProvider
+
+        mock_provider = MagicMock(spec=BaseProvider)
+        mock_provider.provider_name = "gemini"
+        mock_provider.invoke.side_effect = QuotaExhaustedError(
+            "Quota exhausted",
+            provider_name="gemini",
+            model="gemini-3-pro",
+            stderr="Error when talking to Gemini API",
+        )
+
+        reviewer_id, output, _, error = asyncio.run(
+            _invoke_reviewer(
+                provider=mock_provider,
+                prompt="test prompt",
+                timeout=300,
+                reviewer_id="gemini-gemini-3-pro",
+                model="gemini-3-pro",
+                fallback_models=None,
+            )
+        )
+
+        assert output is None
+        assert error is not None
+        assert "all models quota-exhausted" in error
+
+    def test_all_fallbacks_exhausted(self) -> None:
+        """All models exhausted returns error."""
+        from bmad_assist.code_review.orchestrator import _invoke_reviewer
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+        from bmad_assist.providers.base import BaseProvider
+
+        mock_provider = MagicMock(spec=BaseProvider)
+        mock_provider.provider_name = "gemini"
+        mock_provider.invoke.side_effect = QuotaExhaustedError(
+            "Quota exhausted",
+            provider_name="gemini",
+            model="any",
+            stderr="quota exhausted",
+        )
+
+        reviewer_id, output, _, error = asyncio.run(
+            _invoke_reviewer(
+                provider=mock_provider,
+                prompt="test prompt",
+                timeout=300,
+                reviewer_id="gemini-test",
+                model="gemini-3-pro",
+                fallback_models=["gemini-2.5-flash"],
+            )
+        )
+
+        assert output is None
+        assert error is not None
+        assert "all models quota-exhausted" in error
+        assert mock_provider.invoke.call_count == 2

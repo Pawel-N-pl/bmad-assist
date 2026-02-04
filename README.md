@@ -81,9 +81,17 @@ bmad-assist run -p ./project              # Run BMAD loop
 bmad-assist run -e 5 -s 3                 # Start from epic 5, story 3
 bmad-assist run --phase dev_story         # Override starting phase
 
+# Dashboard UI
+bmad-assist serve -p ./project            # Start web dashboard on port 9600
+bmad-assist serve --port 8080             # Custom port
+
 # Setup
 bmad-assist init -p ./project             # Initialize project
 bmad-assist init --reset-workflows        # Restore bundled workflows
+
+# Configuration
+bmad-assist config wizard                 # Interactive config wizard
+bmad-assist config verify                 # Validate config file
 
 # Compilation
 bmad-assist compile -w dev-story -e 5 -s 3
@@ -96,6 +104,10 @@ bmad-assist patch compile-all
 bmad-assist sprint generate
 bmad-assist sprint validate
 bmad-assist sprint sync
+
+# Benchmarking
+bmad-assist benchmark compare             # Compare workflow variants
+bmad-assist benchmark models              # Compare LLM models
 
 # Experiments
 bmad-assist test scorecard <fixture>      # Generate quality scorecard

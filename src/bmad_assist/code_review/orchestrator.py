@@ -51,7 +51,7 @@ from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
     get_phase_provider_config,
 )
-from bmad_assist.core.exceptions import BmadAssistError
+from bmad_assist.core.exceptions import BmadAssistError, QuotaExhaustedError
 from bmad_assist.core.extraction import CODE_REVIEW_MARKERS, extract_report
 from bmad_assist.core.io import get_original_cwd, save_prompt
 from bmad_assist.core.paths import get_paths
@@ -288,10 +288,13 @@ async def _invoke_reviewer(
     display_model: str | None = None,
     provider_name: str | None = None,
     thinking: bool | None = None,
+    fallback_models: list[str] | None = None,
 ) -> tuple[str, ValidationOutput | None, DeterministicMetrics | None, str | None]:
     """Invoke a single reviewer using asyncio.to_thread.
 
-    Follows same pattern as validation _invoke_validator.
+    Supports quota-aware model fallback: if the primary model hits quota
+    exhaustion (QuotaExhaustedError), automatically retries with fallback
+    models from the same provider.
 
     Args:
         provider: Provider instance to invoke.
@@ -310,99 +313,126 @@ async def _invoke_reviewer(
         cwd: Working directory for the provider. Used to allow reviewers to
             access files in the target project directory.
         display_model: Human-readable model name for progress output.
+        fallback_models: Alternative models to try on quota exhaustion (same provider).
 
     Returns:
         Tuple of (reviewer_id, ValidationOutput or None, DeterministicMetrics or None,
         error_message or None).
 
     """
-    try:
-        start_time = datetime.now(UTC)
-        review_timestamp = run_timestamp or start_time
+    models_to_try = [model] + (fallback_models or [])
+    last_quota_error: str | None = None
 
-        result = await asyncio.wait_for(
-            asyncio.to_thread(
-                provider.invoke,
-                prompt,
-                model=model,
-                timeout=timeout,
-                allowed_tools=allowed_tools,
-                settings_file=settings_file,
-                color_index=color_index,
-                cwd=cwd,
-                display_model=display_model,
-                thinking=thinking,
-            ),
-            timeout=timeout,
-        )
-
-        duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
-
-        if result.exit_code != 0:
-            error_msg = result.stderr or f"Provider exited with code {result.exit_code}"
+    for model_idx, current_model in enumerate(models_to_try):
+        is_fallback = model_idx > 0
+        if is_fallback:
             logger.warning(
-                "Reviewer %s returned non-zero exit code %d: %s",
+                "Quota fallback: %s → %s for %s",
+                model,
+                current_model,
                 reviewer_id,
-                result.exit_code,
-                error_msg[:200],
             )
+
+        try:
+            start_time = datetime.now(UTC)
+            review_timestamp = run_timestamp or start_time
+
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    provider.invoke,
+                    prompt,
+                    model=current_model,
+                    timeout=timeout,
+                    allowed_tools=allowed_tools,
+                    settings_file=settings_file,
+                    color_index=color_index,
+                    cwd=cwd,
+                    display_model=display_model if not is_fallback else current_model,
+                    thinking=thinking,
+                ),
+                timeout=timeout,
+            )
+
+            duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
+            if result.exit_code != 0:
+                error_msg = result.stderr or f"Provider exited with code {result.exit_code}"
+                logger.warning(
+                    "Reviewer %s returned non-zero exit code %d: %s",
+                    reviewer_id,
+                    result.exit_code,
+                    error_msg[:200],
+                )
+                return reviewer_id, None, None, error_msg
+
+            # Extract review report from raw LLM output
+            raw_content = result.stdout
+            extracted_content = _extract_code_review_report(raw_content)
+
+            # Use actual provider name for benchmarking (not composite reviewer_id)
+            actual_provider = provider_name or provider.provider_name
+
+            output = ValidationOutput(
+                provider=actual_provider,
+                model=result.model or "unknown",
+                content=extracted_content,
+                timestamp=review_timestamp,
+                duration_ms=duration_ms,
+                token_count=_estimate_tokens(extracted_content),
+                provider_session_id=result.provider_session_id,
+            )
+
+            logger.info(
+                "Reviewer %s completed in %dms (%d tokens, session=%s)",
+                reviewer_id,
+                duration_ms,
+                output.token_count,
+                (result.provider_session_id or "none")[:16],
+            )
+
+            # Collect deterministic metrics immediately after reviewer completes
+            deterministic: DeterministicMetrics | None = None
+            if benchmarking_enabled:
+                try:
+                    context = CollectorContext(
+                        story_epic=epic_num,
+                        story_num=story_num,
+                        timestamp=review_timestamp,
+                    )
+                    deterministic = collect_deterministic_metrics(extracted_content, context)
+                    logger.debug("Collected deterministic metrics for %s", reviewer_id)
+                except Exception as e:
+                    logger.warning(
+                        "Deterministic collection failed for %s: %s",
+                        reviewer_id,
+                        e,
+                    )
+                    # deterministic remains None - continue without metrics
+
+            return reviewer_id, output, deterministic, None
+
+        except QuotaExhaustedError as e:
+            last_quota_error = f"Quota exhausted for {current_model}: {e}"
+            logger.warning("Reviewer %s: %s", reviewer_id, last_quota_error)
+            continue  # Try next model
+
+        except TimeoutError:
+            error_msg = f"Reviewer {reviewer_id} timed out after {timeout}s"
+            logger.warning(error_msg)
             return reviewer_id, None, None, error_msg
 
-        # Extract review report from raw LLM output
-        raw_content = result.stdout
-        extracted_content = _extract_code_review_report(raw_content)
+        except Exception as e:
+            error_msg = f"Reviewer {reviewer_id} failed: {e}"
+            logger.warning(error_msg, exc_info=True)
+            return reviewer_id, None, None, error_msg
 
-        # Use actual provider name for benchmarking (not composite reviewer_id)
-        actual_provider = provider_name or provider.provider_name
-
-        output = ValidationOutput(
-            provider=actual_provider,
-            model=result.model or "unknown",
-            content=extracted_content,
-            timestamp=review_timestamp,
-            duration_ms=duration_ms,
-            token_count=_estimate_tokens(extracted_content),
-            provider_session_id=result.provider_session_id,
-        )
-
-        logger.info(
-            "Reviewer %s completed in %dms (%d tokens, session=%s)",
-            reviewer_id,
-            duration_ms,
-            output.token_count,
-            (result.provider_session_id or "none")[:16],
-        )
-
-        # Collect deterministic metrics immediately after reviewer completes
-        deterministic: DeterministicMetrics | None = None
-        if benchmarking_enabled:
-            try:
-                context = CollectorContext(
-                    story_epic=epic_num,
-                    story_num=story_num,
-                    timestamp=review_timestamp,
-                )
-                deterministic = collect_deterministic_metrics(extracted_content, context)
-                logger.debug("Collected deterministic metrics for %s", reviewer_id)
-            except Exception as e:
-                logger.warning(
-                    "Deterministic collection failed for %s: %s",
-                    reviewer_id,
-                    e,
-                )
-                # deterministic remains None - continue without metrics
-
-        return reviewer_id, output, deterministic, None
-
-    except TimeoutError:
-        error_msg = f"Reviewer {reviewer_id} timed out after {timeout}s"
-        logger.warning(error_msg)
-        return reviewer_id, None, None, error_msg
-
-    except Exception as e:
-        error_msg = f"Reviewer {reviewer_id} failed: {e}"
-        logger.warning(error_msg, exc_info=True)
-        return reviewer_id, None, None, error_msg
+    # All models exhausted
+    return (
+        reviewer_id,
+        None,
+        None,
+        f"Reviewer {reviewer_id}: all models quota-exhausted. {last_quota_error}",
+    )
 
 
 def _compile_code_review_prompt(
@@ -628,6 +658,7 @@ async def run_code_review_phase(
             display_model=multi_config.display_model,
             provider_name=multi_config.provider,
             thinking=multi_config.thinking,
+            fallback_models=multi_config.fallback_models,
         )
         task = asyncio.create_task(delayed_invoke(delay, coro))
         tasks.append(task)
