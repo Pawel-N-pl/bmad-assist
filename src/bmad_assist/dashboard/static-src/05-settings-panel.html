@@ -863,26 +863,98 @@
                                             <!-- Validators list (read-only display) -->
                                             <div x-show="getMultiValidators().length > 0" class="space-y-2">
                                                 <template x-for="(validator, index) in getMultiValidators()" :key="index">
-                                                    <div class="flex items-center gap-4 p-3 bg-muted/50 rounded-lg border border-border"
+                                                    <div class="p-3 bg-muted/50 rounded-lg border border-border space-y-2"
                                                          data-testid="multi-validator-row">
-                                                        <span class="badge bg-accent/20 text-accent text-xs font-medium flex-shrink-0">MULTI</span>
-                                                        <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-                                                            <div>
-                                                                <span class="text-muted-foreground">Provider:</span>
-                                                                <span class="ml-1" x-text="validator.provider || 'Unknown'"></span>
+                                                        <div class="flex items-center gap-4">
+                                                            <span class="badge bg-accent/20 text-accent text-xs font-medium flex-shrink-0">MULTI</span>
+                                                            <div class="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                                                                <div>
+                                                                    <span class="text-muted-foreground">Provider:</span>
+                                                                    <span class="ml-1" x-text="validator.provider || 'Unknown'"></span>
+                                                                </div>
+                                                                <div>
+                                                                    <span class="text-muted-foreground">Model:</span>
+                                                                    <span class="ml-1" x-text="validator.model || 'Unknown'"></span>
+                                                                </div>
+                                                                <div>
+                                                                    <span class="text-muted-foreground">Display:</span>
+                                                                    <span class="ml-1" x-text="getMultiDisplayName(validator)"></span>
+                                                                </div>
                                                             </div>
-                                                            <div>
-                                                                <span class="text-muted-foreground">Model:</span>
-                                                                <span class="ml-1" x-text="validator.model || 'Unknown'"></span>
-                                                            </div>
-                                                            <div>
-                                                                <span class="text-muted-foreground">Display:</span>
-                                                                <span class="ml-1" x-text="getMultiDisplayName(validator)"></span>
-                                                            </div>
+                                                            <span class="badge-secondary text-xs flex-shrink-0">
+                                                                from: <span x-text="getMultiValidatorsSource()"></span>
+                                                            </span>
                                                         </div>
-                                                        <span class="badge-secondary text-xs flex-shrink-0">
-                                                            from: <span x-text="getMultiValidatorsSource()"></span>
-                                                        </span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        <!-- Phase Models Section -->
+                                        <div class="space-y-4" x-show="getPhaseModelNames().length > 0">
+                                            <div class="flex items-center gap-3">
+                                                <h4 class="text-base font-medium">Phase Models</h4>
+                                                <span class="badge-secondary text-xs">
+                                                    (<span x-text="getPhaseModelNames().length"></span>)
+                                                </span>
+                                            </div>
+
+                                            <div class="space-y-2">
+                                                <template x-for="phaseName in getPhaseModelNames()" :key="phaseName">
+                                                    <div class="p-3 bg-muted/50 rounded-lg border border-border space-y-2">
+                                                        <!-- Phase header -->
+                                                        <div class="flex items-center gap-3">
+                                                            <span class="text-xs"
+                                                                  :class="isMultiLLMPhase(phaseName) ? 'badge' : 'badge-outline'"
+                                                                  x-text="isMultiLLMPhase(phaseName) ? 'MULTI' : 'SINGLE'"></span>
+                                                            <span class="font-medium text-sm" x-text="formatPhaseName(phaseName)"></span>
+                                                            <span class="badge-secondary text-xs ml-auto flex-shrink-0">
+                                                                from: <span x-text="getPhaseSource(phaseName)"></span>
+                                                            </span>
+                                                        </div>
+
+                                                        <!-- Single-LLM phase -->
+                                                        <template x-if="!isMultiLLMPhase(phaseName)">
+                                                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm ml-[4.5rem]">
+                                                                <div>
+                                                                    <span class="text-muted-foreground">Provider:</span>
+                                                                    <span class="ml-1" x-text="getPhaseSingleProvider(phaseName)?.provider"></span>
+                                                                </div>
+                                                                <div>
+                                                                    <span class="text-muted-foreground">Model:</span>
+                                                                    <span class="ml-1" x-text="getPhaseSingleProvider(phaseName)?.model"></span>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+
+                                                        <!-- Multi-LLM phase -->
+                                                        <template x-if="isMultiLLMPhase(phaseName)">
+                                                            <div class="space-y-1.5 ml-[4.5rem]">
+                                                                <template x-for="(entry, idx) in getPhaseMultiProviders(phaseName)" :key="idx">
+                                                                    <div class="space-y-1">
+                                                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                                                                            <div>
+                                                                                <span class="text-muted-foreground">Provider:</span>
+                                                                                <span class="ml-1" x-text="entry.provider || 'Unknown'"></span>
+                                                                            </div>
+                                                                            <div>
+                                                                                <span class="text-muted-foreground">Model:</span>
+                                                                                <span class="ml-1" x-text="entry.model || 'Unknown'"></span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div x-show="entry.fallback_models && entry.fallback_models.length > 0"
+                                                                             class="flex items-center gap-2 text-sm">
+                                                                            <span class="text-muted-foreground">Fallbacks:</span>
+                                                                            <div class="flex flex-wrap gap-1">
+                                                                                <template x-for="(fb, fbIdx) in (entry.fallback_models || [])" :key="fbIdx">
+                                                                                    <span class="badge-secondary text-xs px-2 py-0.5" x-text="fb"></span>
+                                                                                </template>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                        </template>
                                                     </div>
                                                 </template>
                                             </div>

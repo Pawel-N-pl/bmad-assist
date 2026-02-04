@@ -348,7 +348,7 @@ class TestGeminiProviderErrors:
         with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
             mock_popen.return_value = create_gemini_mock_process(
                 stdout_content="",
-                stderr_content="Error: API quota exceeded",
+                stderr_content="Error: invalid API key",
                 returncode=1,
             )
 
@@ -363,16 +363,16 @@ class TestGeminiProviderErrors:
         with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
             mock_popen.return_value = create_gemini_mock_process(
                 stdout_content="",
-                stderr_content="Error: API quota exceeded",
+                stderr_content="Error: invalid API key",
                 returncode=1,
             )
 
             with pytest.raises(ProviderExitCodeError) as exc_info:
                 provider.invoke("Hello")
 
-            assert "API quota exceeded" in str(exc_info.value)
+            assert "invalid API key" in str(exc_info.value)
             # Stderr includes trailing newline from line reading
-            assert exc_info.value.stderr.strip() == "Error: API quota exceeded"
+            assert exc_info.value.stderr.strip() == "Error: invalid API key"
 
     def test_invoke_nonzero_exit_includes_exit_status(self, provider: GeminiProvider) -> None:
         """Test AC8: Non-zero exit error includes exit_status classification."""
@@ -1093,3 +1093,80 @@ class TestGeminiProviderToolRestrictions:
             # No restriction warning in prompt
             written_prompt = mock_process.stdin.write_args[0]  # type: ignore
             assert "RESTRICTED tool access" not in written_prompt
+
+
+class TestGeminiProviderQuotaExhaustion:
+    """Test QuotaExhaustedError raised on quota stderr patterns."""
+
+    @pytest.fixture
+    def provider(self) -> GeminiProvider:
+        """Create GeminiProvider instance."""
+        return GeminiProvider()
+
+    def test_raises_quota_error_on_gemini_api_stderr(self, provider: GeminiProvider) -> None:
+        """Gemini raises QuotaExhaustedError on 'Error when talking to Gemini API'."""
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+
+        with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
+            mock_popen.return_value = create_gemini_mock_process(
+                stdout_content="",
+                stderr_content="Error when talking to Gemini API",
+                returncode=1,
+            )
+
+            with pytest.raises(QuotaExhaustedError) as exc_info:
+                provider.invoke("Hello", model="gemini-3-pro-preview")
+
+            assert exc_info.value.provider_name == "gemini"
+            assert exc_info.value.model == "gemini-3-pro-preview"
+            assert "Error when talking to Gemini API" in exc_info.value.stderr
+
+    def test_raises_quota_error_on_resource_exhausted(self, provider: GeminiProvider) -> None:
+        """Gemini raises QuotaExhaustedError on 'resource exhausted' stderr."""
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+
+        with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
+            mock_popen.return_value = create_gemini_mock_process(
+                stdout_content="",
+                stderr_content="RESOURCE_EXHAUSTED: 429 You exceeded your quota",
+                returncode=1,
+            )
+
+            with pytest.raises(QuotaExhaustedError):
+                provider.invoke("Hello")
+
+    def test_non_quota_stderr_raises_exit_code_error(self, provider: GeminiProvider) -> None:
+        """Non-quota stderr still raises ProviderExitCodeError."""
+        with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
+            mock_popen.return_value = create_gemini_mock_process(
+                stdout_content="",
+                stderr_content="Syntax error in model config",
+                returncode=1,
+            )
+
+            with pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello")
+
+    def test_quota_error_not_retried(self, provider: GeminiProvider) -> None:
+        """QuotaExhaustedError is raised immediately, not retried."""
+        from bmad_assist.core.exceptions import QuotaExhaustedError
+
+        call_count = 0
+
+        with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
+            def track_calls(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                return create_gemini_mock_process(
+                    stdout_content="",
+                    stderr_content="Error when talking to Gemini API",
+                    returncode=1,
+                )
+
+            mock_popen.side_effect = track_calls
+
+            with pytest.raises(QuotaExhaustedError):
+                provider.invoke("Hello")
+
+            # Should only be called once (no retries for quota errors)
+            assert call_count == 1

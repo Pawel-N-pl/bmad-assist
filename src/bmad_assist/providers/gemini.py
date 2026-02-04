@@ -36,6 +36,7 @@ from bmad_assist.core.exceptions import (
     ProviderError,
     ProviderExitCodeError,
     ProviderTimeoutError,
+    QuotaExhaustedError,
 )
 from bmad_assist.providers.base import (
     BaseProvider,
@@ -43,6 +44,7 @@ from bmad_assist.providers.base import (
     ProviderResult,
     extract_tool_details,
     format_tag,
+    is_quota_error,
     should_print_progress,
     validate_settings_file,
     write_progress,
@@ -679,6 +681,15 @@ class GeminiProvider(BaseProvider):
                     stderr=stderr_content,
                     command=tuple(command),
                 )
+
+                # Check for quota exhaustion FIRST (non-retryable, triggers fallback)
+                if is_quota_error(stderr_content):
+                    raise QuotaExhaustedError(
+                        f"Gemini quota exhausted for model {effective_model}",
+                        provider_name="gemini",
+                        model=effective_model,
+                        stderr=stderr_content,
+                    )
 
                 # Retry only on transient failures (empty stderr, general error status)
                 is_transient = not stderr_content.strip() and exit_status == ExitStatus.ERROR

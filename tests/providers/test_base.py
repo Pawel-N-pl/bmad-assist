@@ -617,3 +617,84 @@ class TestDocstringsExist:
         fget = BaseProvider.default_model.fget
         assert fget is not None
         assert fget.__doc__ is not None
+
+
+class TestIsQuotaError:
+    """Tests for is_quota_error() function."""
+
+    def test_gemini_api_error_detected(self) -> None:
+        """Detects actual Gemini quota stderr message."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Error when talking to Gemini API") is True
+
+    def test_resource_exhausted_detected(self) -> None:
+        """Detects 'resource exhausted' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("RESOURCE_EXHAUSTED: quota depleted") is True
+
+    def test_resource_exhausted_underscore_detected(self) -> None:
+        """Detects 'resource_exhausted' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("google.api_core.exceptions.ResourceExhausted: resource_exhausted") is True
+
+    def test_quota_exceeded_detected(self) -> None:
+        """Detects 'quota exceeded' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Your quota exceeded the daily limit") is True
+
+    def test_daily_limit_detected(self) -> None:
+        """Detects 'daily limit' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Daily limit reached for this API key") is True
+
+    def test_out_of_quota_detected(self) -> None:
+        """Detects 'out of quota' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Account is out of quota") is True
+
+    def test_requests_per_minute_detected(self) -> None:
+        """Detects 'requests per minute' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Rate limit: 10 requests per minute exceeded") is True
+
+    def test_tokens_per_minute_detected(self) -> None:
+        """Detects 'tokens per minute' pattern."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Exceeded 1000000 tokens per minute") is True
+
+    def test_case_insensitive(self) -> None:
+        """Detection is case-insensitive."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("ERROR WHEN TALKING TO GEMINI API") is True
+        assert is_quota_error("Quota Exceeded") is True
+        assert is_quota_error("RESOURCE_EXHAUSTED") is True
+
+    def test_empty_string_not_quota(self) -> None:
+        """Empty string is not a quota error."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("") is False
+
+    def test_non_quota_error_not_detected(self) -> None:
+        """Non-quota errors are not detected."""
+        from bmad_assist.providers.base import is_quota_error
+
+        assert is_quota_error("Connection refused") is False
+        assert is_quota_error("Syntax error in prompt") is False
+        assert is_quota_error("File not found") is False
+
+    def test_transient_rate_limit_not_quota(self) -> None:
+        """Transient rate limit (429) is not a quota error."""
+        from bmad_assist.providers.base import is_quota_error
+
+        # "429" alone is a transient error, not quota exhaustion
+        assert is_quota_error("HTTP 429 Too Many Requests") is False

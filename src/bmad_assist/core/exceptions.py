@@ -29,6 +29,7 @@ __all__ = [
     "VariableError",
     "PreflightError",
     "ProviderExitCodeError",
+    "QuotaExhaustedError",
     "ContextError",
     "DashboardError",
     "IsolationError",
@@ -201,6 +202,46 @@ class ProviderTimeoutError(ProviderError):
         """
         super().__init__(message)
         self.partial_result = partial_result
+
+
+class QuotaExhaustedError(ProviderError):
+    """Provider quota exhausted error (non-retryable, triggers fallback).
+
+    Raised when a provider's API returns quota/rate limit exhaustion errors
+    that are persistent (not transient). Unlike transient rate limits that
+    resolve with retry, quota exhaustion means the model is unavailable
+    for the remainder of the phase.
+
+    Used by orchestrators to trigger fallback to alternative models on
+    the same provider (e.g., gemini-3-pro -> gemini-2.5-flash).
+
+    Attributes:
+        provider_name: Name of the provider that hit quota (e.g., "gemini").
+        model: Model that was quota-exhausted (e.g., "gemini-3-pro-preview").
+        stderr: Raw stderr content from the CLI for debugging.
+
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provider_name: str = "",
+        model: str = "",
+        stderr: str = "",
+    ) -> None:
+        """Initialize QuotaExhaustedError with context.
+
+        Args:
+            message: Human-readable error message.
+            provider_name: Name of the provider that hit quota.
+            model: Model that was quota-exhausted.
+            stderr: Raw stderr content from the CLI.
+
+        """
+        super().__init__(message)
+        self.provider_name = provider_name
+        self.model = model
+        self.stderr = stderr
 
 
 class CompilerError(BmadAssistError):
