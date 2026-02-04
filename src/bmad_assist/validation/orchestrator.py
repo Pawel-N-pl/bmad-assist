@@ -522,6 +522,15 @@ async def run_validation_phase(
     multi_configs: list[MultiProviderConfig] = (
         multi_configs_raw if isinstance(multi_configs_raw, list) else []
     )
+    # HANG_DEBUG: Log thinking values for each validator
+    for i, mc in enumerate(multi_configs):
+        logger.debug(
+            "THINKING_DEBUG: validator[%d] provider=%s model=%s thinking=%s",
+            i,
+            mc.provider,
+            mc.model,
+            mc.thinking,
+        )
     for idx, multi_config in enumerate(multi_configs):
         provider = get_provider(multi_config.provider)
         # Use display_model (model_name if set) for logging, model for CLI invocation
@@ -597,12 +606,54 @@ async def run_validation_phase(
         )
         dv_task = asyncio.create_task(delayed_invoke(dv_delay, dv_coro))
         tasks.append(dv_task)
-        logger.debug("Added Deep Verify task to parallel execution")
+        logger.info("Deep Verify enabled - will run in parallel with validators")
 
-    logger.info("Invoking %d validators in parallel", len(tasks))
+    validator_count = len(tasks) - (1 if dv_enabled else 0)
+    if dv_enabled:
+        logger.info("Invoking %d validators + Deep Verify in parallel", validator_count)
+    else:
+        logger.info("Invoking %d validators in parallel", validator_count)
 
-    # Step 3: Run all validators in parallel
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Step 3: Run all validators in parallel with progress tracking
+    # Build task names with role letter (A, B, C...) and provider for easy correlation with files
+    role_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    task_names: list[str] = []
+
+    # Add validator names with role letters
+    validator_idx = 0
+    for mc in multi_configs:
+        role = role_letters[validator_idx] if validator_idx < len(role_letters) else f"V{validator_idx}"
+        task_names.append(f"{role}:{mc.provider}-{mc.display_model}")
+        validator_idx += 1
+
+    # Add master if included
+    if not phase_has_override:
+        role = role_letters[validator_idx] if validator_idx < len(role_letters) else f"V{validator_idx}"
+        task_names.append(f"{role}:master-{config.providers.master.display_model}")
+        validator_idx += 1
+
+    # Add DV if enabled
+    if dv_enabled:
+        task_names.append("DV:deep-verify")
+
+    async def track_task(idx: int, task: asyncio.Task[_GatherResult], name: str) -> _GatherResult:
+        """Wrapper to log when each task completes."""
+        logger.debug("GATHER_DEBUG: [%s] starting", name)
+        try:
+            result = await task
+            logger.debug("GATHER_DEBUG: [%s] completed", name)
+            return result
+        except Exception as e:
+            logger.debug("GATHER_DEBUG: [%s] failed: %s", name, e)
+            raise
+
+    tracked_tasks = [
+        track_task(i, t, task_names[i]) for i, t in enumerate(tasks)
+    ]
+
+    logger.debug("GATHER_DEBUG: Waiting for %d tasks: %s", len(tracked_tasks), task_names)
+    results = await asyncio.gather(*tracked_tasks, return_exceptions=True)
+    logger.debug("GATHER_DEBUG: All tasks completed")
 
     # Step 4: Collect successful results (now includes deterministic metrics)
     successful_outputs: list[ValidationOutput] = []
@@ -668,10 +719,7 @@ async def run_validation_phase(
     # This ensures report filenames use anonymized IDs, not provider names
     # Pass run_timestamp for consistent timestamps across all artifacts
     anonymized, mapping = anonymize_validations(successful_outputs, run_timestamp=run_timestamp)
-    logger.debug("Anonymizing %d validation outputs", len(successful_outputs))
-    for validator_id, meta in mapping.mapping.items():
-        logger.debug("Assigned %s to %s/%s", validator_id, meta["provider"], meta["model"])
-    logger.debug("Anonymization complete. Session ID: %s", mapping.session_id)
+    # Note: anonymize_validations() logs internally (Anonymizing N outputs, assignments, session ID)
 
     # Step 6: Save individual validation reports with anonymized IDs
     # PATH RESOLUTION NOTE:
@@ -691,18 +739,20 @@ async def run_validation_phase(
     validations_dir = get_paths().validations_dir
     validations_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save reports with role_id (a, b, c...) for filename and anonymized_id for display
-    # Use output index for deterministic role_id assignment
+    # Save reports with role_id matching the anonymized validator letter
+    # e.g., "Validator C" -> role_id='c', file: validation-*-c-*.md
     # AC #5: Log warnings on save failure but don't crash validation phase
-    role_ids = "abcdefghijklmnopqrstuvwxyz"
     validator_ids = list(mapping.mapping.keys())
 
     for idx, output in enumerate(successful_outputs):
-        # Generate role_id from index (a, b, c...)
-        role_id = role_ids[idx] if idx < len(role_ids) else f"role_{idx}"
-
-        # Get anonymized_id from mapping for display (Validator A, etc.)
+        # Get anonymized_id from mapping (e.g., "Validator C")
         anonymized_id = validator_ids[idx] if idx < len(validator_ids) else None
+
+        # Extract role_id from anonymized_id: "Validator C" -> "c"
+        if anonymized_id and anonymized_id.startswith("Validator "):
+            role_id = anonymized_id[-1].lower()  # "Validator C" -> "c"
+        else:
+            role_id = chr(ord('a') + idx)  # fallback to index-based
 
         try:
             save_validation_report(
@@ -837,9 +887,16 @@ async def run_validation_phase(
     # TIER 2: Calculate Evidence Score aggregate from anonymized validations
     evidence_aggregate = _calculate_evidence_aggregate(anonymized)
 
+    logger.debug(
+        "HANG_DEBUG: Building ValidationPhaseResult with %d validations, %d eval records, dv_result=%s",
+        len(anonymized),
+        len(evaluation_records),
+        dv_result is not None,
+    )
+
     # AC5: Return evaluation_records in ValidationPhaseResult
     # Story 26.16: Include Deep Verify result
-    return ValidationPhaseResult(
+    phase_result = ValidationPhaseResult(
         anonymized_validations=anonymized,
         session_id=mapping.session_id,
         validation_count=len(successful_outputs),
@@ -849,6 +906,8 @@ async def run_validation_phase(
         evidence_aggregate=evidence_aggregate,
         deep_verify_result=dv_result,
     )
+    logger.debug("HANG_DEBUG: ValidationPhaseResult created, returning from run_validation_phase")
+    return phase_result
 
 
 # =============================================================================

@@ -570,10 +570,11 @@ class AdversarialReviewMethod(BaseVerificationMethod):
 
         if self._llm_client:
             # Use LLMClient for managed calls (async bridge)
-            # This is called from asyncio.to_thread, so we always use asyncio.run()
-            import asyncio
+            # CRITICAL: Use run_async_in_thread() instead of asyncio.run() to avoid
+            # shutting down the default executor (which the outer event loop uses)
+            from bmad_assist.core.async_utils import run_async_in_thread
 
-            result = asyncio.run(
+            result = run_async_in_thread(
                 self._llm_client.invoke(
                     prompt=prompt,
                     model=self._model,

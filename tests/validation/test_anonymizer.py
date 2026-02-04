@@ -264,7 +264,7 @@ class TestAnonymizeValidations:
         """Multiple calls produce different orderings (AC: #1).
 
         Run 10 times, verify at least 2 different orderings to confirm
-        random.shuffle() is being used.
+        random.shuffle() is being used. This prevents model bias.
         """
         from bmad_assist.validation import anonymize_validations
 

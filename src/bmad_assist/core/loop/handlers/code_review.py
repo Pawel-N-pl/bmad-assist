@@ -13,7 +13,6 @@ This handler orchestrates:
 
 """
 
-import asyncio
 import logging
 from typing import Any
 
@@ -96,13 +95,18 @@ class CodeReviewHandler(BaseHandler):
             )
 
             # Run async orchestrator
-            result = asyncio.run(
+            # CRITICAL: Use run_async_with_timeout() instead of asyncio.run()
+            # to prevent hanging on executor shutdown if threads don't terminate
+            from bmad_assist.core.async_utils import run_async_with_timeout
+
+            result = run_async_with_timeout(
                 run_code_review_phase(
                     config=self.config,
                     project_path=self.project_path,
                     epic_num=epic_num,
                     story_num=story_num,
-                )
+                ),
+                executor_timeout=15.0,  # Allow 15s for executor cleanup
             )
 
             # Save reviews for synthesis handler to retrieve

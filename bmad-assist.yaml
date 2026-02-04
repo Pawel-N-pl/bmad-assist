@@ -24,17 +24,18 @@ timeouts:
 providers:
   # Default provider used for single-LLM phases when no phase_models specified
   master:
-    provider: claude-subprocess
-    model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
+    # model_name: glm-4.7
+    # settings: ~/.claude/glm.json
 
   # Helper model for simple and fast tasks
   helper:
     provider: claude-subprocess
     model: haiku
-    model_name: glm-4.5
-    settings: ~/.claude/glm.json
+    # model_name: glm-4.5
+    # settings: ~/.claude/glm.json
 
   # Additional providers for multi-provider scenarios
   multi:
@@ -43,22 +44,25 @@ providers:
       model: gemini-3-pro-preview
     - provider: gemini
       model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
-    - provider: gemini
-      model: gemini-2.5-flash-lite
+    # - provider: gemini
+    #   model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
-      
+    # - provider: gemini
+    #   model: gemini-2.5-flash-lite
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
+
     # Claude subprocess providers
     - provider: claude-subprocess
       model: sonnet
       model_name: glm-4.7
       settings: ~/.claude/glm.json
-    - provider: claude-subprocess
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+    # - provider: claude-subprocess
+    #   model: sonnet
+    #   model_name: glm-4.7
+    #   settings: ~/.claude/glm.json
 
     # OpenCode providers (NEW)
     # - provider: opencode
@@ -97,26 +101,25 @@ providers:
 phase_models:
   # Single-LLM phases - object format
   create_story:
-    provider: claude-subprocess
-    model: opus
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
   validate_story_synthesis:
-    provider: claude-subprocess
-    model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
   dev_story:
-    provider: claude-subprocess
-    model: opus
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
   code_review_synthesis:
-    provider: claude-subprocess
-    model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
   retrospective:
-    provider: claude-subprocess
-    model: opus
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    provider: kimi
+    model: kimi-code/kimi-for-coding
+    thinking: true
 
   # Multi-LLM phases - array format
   # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
@@ -126,10 +129,15 @@ phase_models:
       model: gemini-3-pro-preview
     - provider: gemini
       model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
+    # - provider: gemini
+    #   model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
+    # - provider: gemini
+    #   model: gemini-2.5-flash-lite
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     - provider: kimi
       model: kimi-code/kimi-for-coding
       thinking: true
@@ -141,6 +149,10 @@ phase_models:
     #   model: opus
     #   model_name: glm-4.7
     #   settings: ~/.claude/glm.json
+    # - provider: claude-subprocess
+    #   model: opus
+    #   model_name: glm-4.7
+    #   settings: ~/.claude/glm.json
 
   # Same for code_review - full control over reviewer list
   code_review:
@@ -148,10 +160,15 @@ phase_models:
       model: gemini-3-pro-preview
     - provider: gemini
       model: gemini-3-flash-preview
-    - provider: gemini
-      model: gemini-2.5-flash
+    # - provider: gemini
+    #   model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
+    # - provider: gemini
+    #   model: gemini-2.5-flash-lite
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     - provider: kimi
       model: kimi-code/kimi-for-coding
       thinking: true
@@ -159,6 +176,10 @@ phase_models:
       model: opus
       model_name: glm-4.7
       settings: ~/.claude/glm.json
+    # - provider: claude-subprocess
+    #   model: opus
+    #   model_name: glm-4.7
+    #   settings: ~/.claude/glm.json
     # - provider: claude-subprocess
     #   model: opus
     #   model_name: glm-4.7
@@ -173,9 +194,9 @@ compiler:
   source_context:
     # Per-workflow token budgets (0-99 = disabled)
     budgets:
-      create_story: 20000
-      validate_story: 10000
-      validate_story_synthesis: 10000
+      create_story: 30000
+      validate_story: 15000
+      validate_story_synthesis: 15000
       dev_story: 15000
       code_review: 15000
       code_review_synthesis: 15000
@@ -200,7 +221,7 @@ compiler:
   # Strategic document loading for workflow prompts
   # Controls which docs (PRD, Architecture, UX, project-context) are included
   strategic_context:
-    budget: 10000                 # Total token cap for strategic docs (0 = disabled)
+    budget: 15000                 # Total token cap for strategic docs (0 = disabled)
 
     # Default settings for all workflows
     defaults:
@@ -262,6 +283,86 @@ testarch:
         include: [test-review]
       retrospective:
         include: [trace]
+
+# Deep Verify configuration - multi-method artifact verification
+deep_verify:
+  enabled: true                       # Master switch for Deep Verify module
+
+  # Provider configuration (optional)
+  # If not specified, uses global 'helper' provider from providers section
+  # Uncomment to override with a different provider for Deep Verify methods
+  # provider:
+  #   provider: claude-subprocess     # Provider name: claude-subprocess, claude-sdk, gemini, kimi
+  #   model: haiku                    # Model identifier for LLM calls
+  #   # model_name: custom-name       # Display name (optional, for logs)
+  #   # settings: ~/.claude/custom.json  # Settings file path (optional)
+  #   # thinking: false               # Enable thinking mode for supported providers (kimi)
+
+  # Scoring thresholds for verdict determination
+  # score > reject_threshold → REJECT
+  # accept_threshold < score ≤ reject_threshold → UNCERTAIN
+  # score ≤ accept_threshold → ACCEPT
+  reject_threshold: 6.0
+  uncertain_high: 6.0
+  uncertain_low: -3.0
+  accept_threshold: -3.0
+
+  # Severity weights for finding score calculation
+  critical_weight: 4.0                # Weight for CRITICAL findings
+  error_weight: 2.0                   # Weight for ERROR findings
+  warning_weight: 1.0                 # Weight for WARNING findings
+  info_weight: 0.5                    # Weight for INFO findings
+
+  # Bonus for domains with zero findings (negative = reduces score)
+  clean_pass_bonus: -0.5
+
+  # LLM infrastructure configuration
+  llm_config:
+    max_retries: 3                    # Retry attempts for failed LLM calls
+    base_delay_seconds: 1.0           # Initial retry delay
+    max_delay_seconds: 30.0           # Maximum retry delay cap
+    tokens_per_minute_limit: 100000   # Rate limiting
+    cost_tracking_enabled: true       # Track LLM costs
+    log_all_calls: true               # Log all LLM calls with timing
+    default_timeout_seconds: 90       # Per-method default timeout
+    total_timeout_seconds: 180        # Total verification timeout
+
+  # Resource limits to prevent OOM and system instability
+  resource_limits:
+    max_artifact_size_bytes: 102400   # 100KB max input size
+    max_line_count: 5000              # Max lines in artifact
+    max_findings_per_method: 50       # Findings limit per method
+    max_total_findings: 200           # Total findings limit
+    regex_timeout_seconds: 5.0        # Timeout for regex matching
+
+  # Verification methods configuration
+  # Always-run methods (foundational)
+  method_153_pattern_match:           # Regex pattern matching for vulnerabilities
+    enabled: true
+    timeout_seconds: 120
+  method_154_boundary_analysis:       # Edge cases, off-by-one, null checks
+    enabled: true
+    timeout_seconds: 120
+
+  # Conditional methods (run based on detected domains)
+  method_155_assumption_surfacing:    # Hidden assumptions, race conditions (CONCURRENCY, API)
+    enabled: true
+    timeout_seconds: 180
+  method_157_temporal_consistency:    # Race conditions, ordering (MESSAGING, STORAGE)
+    enabled: true
+    timeout_seconds: 180
+  method_201_adversarial_review:      # Attacks, exploits, malicious input (SECURITY, API)
+    enabled: true
+    timeout_seconds: 180
+  method_203_domain_expert:           # LLM simulates domain expert (all domains)
+    enabled: true
+    timeout_seconds: 180
+  method_204_integration_analysis:    # External service failures (API, MESSAGING)
+    enabled: true
+    timeout_seconds: 180
+  method_205_worst_case:              # Worst-case scenario construction (CONCURRENCY, MESSAGING)
+    enabled: true
+    timeout_seconds: 180
 
 notifications:
   enabled: true

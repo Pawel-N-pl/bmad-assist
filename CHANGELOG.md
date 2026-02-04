@@ -2,6 +2,23 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.19] - 2026-02-04
+
+### Added
+- **Deep Verify: Synthesis Integration** - DV findings now flow to synthesis phase with 1.5x weight multiplier
+  - `[Deep Verify Findings]` section embedded in synthesis context
+  - Instructions prioritize DV findings over validator opinions (objective code analysis vs subjective reviews)
+  - CRITICAL severity from DV = MUST FIX in synthesis
+- **Deep Verify: Dedicated Reports Directory** - Reports saved to `implementation_artifacts/deep-verify/` instead of `story-validations/`
+
+### Changed
+- **Deep Verify: Non-blocking Validation** - CRITICAL findings no longer abort validation phase; they flow to synthesis for resolution
+- **Synthesis Report Format** - New "Deep Verify Technical Findings (1.5x weight)" section in output template
+
+### Fixed
+- **Validation: Duplicate Logging** - Removed duplicate "Anonymizing N outputs" log messages from orchestrators
+- **Rate Limiter: Event Loop Binding** - Fixed `asyncio.Lock bound to different event loop` error when using `run_async_in_thread()` via lazy lock initialization per event loop
+
 ## [0.4.18] - 2026-02-04
 
 ### Added

@@ -246,6 +246,11 @@ class ProjectPaths:
         return self.implementation_artifacts / "benchmarks"
 
     @cached_property
+    def deep_verify_dir(self) -> Path:
+        """Directory for Deep Verify technical validation reports."""
+        return self.implementation_artifacts / "deep-verify"
+
+    @cached_property
     def retrospectives_dir(self) -> Path:
         """Directory for epic retrospective reports."""
         return self.implementation_artifacts / "retrospectives"
@@ -417,6 +422,7 @@ class ProjectPaths:
             self.validations_dir,
             self.code_reviews_dir,
             self.benchmarks_dir,
+            self.deep_verify_dir,
             self.retrospectives_dir,
             self.bmad_assist_dir,
             self.patches_dir,

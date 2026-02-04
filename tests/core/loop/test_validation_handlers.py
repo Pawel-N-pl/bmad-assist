@@ -190,14 +190,16 @@ class TestValidateStoryHandler:
         async def mock_run_phase(*args: Any, **kwargs: Any) -> ValidationPhaseResult:
             return mock_result
 
-        # Mock the orchestrator - patch asyncio.run to bypass async
+        # Mock the orchestrator - patch run_async_with_timeout to bypass async
         with (
-            patch("bmad_assist.core.loop.handlers.validate_story.asyncio.run") as mock_asyncio_run,
+            patch(
+                "bmad_assist.core.async_utils.run_async_with_timeout"
+            ) as mock_run_async,
             patch(
                 "bmad_assist.core.loop.handlers.validate_story.save_validations_for_synthesis"
             ) as mock_save,
         ):
-            mock_asyncio_run.return_value = mock_result
+            mock_run_async.return_value = mock_result
             # save_validations_for_synthesis now receives session_id from result
             mock_save.return_value = None  # Return value not used anymore
 

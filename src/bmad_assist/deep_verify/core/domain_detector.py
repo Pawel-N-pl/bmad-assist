@@ -601,11 +601,11 @@ class DomainDetector:
 
         if self._llm_client:
             # Use LLMClient for managed calls (async bridge)
-            # Use asyncio.run() in a thread-safe way - this is called from
-            # a synchronous context, so we always use asyncio.run()
-            import asyncio
+            # CRITICAL: Use run_async_in_thread() instead of asyncio.run() to avoid
+            # shutting down ThreadPoolExecutor when called via asyncio.to_thread()
+            from bmad_assist.core.async_utils import run_async_in_thread
 
-            result = asyncio.run(
+            result = run_async_in_thread(
                 self._llm_client.invoke(
                     prompt=prompt,
                     model=self.model,

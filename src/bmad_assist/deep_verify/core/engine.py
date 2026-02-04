@@ -339,13 +339,22 @@ class DeepVerifyEngine:
                 )
 
         # 2. Domain detection (with keyword fallback)
+        logger.info("Deep Verify: detecting domains...")
         domain_result = await self._detect_domains(artifact_text, context)
         domains = [d.domain for d in domain_result.domains]
+        if domains:
+            logger.info("Deep Verify: detected domains: %s", ", ".join(domains))
+        else:
+            logger.info("Deep Verify: no specific domains detected")
 
         # 2. Method selection
         methods = self._method_selector.select(domains)
         if not methods:
+            logger.info("Deep Verify: no methods selected, returning ACCEPT")
             return self._empty_verdict(domain_result)
+
+        method_names = [m.method_id for m in methods]
+        logger.info("Deep Verify: selected %d methods: %s", len(methods), ", ".join(method_names))
 
         # 3. Parallel method execution with partial results
         method_results = await self._run_methods_with_errors(
@@ -393,6 +402,13 @@ class DeepVerifyEngine:
             summary=self._generate_summary(decision, score, findings, domains, methods),
             errors=errors,
             input_metrics=input_metrics,
+        )
+
+        logger.info(
+            "Deep Verify: complete - verdict=%s, score=%.1f, findings=%d",
+            decision.value,
+            score,
+            len(findings),
         )
 
         return verdict
@@ -680,17 +696,25 @@ class DeepVerifyEngine:
             method_timeout = self._get_method_timeout(method.method_id)
             effective_timeout = timeout or method_timeout
 
+            logger.info("Deep Verify: running method %s...", method.method_id)
             coro = method.analyze(artifact_text, **kwargs)
 
             if effective_timeout:
                 # Python 3.11+ asyncio.timeout context manager
                 async with asyncio.timeout(effective_timeout):
-                    return await coro
+                    findings = await coro
             else:
-                return await coro
+                findings = await coro
+
+            logger.info(
+                "Deep Verify: method %s completed (%d findings)",
+                method.method_id,
+                len(findings),
+            )
+            return findings
 
         except TimeoutError:
-            logger.warning("Method %s timed out", method.method_id)
+            logger.warning("Deep Verify: method %s timed out", method.method_id)
             return []
         except (ProviderError, ProviderTimeoutError, ValueError) as e:
             logger.warning("Method %s raised exception: %s", method.method_id, e)

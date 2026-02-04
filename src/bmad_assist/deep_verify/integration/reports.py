@@ -23,7 +23,9 @@ def save_deep_verify_report(
     result: DeepVerifyValidationResult,
     epic: int | str,
     story: int | str,
-    validations_dir: Path,
+    validations_dir: Path | None = None,
+    *,
+    output_dir: Path | None = None,
 ) -> Path:
     """Save Deep Verify findings as markdown report.
 
@@ -38,7 +40,8 @@ def save_deep_verify_report(
         result: DeepVerifyValidationResult from verification.
         epic: Epic number or name.
         story: Story number or name.
-        validations_dir: Directory to save the report.
+        validations_dir: DEPRECATED - use output_dir instead.
+        output_dir: Directory to save the report (deep-verify/).
 
     Returns:
         Path to the saved report file.
@@ -48,16 +51,20 @@ def save_deep_verify_report(
         ...     result=dv_result,
         ...     epic=26,
         ...     story=16,
-        ...     validations_dir=Path("validations"),
+        ...     output_dir=Path("deep-verify"),
         ... )
         >>> print(f"Report saved to: {report_path}")
 
     """
-    validations_dir.mkdir(parents=True, exist_ok=True)
+    # Support both old and new parameter names during migration
+    target_dir = output_dir or validations_dir
+    if target_dir is None:
+        raise ValueError("output_dir is required")
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     filename = f"deep-verify-{epic}-{story}-{timestamp}.md"
-    report_path = validations_dir / filename
+    report_path = target_dir / filename
 
     content = _format_report_content(result, epic, story)
 

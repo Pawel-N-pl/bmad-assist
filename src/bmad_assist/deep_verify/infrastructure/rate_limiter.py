@@ -75,13 +75,38 @@ class TokenBucketRateLimiter:
         self._refill_rate = tokens_per_minute / 60.0  # tokens per second
         self._tokens = float(tokens_per_minute)  # Start with full bucket
         self._last_refill = time.monotonic()
-        self._lock = asyncio.Lock()
+        # Lazy lock initialization - created on first use in current event loop
+        # This prevents "Lock bound to different event loop" errors when used
+        # across multiple loops (e.g., via run_async_in_thread())
+        self._lock: asyncio.Lock | None = None
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
 
         logger.debug(
             "TokenBucketRateLimiter initialized: capacity=%d, refill_rate=%.2f tokens/sec",
             self._capacity,
             self._refill_rate,
         )
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create lock for current event loop.
+
+        Creates a new lock if called from a different event loop than before.
+        This handles cases where the rate limiter is used across multiple
+        event loops (e.g., via run_async_in_thread()).
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - create lock anyway, will work when loop starts
+            if self._lock is None:
+                self._lock = asyncio.Lock()
+            return self._lock
+
+        if self._lock is None or self._lock_loop is not current_loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = current_loop
+
+        return self._lock
 
     def _refill(self) -> None:
         """Refill tokens based on elapsed time.
@@ -121,7 +146,7 @@ class TokenBucketRateLimiter:
         if tokens_needed <= 0:
             return 0.0
 
-        async with self._lock:
+        async with self._get_lock():
             self._refill()
 
             if tokens_needed <= self._tokens:
@@ -150,7 +175,7 @@ class TokenBucketRateLimiter:
         await asyncio.sleep(wait_time)
 
         # Re-acquire lock and deduct tokens
-        async with self._lock:
+        async with self._get_lock():
             self._refill()
             self._tokens -= tokens_needed
             remaining = self._tokens
@@ -177,7 +202,7 @@ class TokenBucketRateLimiter:
         if tokens_needed <= 0:
             return True
 
-        async with self._lock:
+        async with self._get_lock():
             self._refill()
 
             if tokens_needed <= self._tokens:
@@ -206,7 +231,7 @@ class TokenBucketRateLimiter:
 
     async def reset(self) -> None:
         """Reset the token bucket to full capacity."""
-        async with self._lock:
+        async with self._get_lock():
             self._tokens = float(self._capacity)
             self._last_refill = time.monotonic()
             logger.debug("Token bucket reset to full capacity: %d tokens", self._capacity)

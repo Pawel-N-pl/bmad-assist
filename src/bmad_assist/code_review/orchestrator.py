@@ -702,8 +702,8 @@ async def run_code_review_phase(
     )
 
     # Step 5: Anonymize reviews
+    # Note: anonymize_validations() logs internally (Anonymizing N outputs, assignments, session ID)
     anonymized, mapping = anonymize_validations(successful_outputs, run_timestamp=run_timestamp)
-    logger.debug("Anonymizing %d review outputs", len(successful_outputs))
 
     # Process DV results and save to cache (using session_id from mapping)
     dv_findings_saved = 0
@@ -725,9 +725,6 @@ async def run_code_review_phase(
                 logger.debug("Saved DV findings for %s", file_path)
             except OSError as e:
                 logger.warning("Failed to save DV findings for %s: %s", file_path, e)
-    for reviewer_id, meta in mapping.mapping.items():
-        logger.debug("Assigned %s to %s/%s", reviewer_id, meta["provider"], meta["model"])
-    logger.debug("Anonymization complete. Session ID: %s", mapping.session_id)
 
     # Step 7: Save individual review reports with index-based role_id
     # Role IDs: a, b, c... (matching benchmark records from Story 22.6)
@@ -735,17 +732,19 @@ async def run_code_review_phase(
     reviews_dir = paths.code_reviews_dir
     reviews_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save reports with role_id (a, b, c...) for filename and anonymized_id for display
-    # Use output index for deterministic role_id assignment (same pattern as validation)
-    role_ids = "abcdefghijklmnopqrstuvwxyz"
+    # Save reports with role_id matching the anonymized validator letter
+    # e.g., "Validator C" -> role_id='c', file: code-review-*-c-*.md
     reviewer_ids = list(mapping.mapping.keys())
 
     for idx, output in enumerate(successful_outputs):
-        # Generate role_id from index (a, b, c...)
-        role_id = role_ids[idx] if idx < len(role_ids) else f"role_{idx}"
-
-        # Get anonymized_id from mapping for display (Validator A, etc.)
+        # Get anonymized_id from mapping (e.g., "Validator C")
         anonymized_id = reviewer_ids[idx] if idx < len(reviewer_ids) else output.provider
+
+        # Extract role_id from anonymized_id: "Validator C" -> "c"
+        if anonymized_id and anonymized_id.startswith("Validator "):
+            role_id = anonymized_id[-1].lower()  # "Validator C" -> "c"
+        else:
+            role_id = chr(ord('a') + idx)  # fallback to index-based
 
         # Add role_id to mapping metadata for traceability
         if idx < len(reviewer_ids):

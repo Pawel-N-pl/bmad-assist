@@ -84,7 +84,7 @@
 ✅ Acceptance criteria are well-defined and testable.
 {{/if}}
 
-### Hidden Risks & Dependencies
+### Hidden Risks and Dependencies
 
 {{#each hidden_dependencies}}
 - **{{dependency_type}}:** {{description}}

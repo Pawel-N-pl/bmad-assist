@@ -143,6 +143,7 @@ def anonymize_validations(
         )
 
     # Create shuffled validator IDs (Validator A, B, C, ...)
+    # Shuffle prevents model bias - synthesizer doesn't know which provider is which
     validator_ids = [f"Validator {chr(65 + i)}" for i in range(len(outputs))]
     random.shuffle(validator_ids)
 

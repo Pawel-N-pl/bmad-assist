@@ -337,8 +337,11 @@ class ClaudeSDKProvider(BaseProvider):
         command: tuple[str, ...] = ("sdk", "query", effective_model)
 
         try:
-            # Use asyncio.run() with wait_for() for timeout enforcement
-            response_text = asyncio.run(
+            # CRITICAL: Use run_async_in_thread() instead of asyncio.run() to avoid
+            # shutting down the default executor when called via asyncio.to_thread()
+            from bmad_assist.core.async_utils import run_async_in_thread
+
+            response_text = run_async_in_thread(
                 asyncio.wait_for(
                     self._invoke_async(
                         prompt, effective_model, validated_settings, cwd, allowed_tools

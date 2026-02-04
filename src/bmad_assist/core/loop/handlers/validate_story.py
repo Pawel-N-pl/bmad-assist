@@ -13,7 +13,6 @@ This handler orchestrates:
 
 """
 
-import asyncio
 import logging
 from typing import Any
 
@@ -23,7 +22,7 @@ from bmad_assist.core.loop.types import PhaseResult
 # get_paths() NOT used - base_dir derived from self.project_path directly
 # to ensure evaluation records are saved to the correct project
 from bmad_assist.core.state import State
-from bmad_assist.deep_verify.core.types import Severity, VerdictDecision
+from bmad_assist.deep_verify.core.types import Severity
 from bmad_assist.deep_verify.integration.reports import save_deep_verify_report
 from bmad_assist.validation.orchestrator import (
     InsufficientValidationsError,
@@ -96,13 +95,24 @@ class ValidateStoryHandler(BaseHandler):
             )
 
             # Run async orchestrator
-            result = asyncio.run(
+            # CRITICAL: Use run_async_with_timeout() instead of asyncio.run()
+            # to prevent hanging on executor shutdown if threads don't terminate
+            from bmad_assist.core.async_utils import run_async_with_timeout
+
+            logger.debug("HANG_DEBUG: Starting run_async_with_timeout(run_validation_phase)")
+            result = run_async_with_timeout(
                 run_validation_phase(
                     config=self.config,
                     project_path=self.project_path,
                     epic_num=epic_num,
                     story_num=story_num,
-                )
+                ),
+                executor_timeout=15.0,  # Allow 15s for executor cleanup
+            )
+            logger.debug(
+                "HANG_DEBUG: asyncio.run() returned with %d validations, session=%s",
+                len(result.anonymized_validations),
+                result.session_id,
             )
 
             # Save validations for synthesis handler to retrieve
@@ -110,6 +120,7 @@ class ValidateStoryHandler(BaseHandler):
             # Story 22.8 AC#4: Pass failed_validators for synthesis context
             # TIER 2: Pass evidence_aggregate for Evidence Score caching
             # Story 26.16: Pass Deep Verify result for synthesis
+            logger.debug("HANG_DEBUG: Calling save_validations_for_synthesis")
             save_validations_for_synthesis(
                 result.anonymized_validations,
                 self.project_path,
@@ -118,37 +129,43 @@ class ValidateStoryHandler(BaseHandler):
                 evidence_aggregate=result.evidence_aggregate,
                 deep_verify_result=result.deep_verify_result,
             )
+            logger.debug("HANG_DEBUG: save_validations_for_synthesis completed")
 
             # Story 26.16: Save Deep Verify report (if DV was run)
+            # Reports go to dedicated deep-verify/ directory in implementation_artifacts
             if result.deep_verify_result is not None:
                 from bmad_assist.core.paths import get_paths
 
-                validations_dir = get_paths().validations_dir
+                deep_verify_dir = get_paths().deep_verify_dir
                 try:
                     save_deep_verify_report(
                         result=result.deep_verify_result,
                         epic=epic_num,
                         story=story_num,
-                        validations_dir=validations_dir,
+                        output_dir=deep_verify_dir,
                     )
                 except Exception as e:
                     logger.warning("Failed to save Deep Verify report: %s", e)
 
-            # Story 26.16: Check for CRITICAL findings and block if found
+            # Log CRITICAL findings as warning - they flow to synthesis phase
+            # where they have 1.5x weight multiplier for higher priority
             if result.deep_verify_result is not None:
                 dv = result.deep_verify_result
                 has_critical = any(f.severity == Severity.CRITICAL for f in dv.findings)
 
-                if dv.verdict == VerdictDecision.REJECT and has_critical:
+                if has_critical:
                     critical_count = sum(1 for f in dv.findings if f.severity == Severity.CRITICAL)
-                    error_msg = (
-                        f"Deep Verify CRITICAL findings detected: {critical_count}. "
-                        f"Security/concurrency issues must be fixed before proceeding."
+                    logger.warning(
+                        "Deep Verify found %d CRITICAL finding(s). "
+                        "These will be prioritized in synthesis phase (1.5x weight).",
+                        critical_count,
                     )
-                    logger.error(error_msg)
-                    return PhaseResult.fail(error_msg)
 
             # Save evaluation records for benchmarking (Story 13.4)
+            logger.debug(
+                "HANG_DEBUG: About to save %d evaluation records",
+                len(result.evaluation_records) if result.evaluation_records else 0,
+            )
             if result.evaluation_records:
                 from bmad_assist.benchmarking.storage import (
                     get_benchmark_base_dir,

@@ -326,12 +326,19 @@ class ValidateStorySynthesisCompiler:
             files[validation_path] = v.content
             logger.debug("Added validation to synthesis context: %s", validation_path)
 
+        # 5. Deep Verify findings (if available) - high priority technical validation
+        dv_findings = context.resolved_variables.get("deep_verify_findings")
+        if dv_findings:
+            files["[Deep Verify Findings]"] = dv_findings
+            logger.debug("Added Deep Verify findings to synthesis context (1.5x weight)")
+
         # Count files for logging (excluding virtual paths starting with [)
         file_count = len([k for k in files if not k.startswith("[")])
         logger.info(
-            "Built synthesis context with %d files and %d validations for story %s.%s",
+            "Built synthesis context with %d files, %d validations%s for story %s.%s",
             file_count,
             len(validations),
+            ", and DV findings" if dv_findings else "",
             epic_num,
             story_num,
         )
