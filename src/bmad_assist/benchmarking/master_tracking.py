@@ -29,7 +29,7 @@ from bmad_assist.core.types import EpicId
 logger = logging.getLogger(__name__)
 
 # Package version from single source of truth (pyproject.toml via __init__.py)
-from bmad_assist import __version__ as BMAD_ASSIST_VERSION
+from bmad_assist import __version__ as _bmad_assist_version
 
 
 def _get_git_commit(project_path: Path) -> str | None:
@@ -149,7 +149,7 @@ def create_master_record(
         ),
         output=_analyze_output(output),
         environment=EnvironmentInfo(
-            bmad_assist_version=BMAD_ASSIST_VERSION,
+            bmad_assist_version=_bmad_assist_version,
             python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             platform=platform.system(),
             git_commit_hash=_get_git_commit(project_path),
