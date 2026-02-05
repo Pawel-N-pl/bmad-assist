@@ -198,17 +198,52 @@ def compile_patch(
 </output-template>
 </workflow-source>"""
 
-    # Get Master provider from config
+    # Get provider config - prefer phase_models if available
     config = get_config()
-    if not config.providers or not config.providers.master:
-        raise PatchError(
-            "Master provider required for patch compilation. "
-            "Configure in bmad-assist.yaml: providers.master"
-        )
 
-    # Create provider instance from config
-    master_provider = get_provider(config.providers.master.provider)
-    master_model = config.providers.master.model
+    # Convert workflow name to phase name (e.g., "create-story" -> "create_story")
+    phase_name = workflow.replace("-", "_")
+
+    # Try to get phase-specific config first, fallback to global master
+    from bmad_assist.core.config.models.providers import (
+        MasterProviderConfig,
+        get_phase_provider_config,
+    )
+
+    phase_config = get_phase_provider_config(config, phase_name)
+
+    # Ensure we got a MasterProviderConfig (not list for multi-LLM phases)
+    if isinstance(phase_config, list):
+        # Multi-LLM phase found, but compilation needs single provider
+        # Fall back to global master
+        logger.debug(
+            "Phase '%s' is multi-LLM, using global master for compilation",
+            phase_name,
+        )
+        if not config.providers or not config.providers.master:
+            raise PatchError(
+                "Master provider required for patch compilation. "
+                "Configure in bmad-assist.yaml: providers.master"
+            )
+        provider_config = config.providers.master
+    else:
+        # Got MasterProviderConfig (either from phase_models or global master)
+        provider_config = phase_config
+
+    # Create provider instance from resolved config
+    master_provider = get_provider(provider_config.provider)
+    master_model = provider_config.model
+    master_display_model = provider_config.model_name  # Human-readable name for logging
+    master_settings = provider_config.settings_path
+
+    logger.debug(
+        "Compiling patch for %s using provider=%s, model=%s, display_model=%s, settings=%s",
+        workflow,
+        provider_config.provider,
+        provider_config.model,
+        master_display_model,
+        master_settings,
+    )
 
     # Run LLM session with validation retries (3 total attempts)
     from bmad_assist.compiler.patching.types import TransformResult
@@ -235,6 +270,8 @@ def compile_patch(
             instructions=retry_instructions,
             provider=master_provider,
             model=master_model,
+            display_model=master_display_model,
+            settings_file=master_settings,
         )
 
         try:
