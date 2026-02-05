@@ -674,6 +674,7 @@ class BaseHandler(ABC):
                 return provider.invoke(
                     prompt,
                     model=cli_model,
+                    display_model=display_model,
                     timeout=timeout,
                     settings_file=settings_file,
                     cwd=self.project_path,
