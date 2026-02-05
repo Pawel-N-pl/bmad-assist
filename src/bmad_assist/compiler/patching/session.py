@@ -12,6 +12,7 @@ Functions:
 
 import logging
 import re
+from pathlib import Path
 
 from bmad_assist.compiler.patching.config import get_patcher_config
 from bmad_assist.compiler.patching.transforms import fix_xml_entities, format_transform_prompt
@@ -62,8 +63,10 @@ class PatchSession:
         workflow_content: Current workflow content.
         instructions: List of transform instructions (strings).
         provider: LLM provider instance.
-        model: Model name to use.
+        model: Model name to use (CLI model identifier).
+        display_model: Human-readable model name for logging.
         timeout: Timeout in seconds.
+        settings_file: Path to provider settings JSON file.
 
     """
 
@@ -74,7 +77,9 @@ class PatchSession:
         provider: BaseProvider,
         *,
         model: str | None = None,
+        display_model: str | None = None,
         timeout: int | None = None,
+        settings_file: Path | None = None,
     ) -> None:
         """Initialize patch session.
 
@@ -83,7 +88,9 @@ class PatchSession:
             instructions: List of transform instructions to apply in order.
             provider: LLM provider instance for making calls.
             model: Model name to use (e.g., "opus", "sonnet"). If None, uses provider default.
+            display_model: Human-readable model name for logging (e.g., "glm-4.7"). If None, uses model.
             timeout: Timeout in seconds. If None, uses config default.
+            settings_file: Path to provider settings JSON file. If None, uses provider defaults.
 
         Raises:
             PatchError: If workflow_content is empty or instructions list is empty.
@@ -101,7 +108,9 @@ class PatchSession:
         self.instructions = instructions
         self.provider = provider
         self.model = model
+        self.display_model = display_model
         self.timeout = timeout or config.timeout
+        self.settings_file = settings_file
         self.max_retries = config.max_retries
 
     def run(self) -> tuple[str, list[TransformResult]]:
@@ -133,7 +142,9 @@ class PatchSession:
                 result = self.provider.invoke(
                     prompt,
                     model=self.model,
+                    display_model=self.display_model,
                     timeout=self.timeout,
+                    settings_file=self.settings_file,
                     disable_tools=True,
                     no_cache=True,
                 )
