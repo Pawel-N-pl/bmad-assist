@@ -40,6 +40,7 @@ class MockProvider(BaseProvider):
         prompt: str,
         *,
         model: str | None = None,
+        display_model: str | None = None,
         timeout: int | None = None,
         settings_file: Path | None = None,
         cwd: Path | None = None,
