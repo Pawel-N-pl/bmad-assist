@@ -205,10 +205,7 @@ def compile_patch(
     phase_name = workflow.replace("-", "_")
 
     # Try to get phase-specific config first, fallback to global master
-    from bmad_assist.core.config.models.providers import (
-        MasterProviderConfig,
-        get_phase_provider_config,
-    )
+    from bmad_assist.core.config.models.providers import get_phase_provider_config
 
     phase_config = get_phase_provider_config(config, phase_name)
 
