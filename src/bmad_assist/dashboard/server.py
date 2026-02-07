@@ -1126,8 +1126,10 @@ class DashboardServer:
                 }
                 stories_list.append(story_data)
 
-            # Sort stories by id (convert to int for numeric sorting)
-            stories_list.sort(key=lambda s: (int(s["id"]) if str(s["id"]).isdigit() else s["id"]))
+            # Sort stories by id (convert to int for numeric sorting, group ints and strs)
+            stories_list.sort(
+                key=lambda s: (0, int(s["id"])) if str(s["id"]).isdigit() else (1, str(s["id"]))
+            )
             epic_data["stories"] = stories_list
 
             result["epics"].append(epic_data)
