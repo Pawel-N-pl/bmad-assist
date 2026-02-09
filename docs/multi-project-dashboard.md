@@ -362,3 +362,82 @@ src/bmad_assist/dashboard/
 2. Add "Stop All" functionality
 3. Add concurrency queue UI
 4. Performance testing with 5+ concurrent projects
+
+---
+
+## 12. Frontend Implementation Details
+
+> **Status:** ✅ Implemented
+
+The frontend is implemented as a standalone page (`projects.html`) with an embedded Alpine.js component.
+
+### 12.1 File Structure
+
+```
+src/bmad_assist/dashboard/
+├── static/
+│   ├── projects.html         # Multi-project dashboard page
+│   ├── css/styles.css        # Project card and grid styles
+│   └── js/components/
+│       └── multi-project.js  # Alpine.js component (also in alpine-init.js)
+└── static-src/
+    ├── 04-terminal.html      # Contains Projects button in header
+    ├── 11-tail.html          # Includes multi-project.js script
+    └── js/
+        ├── alpine-init.js    # Orchestrates all components
+        └── components/
+            └── multi-project.js
+```
+
+### 12.2 JavaScript Module Structure
+
+The `multiProjectComponent` provides:
+
+| Method | Description |
+|--------|-------------|
+| `initMultiProject()` | Initialize component, fetch projects, start polling |
+| `fetchProjects()` | GET /api/projects -> update project Map |
+| `addProject(path, name)` | POST /api/projects |
+| `scanForProjects(directory)` | POST /api/projects/scan |
+| `removeProject(id)` | DELETE /api/projects/{id} |
+| `startProjectLoop(id)` | POST /api/projects/{id}/loop/start |
+| `pauseProjectLoop(id)` | POST /api/projects/{id}/loop/pause |
+| `resumeProjectLoop(id)` | POST /api/projects/{id}/loop/resume |
+| `stopProjectLoop(id)` | POST /api/projects/{id}/loop/stop |
+| `stopAllProjects()` | POST /api/projects/control/stop-all |
+| `connectProjectSSE(id)` | Open EventSource for project |
+| `disconnectProjectSSE(id)` | Close EventSource |
+
+### 12.3 SSE Event Handling
+
+| Event | Handler |
+|-------|---------|
+| `log_replay` | Replace project logs buffer on connect |
+| `output` | Append to project logs (500 line limit) |
+| `loop_status` | Update project state |
+| `workflow_status` | Update current phase/story |
+| `error_event` | Display toast notification |
+
+### 12.4 CSS Classes
+
+New classes in `styles.css`:
+
+| Class | Description |
+|-------|-------------|
+| `.project-grid` | Responsive grid layout for project cards |
+| `.project-card` | Card container with hover effects |
+| `.project-state-badge` | Color-coded state indicator |
+| `.state-{idle,running,paused,queued,error}` | State-specific colors |
+| `.project-slideover` | Right-side detail panel |
+| `.project-log-terminal` | Monospace log display |
+| `.running-count-badge` | Header badge for running count |
+
+### 12.5 Data Attributes
+
+UI elements include `data-testid` attributes for E2E testing:
+
+- `add-project-btn`, `scan-directory-btn`, `stop-all-btn`
+- `running-count`, `project-card`, `project-state-badge`
+- `add-project-modal`, `scan-directory-modal`
+- `project-path-input`, `project-name-input`
+- `back-to-dashboard`, `slideover-close`

@@ -303,146 +303,123 @@
                     No task running
                 </div>
             </header>
+<!-- Terminal Output (hidden when settings or experiments panel is open) -->
+<div x-show="!settingsView.open && !experimentsView.open"
+    class="flex-1 flex flex-col bg-background overflow-hidden relative">
+    <!-- Terminal Header - Controls + Log level filter -->
+    <div class="w-full px-4 py-2 border-b border-border">
+        <div class="flex items-center justify-between w-full">
+            <!-- Left: Loop controls -->
+            <div class="flex items-center gap-2">
+                <button class="btn btn-sm" @click="startLoop" :disabled="loopRunning || isPaused">
+                    <i data-lucide="play" class="w-3.5 h-3.5"></i> Start
+                </button>
+                <!-- Pause button (hidden when paused) -->
+                <button class="btn btn-sm bg-bp-warning text-background hover:bg-bp-warning/80" @click="pauseLoop"
+                    x-show="!isPaused" :disabled="!loopRunning"
+                    :class="{ 'opacity-50 cursor-not-allowed': !loopRunning }">
+                    <i data-lucide="pause" class="w-3.5 h-3.5"></i> Pause
+                </button>
+                <!-- Resume button (shown when paused) -->
+                <button class="btn btn-sm bg-green-600 text-white hover:bg-green-700" @click="resumeLoop"
+                    x-show="isPaused" x-transition :disabled="!isPaused">
+                    <i data-lucide="play" class="w-3.5 h-3.5"></i> Resume
+                </button>
+                <button class="btn btn-sm bg-destructive text-destructive-foreground hover:bg-destructive/80"
+                    @click="stopLoop" :disabled="!loopRunning">
+                    <i data-lucide="square" class="w-3.5 h-3.5"></i> Stop
+                </button>
 
-            <!-- Terminal Output (hidden when settings or experiments panel is open) -->
-            <div x-show="!settingsView.open && !experimentsView.open"
-                 class="flex-1 flex flex-col bg-background overflow-hidden relative">
-                <!-- Terminal Header - Controls + Log level filter -->
-                <div class="w-full px-4 py-2 border-b border-border">
-                    <div class="flex items-center justify-between w-full">
-                        <!-- Left: Loop controls -->
-                        <div class="flex items-center gap-2">
-                            <button class="btn btn-sm"
-                                    @click="startLoop"
-                                    :disabled="loopRunning || isPaused">
-                                <i data-lucide="play" class="w-3.5 h-3.5"></i> Start
-                            </button>
-                            <!-- Pause button (hidden when paused) -->
-                            <button class="btn btn-sm bg-bp-warning text-background hover:bg-bp-warning/80"
-                                    @click="pauseLoop"
-                                    x-show="!isPaused"
-                                    :disabled="!loopRunning"
-                                    :class="{ 'opacity-50 cursor-not-allowed': !loopRunning }">
-                                <i data-lucide="pause" class="w-3.5 h-3.5"></i> Pause
-                            </button>
-                            <!-- Resume button (shown when paused) -->
-                            <button class="btn btn-sm bg-green-600 text-white hover:bg-green-700"
-                                    @click="resumeLoop"
-                                    x-show="isPaused"
-                                    x-transition
-                                    :disabled="!isPaused">
-                                <i data-lucide="play" class="w-3.5 h-3.5"></i> Resume
-                            </button>
-                            <button class="btn btn-sm bg-destructive text-destructive-foreground hover:bg-destructive/80"
-                                    @click="stopLoop"
-                                    :disabled="!loopRunning">
-                                <i data-lucide="square" class="w-3.5 h-3.5"></i> Stop
-                            </button>
+                <div class="w-px h-6 bg-border mx-1"></div>
 
-                            <div class="w-px h-6 bg-border mx-1"></div>
+                <a href="/projects.html" class="btn-outline btn-sm" data-testid="projects-button">
+                    <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Projects
+                </a>
+                <button class="btn-outline btn-sm" @click="openExperiments()"
+                    :class="{'ring-2 ring-primary': experimentsView.open}" data-testid="experiments-button">
+                    <i data-lucide="flask-conical" class="w-3.5 h-3.5"></i> Experiments
+                </button>
+                <button class="btn-outline btn-sm" x-ref="settingsBtn" @click="openSettings()"
+                    :class="{'ring-2 ring-primary': settingsView.open}" data-testid="settings-button">
+                    <i data-lucide="settings" class="w-3.5 h-3.5"></i> Settings
+                </button>
+            </div>
 
-                            <button class="btn-outline btn-sm"
-                                    @click="openExperiments()"
-                                    :class="{'ring-2 ring-primary': experimentsView.open}"
-                                    data-testid="experiments-button">
-                                <i data-lucide="flask-conical" class="w-3.5 h-3.5"></i> Experiments
-                            </button>
-                            <button class="btn-outline btn-sm"
-                                    x-ref="settingsBtn"
-                                    @click="openSettings()"
-                                    :class="{'ring-2 ring-primary': settingsView.open}"
-                                    data-testid="settings-button">
-                                <i data-lucide="settings" class="w-3.5 h-3.5"></i> Settings
-                            </button>
-                        </div>
+            <!-- Right: Log level dropdown + Validator progress + Output count -->
+            <div class="flex items-center gap-3">
+                <!-- Output line count -->
+                <span class="text-xs text-muted-foreground tabular-nums" x-text="`${output.length} lines`"></span>
 
-                        <!-- Right: Log level dropdown + Validator progress + Output count -->
-                        <div class="flex items-center gap-3">
-                            <!-- Output line count -->
-                            <span class="text-xs text-muted-foreground tabular-nums"
-                                  x-text="`${output.length} lines`"></span>
-
-                            <!-- Log Level Dropdown (state in parent scope to fix reactivity) -->
-                            <div class="relative">
-                                <button class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border hover:bg-muted"
-                                        @click="logLevelDropdownOpen = !logLevelDropdownOpen"
-                                        @click.outside="logLevelDropdownOpen = false"
-                                        data-testid="log-level-btn">
-                                    <i data-lucide="filter" class="w-3 h-3"></i>
-                                    <span x-text="logLevel.toUpperCase()" class="font-mono"></span>
-                                    <i data-lucide="chevron-down" class="w-3 h-3"></i>
-                                </button>
-                                <div x-show="logLevelDropdownOpen"
-                                     x-transition:enter="transition ease-out duration-100"
-                                     x-transition:enter-start="opacity-0 scale-95"
-                                     x-transition:enter-end="opacity-100 scale-100"
-                                     x-transition:leave="transition ease-in duration-75"
-                                     x-transition:leave-start="opacity-100 scale-100"
-                                     x-transition:leave-end="opacity-0 scale-95"
-                                     class="absolute top-full right-0 mt-1 w-28 bg-card border border-border rounded-md shadow-lg py-1 z-50"
-                                     data-testid="log-level-dropdown">
-                                    <button @click="setLogLevel('debug'); logLevelDropdownOpen = false"
-                                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
-                                            :class="{ 'text-primary font-medium': logLevel === 'debug' }">
-                                        DEBUG
-                                        <i x-show="logLevel === 'debug'" data-lucide="check" class="w-3 h-3"></i>
-                                    </button>
-                                    <button @click="setLogLevel('info'); logLevelDropdownOpen = false"
-                                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
-                                            :class="{ 'text-primary font-medium': logLevel === 'info' }">
-                                        INFO
-                                        <i x-show="logLevel === 'info'" data-lucide="check" class="w-3 h-3"></i>
-                                    </button>
-                                    <button @click="setLogLevel('warning'); logLevelDropdownOpen = false"
-                                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
-                                            :class="{ 'text-primary font-medium': logLevel === 'warning' }">
-                                        WARNING
-                                        <i x-show="logLevel === 'warning'" data-lucide="check" class="w-3 h-3"></i>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Validator progress indicator -->
-                            <div x-show="validatorProgress.total > 0"
-                                 x-transition
-                                 class="flex items-center gap-2 text-sm text-muted-foreground">
-                                <span class="text-xs">Validators:</span>
-                                <div class="flex items-center gap-1">
-                                    <span x-text="`${validatorProgress.completed + validatorProgress.failed}/${validatorProgress.total}`"
-                                          class="tabular-nums"></span>
-                                    <span x-show="validatorProgress.failed > 0"
-                                          class="text-destructive"
-                                          x-text="`(${validatorProgress.failed} failed)`"></span>
-                                </div>
-                                <div class="w-16 h-1.5 bg-border rounded-full overflow-hidden">
-                                    <div class="h-full bg-primary transition-all duration-300"
-                                         :style="`width: ${validatorProgressPercent}%`"></div>
-                                </div>
-                            </div>
-                        </div>
+                <!-- Log Level Dropdown (state in parent scope to fix reactivity) -->
+                <div class="relative">
+                    <button
+                        class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border hover:bg-muted"
+                        @click="logLevelDropdownOpen = !logLevelDropdownOpen"
+                        @click.outside="logLevelDropdownOpen = false" data-testid="log-level-btn">
+                        <i data-lucide="filter" class="w-3 h-3"></i>
+                        <span x-text="logLevel.toUpperCase()" class="font-mono"></span>
+                        <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                    </button>
+                    <div x-show="logLevelDropdownOpen" x-transition:enter="transition ease-out duration-100"
+                        x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                        x-transition:leave="transition ease-in duration-75"
+                        x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+                        class="absolute top-full right-0 mt-1 w-28 bg-card border border-border rounded-md shadow-lg py-1 z-50"
+                        data-testid="log-level-dropdown">
+                        <button @click="setLogLevel('debug'); logLevelDropdownOpen = false"
+                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
+                            :class="{ 'text-primary font-medium': logLevel === 'debug' }">
+                            DEBUG
+                            <i x-show="logLevel === 'debug'" data-lucide="check" class="w-3 h-3"></i>
+                        </button>
+                        <button @click="setLogLevel('info'); logLevelDropdownOpen = false"
+                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
+                            :class="{ 'text-primary font-medium': logLevel === 'info' }">
+                            INFO
+                            <i x-show="logLevel === 'info'" data-lucide="check" class="w-3 h-3"></i>
+                        </button>
+                        <button @click="setLogLevel('warning'); logLevelDropdownOpen = false"
+                            class="w-full text-left px-3 py-1 text-xs hover:bg-muted flex items-center justify-between"
+                            :class="{ 'text-primary font-medium': logLevel === 'warning' }">
+                            WARNING
+                            <i x-show="logLevel === 'warning'" data-lucide="check" class="w-3 h-3"></i>
+                        </button>
                     </div>
                 </div>
 
-                <!-- xterm.js Terminal Container -->
-                <div class="flex-1 overflow-hidden relative"
-                     id="xterm-container"
-                     x-ref="xtermContainer"
-                     tabindex="0"
-                     @wheel="handleTerminalWheel($event)"
-                     @keydown="handleTerminalKeydown($event)">
-                </div>
-
-                <!-- Auto-scroll indicator -->
-                <div x-show="!autoScroll"
-                     x-transition:enter="transition ease-out duration-200"
-                     x-transition:leave="transition ease-in duration-150"
-                     class="absolute bottom-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-full text-sm cursor-pointer shadow-lg flex items-center gap-1"
-                     title="Click or press End to scroll"
-                     @click="autoScroll = true; scrollToBottom()">
-                    <i data-lucide="arrow-down" class="w-4 h-4"></i> New output
+                <!-- Validator progress indicator -->
+                <div x-show="validatorProgress.total > 0" x-transition
+                    class="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span class="text-xs">Validators:</span>
+                    <div class="flex items-center gap-1">
+                        <span
+                            x-text="`${validatorProgress.completed + validatorProgress.failed}/${validatorProgress.total}`"
+                            class="tabular-nums"></span>
+                        <span x-show="validatorProgress.failed > 0" class="text-destructive"
+                            x-text="`(${validatorProgress.failed} failed)`"></span>
+                    </div>
+                    <div class="w-16 h-1.5 bg-border rounded-full overflow-hidden">
+                        <div class="h-full bg-primary transition-all duration-300"
+                            :style="`width: ${validatorProgressPercent}%`"></div>
+                    </div>
                 </div>
             </div>
+        </div>
+    </div>
 
+    <!-- xterm.js Terminal Container -->
+    <div class="flex-1 overflow-hidden relative" id="xterm-container" x-ref="xtermContainer" tabindex="0"
+        @wheel="handleTerminalWheel($event)" @keydown="handleTerminalKeydown($event)">
+    </div>
+
+    <!-- Auto-scroll indicator -->
+    <div x-show="!autoScroll" x-transition:enter="transition ease-out duration-200"
+        x-transition:leave="transition ease-in duration-150"
+        class="absolute bottom-4 right-4 bg-primary text-primary-foreground px-3 py-1 rounded-full text-sm cursor-pointer shadow-lg flex items-center gap-1"
+        title="Click or press End to scroll" @click="autoScroll = true; scrollToBottom()">
+        <i data-lucide="arrow-down" class="w-4 h-4"></i> New output
+    </div>
+</div>
 
             <!-- Settings Panel (Story 17.4) -->
             <div x-show="settingsView.open"
@@ -3009,986 +2986,897 @@
                     </button>
                 </div>
             </div>
-
-            <!-- Content - conditional rendering based on type (Story 23.3) and browser state (Story 24.5) -->
-            <div class="flex-1 overflow-auto p-4">
-                <!-- Story 24.5: Browser-controlled content (Raw/Rendered toggle) -->
-                <template x-if="contentModal.type === 'markdown' && contentModal.browser">
-                    <div>
-                        <!-- Rendered mode -->
-                        <template x-if="contentModal.browser.view === 'rendered'">
-                            <div class="markdown-content text-sm"
-                                 x-html="formatMarkdownContent(contentModal.content)"
-                                 x-effect="$nextTick(() => { if (contentModal.show && contentModal.browser?.view === 'rendered') refreshIcons(); })">
-                            </div>
-                        </template>
-                        <!-- Raw mode -->
-                        <template x-if="contentModal.browser.view === 'raw'">
-                            <pre class="text-sm whitespace-pre-wrap font-mono"><code x-text="contentModal.content"></code></pre>
-                        </template>
-                    </div>
-                </template>
-                <!-- Non-browser content: Markdown (existing behavior, backwards compatible) -->
-                <template x-if="contentModal.type === 'markdown' && !contentModal.browser">
-                    <div class="markdown-content text-sm"
-                         x-html="formatMarkdownContent(contentModal.content)"
-                         x-effect="$nextTick(() => { if (contentModal.show && contentModal.type === 'markdown') refreshIcons(); })">
-                    </div>
-                </template>
-                <!-- Plain text/XML content (XSS-safe) -->
-                <template x-if="contentModal.type !== 'markdown'">
-                    <pre class="text-sm whitespace-pre-wrap font-mono"><code x-text="contentModal.content"></code></pre>
-                </template>
-            </div>
-        </div>
-    </div>
-
-    <!-- Epic Metrics Modal (Story 24.7) -->
-    <div x-show="metricsModal.show"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @keydown.escape.window="if (metricsModal.show && !contentModal.show && !busyModal.show) closeEpicMetrics()"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-         data-testid="metrics-modal">
-
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden w-3/4 max-w-4xl max-h-[80vh] flex flex-col"
-             x-show="metricsModal.show"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95"
-             role="dialog"
-             aria-modal="true"
-             aria-labelledby="metrics-modal-title"
-             @click.outside="closeEpicMetrics()">
-
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2 border-b border-border">
-                <h2 id="metrics-modal-title" class="text-lg font-semibold flex items-center gap-2">
-                    <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
-                    <span x-text="`Epic ${metricsModal.epicId} Metrics`"></span>
-                </h2>
-                <button @click="closeEpicMetrics()"
-                        class="btn-sm-icon-ghost"
-                        aria-label="Close metrics modal"
-                        data-testid="close-metrics-btn">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                </button>
-            </div>
-
-            <!-- Content -->
-            <div class="flex-1 overflow-auto p-4 space-y-6">
-
-                <!-- Loading State -->
-                <div x-show="metricsModal.loading" class="flex items-center justify-center py-12">
-                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-primary"></i>
-                    <span class="ml-3 text-muted-foreground">Loading metrics...</span>
+<!-- Content - conditional rendering based on type (Story 23.3) and browser state (Story 24.5) -->
+<div class="flex-1 overflow-auto p-4">
+    <!-- Story 24.5: Browser-controlled content (Raw/Rendered toggle) -->
+    <template x-if="contentModal.type === 'markdown' && contentModal.browser">
+        <div>
+            <!-- Rendered mode -->
+            <template x-if="contentModal.browser.view === 'rendered'">
+                <div class="markdown-content text-sm" x-html="formatMarkdownContent(contentModal.content)"
+                    x-effect="$nextTick(() => { if (contentModal.show && contentModal.browser?.view === 'rendered') refreshIcons(); })">
                 </div>
+            </template>
+            <!-- Raw mode -->
+            <template x-if="contentModal.browser.view === 'raw'">
+                <pre class="text-sm whitespace-pre-wrap font-mono"><code x-text="contentModal.content"></code></pre>
+            </template>
+        </div>
+    </template>
+    <!-- Non-browser content: Markdown (existing behavior, backwards compatible) -->
+    <template x-if="contentModal.type === 'markdown' && !contentModal.browser">
+        <div class="markdown-content text-sm" x-html="formatMarkdownContent(contentModal.content)"
+            x-effect="$nextTick(() => { if (contentModal.show && contentModal.type === 'markdown') refreshIcons(); })">
+        </div>
+    </template>
+    <!-- Plain text/XML content (XSS-safe) -->
+    <template x-if="contentModal.type !== 'markdown'">
+        <pre class="text-sm whitespace-pre-wrap font-mono"><code x-text="contentModal.content"></code></pre>
+    </template>
+</div>
+</div>
+</div>
 
-                <!-- Metrics Content (shown when not loading and data exists) -->
-                <template x-if="!metricsModal.loading && metricsModal.data">
-                    <div class="space-y-6">
-                        <!-- Total Duration -->
-                        <div class="text-center">
-                            <span class="text-muted-foreground">Total:</span>
-                            <span class="text-2xl font-bold tabular-nums ml-2"
-                                  x-text="formatDuration(metricsModal.data?.total_duration_ms || 0)"></span>
-                        </div>
+<!-- Epic Metrics Modal (Story 24.7) -->
+<div x-show="metricsModal.show" x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    @keydown.escape.window="if (metricsModal.show && !contentModal.show && !busyModal.show) closeEpicMetrics()"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" data-testid="metrics-modal">
 
-                        <!-- Timeline Bar Chart -->
-                        <div class="metrics-timeline relative" data-testid="metrics-timeline">
-                            <div class="flex h-8 rounded overflow-hidden border border-border">
-                                <template x-for="(story, index) in (metricsModal.data?.stories || [])" :key="story.story_num">
-                                    <div class="metrics-segment relative cursor-pointer"
-                                         :class="getSegmentColor(index)"
-                                         :style="`width: ${getSegmentWidth(story.total_duration_ms, metricsModal.data.total_duration_ms)}%`"
-                                         @mouseenter="showSegmentTooltip($event, story)"
-                                         @mousemove="showSegmentTooltip($event, story)"
-                                         @mouseleave="hideSegmentTooltip()"
-                                         :data-testid="`segment-${story.story_num}`">
-                                        <!-- Story number label (shown if segment wide enough) -->
-                                        <span x-show="getSegmentWidth(story.total_duration_ms, metricsModal.data.total_duration_ms) > 8"
-                                              class="absolute inset-0 flex items-center justify-center text-xs text-white font-medium"
-                                              x-text="`${metricsModal.epicId}.${story.story_num}`"></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden w-3/4 max-w-4xl max-h-[80vh] flex flex-col"
+        x-show="metricsModal.show" x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+        x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100 scale-100"
+        x-transition:leave-end="opacity-0 scale-95" role="dialog" aria-modal="true"
+        aria-labelledby="metrics-modal-title" @click.outside="closeEpicMetrics()">
 
-                        <!-- Stories Accordion -->
-                        <div class="metrics-accordion space-y-1" data-testid="metrics-accordion">
-                            <template x-for="story in (metricsModal.data?.stories || [])" :key="story.story_num">
-                                <div class="border border-border rounded">
-                                    <!-- Story Header -->
-                                    <button @click="toggleMetricsStory(story.story_num)"
-                                            @keydown.enter="toggleMetricsStory(story.story_num)"
-                                            @keydown.space.prevent="toggleMetricsStory(story.story_num)"
-                                            class="w-full flex items-center justify-between px-4 py-2 hover:bg-muted text-left"
-                                            :aria-expanded="isMetricsStoryExpanded(story.story_num)"
-                                            :data-testid="`accordion-${story.story_num}`">
-                                        <div class="flex items-center gap-2">
-                                            <i :data-lucide="isMetricsStoryExpanded(story.story_num) ? 'chevron-down' : 'chevron-right'"
-                                               class="w-4 h-4 transition-transform"></i>
-                                            <span x-text="`${metricsModal.epicId}.${story.story_num} ${story.title}`"></span>
-                                        </div>
-                                        <span class="tabular-nums text-muted-foreground" x-text="formatDuration(story.total_duration_ms)"></span>
-                                    </button>
-                                    <!-- Story Details (expanded) -->
-                                    <div x-show="isMetricsStoryExpanded(story.story_num)"
-                                         x-transition:enter="transition ease-out duration-150"
-                                         x-transition:enter-start="opacity-0"
-                                         x-transition:enter-end="opacity-100"
-                                         class="px-4 py-2 border-t border-border bg-muted/50">
-                                        <template x-for="(wdata, workflow) in (story.workflows || {})" :key="workflow">
-                                            <div class="flex justify-between py-1 text-sm">
-                                                <div class="flex items-center gap-2">
-                                                    <span class="text-muted-foreground" x-text="workflow"></span>
-                                                    <span class="text-xs text-muted-foreground/60" x-text="`(${(wdata.roles || []).join(', ')})`"></span>
-                                                </div>
-                                                <span class="tabular-nums" x-text="formatDuration(wdata.duration_ms)"></span>
-                                            </div>
-                                        </template>
-                                    </div>
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-2 border-b border-border">
+            <h2 id="metrics-modal-title" class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="bar-chart-2" class="w-5 h-5"></i>
+                <span x-text="`Epic ${metricsModal.epicId} Metrics`"></span>
+            </h2>
+            <button @click="closeEpicMetrics()" class="btn-sm-icon-ghost" aria-label="Close metrics modal"
+                data-testid="close-metrics-btn">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 overflow-auto p-4 space-y-6">
+
+            <!-- Loading State -->
+            <div x-show="metricsModal.loading" class="flex items-center justify-center py-12">
+                <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-primary"></i>
+                <span class="ml-3 text-muted-foreground">Loading metrics...</span>
+            </div>
+
+            <!-- Metrics Content (shown when not loading and data exists) -->
+            <template x-if="!metricsModal.loading && metricsModal.data">
+                <div class="space-y-6">
+                    <!-- Total Duration -->
+                    <div class="text-center">
+                        <span class="text-muted-foreground">Total:</span>
+                        <span class="text-2xl font-bold tabular-nums ml-2"
+                            x-text="formatDuration(metricsModal.data?.total_duration_ms || 0)"></span>
+                    </div>
+
+                    <!-- Timeline Bar Chart -->
+                    <div class="metrics-timeline relative" data-testid="metrics-timeline">
+                        <div class="flex h-8 rounded overflow-hidden border border-border">
+                            <template x-for="(story, index) in (metricsModal.data?.stories || [])"
+                                :key="story.story_num">
+                                <div class="metrics-segment relative cursor-pointer" :class="getSegmentColor(index)"
+                                    :style="`width: ${getSegmentWidth(story.total_duration_ms, metricsModal.data.total_duration_ms)}%`"
+                                    @mouseenter="showSegmentTooltip($event, story)"
+                                    @mousemove="showSegmentTooltip($event, story)" @mouseleave="hideSegmentTooltip()"
+                                    :data-testid="`segment-${story.story_num}`">
+                                    <!-- Story number label (shown if segment wide enough) -->
+                                    <span
+                                        x-show="getSegmentWidth(story.total_duration_ms, metricsModal.data.total_duration_ms) > 8"
+                                        class="absolute inset-0 flex items-center justify-center text-xs text-white font-medium"
+                                        x-text="`${metricsModal.epicId}.${story.story_num}`"></span>
                                 </div>
                             </template>
                         </div>
                     </div>
-                </template>
-            </div>
-        </div>
 
-        <!-- Segment Tooltip (positioned fixed, outside modal card) -->
-        <div x-show="_hoveredSegment"
-             x-transition
-             class="metrics-tooltip fixed z-50 bg-popover border border-border px-3 py-2 rounded shadow-lg text-sm pointer-events-none"
-             :style="`left: ${_tooltipPosition.x}px; top: ${_tooltipPosition.y}px`"
-             data-testid="metrics-tooltip">
-            <span x-text="_hoveredSegment?.label || ''"></span>
-        </div>
-    </div>
-
-    <!-- Prompt Browser Modal (Story 23.5) -->
-    <div x-show="promptBrowser.show"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @keydown.escape.window="if (promptBrowser.show && !contentModal.show && !busyModal.show) closePromptBrowser()"
-         class="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
-         data-testid="prompt-browser-modal">
-
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden w-4/5 max-h-[80vh] flex flex-col"
-             x-show="promptBrowser.show"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95"
-             role="dialog"
-             aria-modal="true"
-             @click.outside="closePromptBrowser()">
-
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2 border-b border-border">
-                <h2 class="text-lg font-semibold flex items-center gap-2">
-                    <i data-lucide="file-code" class="w-5 h-5"></i>
-                    <span x-text="promptBrowser.title"></span>
-                </h2>
-                <div class="flex items-center gap-2">
-                    <button @click="copyToClipboard(promptBrowser.content)"
-                            class="btn-sm-icon-ghost"
-                            title="Copy raw XML"
-                            aria-label="Copy raw XML to clipboard">
-                        <i data-lucide="clipboard" class="w-4 h-4"></i>
-                    </button>
-                    <button @click="closePromptBrowser()"
-                            class="btn-sm-icon-ghost"
-                            data-testid="close-prompt-browser">
-                        <i data-lucide="x" class="w-4 h-4"></i>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Content -->
-            <div class="flex-1 overflow-auto p-4">
-
-                <!-- Loading State -->
-                <div x-show="promptBrowser.loading" class="flex items-center justify-center py-12">
-                    <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-primary"></i>
-                    <span class="ml-3 text-muted-foreground">Parsing prompt structure...</span>
-                </div>
-
-                <!-- Error State -->
-                <div x-show="promptBrowser.parseError && !promptBrowser.loading" class="space-y-4">
-                    <div class="bg-destructive/10 border border-destructive/30 rounded p-4">
-                        <div class="flex items-center gap-2 text-destructive mb-2">
-                            <i data-lucide="alert-circle" class="w-5 h-5"></i>
-                            <span class="font-medium">Unable to parse prompt structure</span>
-                        </div>
-                        <p class="text-sm text-muted-foreground" x-text="promptBrowser.parseError"></p>
-                    </div>
-                    <button @click="contentModal.title = promptBrowser.title; contentModal.content = promptBrowser.content; contentModal.type = 'xml'; contentModal.show = true; closePromptBrowser();"
-                            class="btn-outline"
-                            data-testid="view-raw-xml">
-                        <i data-lucide="code" class="w-4 h-4 mr-2"></i>
-                        View Raw XML
-                    </button>
-                </div>
-
-                <!-- Parsed Content -->
-                <div x-show="promptBrowser.parsed && !promptBrowser.loading && !promptBrowser.parseError" class="space-y-3">
-
-                    <!-- Mission Section (collapsible, starts expanded) - Story 23.6: Content type detection, Story 24.4: Collapsible -->
-                    <div class="prompt-section" data-testid="section-mission">
-                        <div class="prompt-section-header"
-                             :class="{ 'expanded': isExpanded('mission') }"
-                             @click="toggleSection('mission')"
-                             @keydown.enter="toggleSection('mission')"
-                             @keydown.space.prevent="toggleSection('mission')"
-                             tabindex="0"
-                             role="button"
-                             :aria-expanded="isExpanded('mission')">
-                            <i :data-lucide="getChevronIcon('mission')" class="w-4 h-4 chevron"></i>
-                            <i data-lucide="target" class="w-4 h-4 text-primary"></i>
-                            <span class="font-medium">Mission</span>
-                        </div>
-                        <div x-show="isExpanded('mission')"
-                             x-transition:enter="transition ease-out duration-150"
-                             x-transition:enter-start="opacity-0"
-                             x-transition:enter-end="opacity-100"
-                             class="prompt-section-content">
-                            <!-- Mission content with cached type detection (typically markdown) -->
-                            <template x-if="promptBrowser.parsed?.missionContentType === 'markdown'">
-                                <div class="markdown-content text-sm"
-                                     x-html="renderMarkdownContent(promptBrowser.parsed?.mission || '', 'mission')"></div>
-                            </template>
-                            <template x-if="promptBrowser.parsed?.missionContentType !== 'markdown'">
-                                <pre class="text-sm whitespace-pre-wrap font-mono" x-text="promptBrowser.parsed?.mission || ''"></pre>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- File Index Section (collapsed by default) -->
-                    <template x-if="promptBrowser.parsed?.fileIndex?.length > 0">
-                        <div class="prompt-section" data-testid="section-file-index">
-                            <div class="prompt-section-header"
-                                 :class="{ 'expanded': isExpanded('file-index') }"
-                                 @click="toggleSection('file-index')"
-                                 @keydown.enter="toggleSection('file-index')"
-                                 @keydown.space.prevent="toggleSection('file-index')"
-                                 tabindex="0"
-                                 role="button"
-                                 :aria-expanded="isExpanded('file-index')">
-                                <i :data-lucide="getChevronIcon('file-index')" class="w-4 h-4 chevron"></i>
-                                <i data-lucide="list" class="w-4 h-4 text-muted-foreground"></i>
-                                <span>File Index</span>
-                                <span class="text-xs text-muted-foreground ml-auto" x-text="`${promptBrowser.parsed?.fileIndex?.length || 0} files`"></span>
-                            </div>
-                            <div x-show="isExpanded('file-index')"
-                                 x-transition:enter="transition ease-out duration-150"
-                                 x-transition:enter-start="opacity-0"
-                                 x-transition:enter-end="opacity-100"
-                                 class="prompt-section-content">
-                                <div class="space-y-1">
-                                    <template x-for="entry in promptBrowser.parsed?.fileIndex || []" :key="entry.id">
-                                        <div class="flex items-center gap-2 text-sm font-mono">
-                                            <span class="text-muted-foreground w-20 truncate" x-text="entry.id"></span>
-                                            <span x-text="entry.path"></span>
+                    <!-- Stories Accordion -->
+                    <div class="metrics-accordion space-y-1" data-testid="metrics-accordion">
+                        <template x-for="story in (metricsModal.data?.stories || [])" :key="story.story_num">
+                            <div class="border border-border rounded">
+                                <!-- Story Header -->
+                                <button @click="toggleMetricsStory(story.story_num)"
+                                    @keydown.enter="toggleMetricsStory(story.story_num)"
+                                    @keydown.space.prevent="toggleMetricsStory(story.story_num)"
+                                    class="w-full flex items-center justify-between px-4 py-2 hover:bg-muted text-left"
+                                    :aria-expanded="isMetricsStoryExpanded(story.story_num)"
+                                    :data-testid="`accordion-${story.story_num}`">
+                                    <div class="flex items-center gap-2">
+                                        <i :data-lucide="isMetricsStoryExpanded(story.story_num) ? 'chevron-down' : 'chevron-right'"
+                                            class="w-4 h-4 transition-transform"></i>
+                                        <span
+                                            x-text="`${metricsModal.epicId}.${story.story_num} ${story.title}`"></span>
+                                    </div>
+                                    <span class="tabular-nums text-muted-foreground"
+                                        x-text="formatDuration(story.total_duration_ms)"></span>
+                                </button>
+                                <!-- Story Details (expanded) -->
+                                <div x-show="isMetricsStoryExpanded(story.story_num)"
+                                    x-transition:enter="transition ease-out duration-150"
+                                    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                                    class="px-4 py-2 border-t border-border bg-muted/50">
+                                    <template x-for="(wdata, workflow) in (story.workflows || {})" :key="workflow">
+                                        <div class="flex justify-between py-1 text-sm">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-muted-foreground" x-text="workflow"></span>
+                                                <span class="text-xs text-muted-foreground/60"
+                                                    x-text="`(${(wdata.roles || []).join(', ')})`"></span>
+                                            </div>
+                                            <span class="tabular-nums"
+                                                x-text="formatDuration(wdata.duration_ms)"></span>
                                         </div>
                                     </template>
                                 </div>
                             </div>
-                        </div>
-                    </template>
-
-                    <!-- Context Files Section -->
-                    <template x-if="promptBrowser.parsed?.context?.files?.length > 0">
-                        <div class="prompt-section" data-testid="section-context">
-                            <div class="prompt-section-header expanded">
-                                <i data-lucide="folder-open" class="w-4 h-4 text-accent"></i>
-                                <span class="font-medium">Context Files</span>
-                                <span class="text-xs text-muted-foreground ml-auto" x-text="`${promptBrowser.parsed?.context?.files?.length || 0} files`"></span>
-                            </div>
-                            <div class="prompt-section-content p-0">
-                                <div class="space-y-1">
-                                    <template x-for="(file, index) in promptBrowser.parsed?.context?.files || []" :key="file.id || index">
-                                        <div class="prompt-file-section"
-                                             :data-section-id="`file-${file.id || index}`">
-                                            <div class="prompt-section-header"
-                                                 :class="{ 'expanded': isExpanded(`file-${file.id || index}`) }"
-                                                 @click="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
-                                                 @keydown.enter="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
-                                                 @keydown.space.prevent="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
-                                                 tabindex="0"
-                                                 role="button"
-                                                 :aria-expanded="isExpanded(`file-${file.id || index}`)">
-                                                <i :data-lucide="getChevronIcon(`file-${file.id || index}`)" class="w-4 h-4 chevron"></i>
-                                                <i data-lucide="file" class="w-4 h-4 text-muted-foreground"></i>
-                                                <span class="text-sm font-mono truncate" x-text="getFilenameWithMapping(file.path)" :title="getPathWithMapping(file.path)"></span>
-                                                <!-- CDATA indicator (Story 23.6 AC1, Story 24.4: package icon) -->
-                                                <span x-show="file.hasCdata"
-                                                      class="cdata-indicator ml-1"
-                                                      title="Content wrapped in CDATA"
-                                                      x-effect="if (file.hasCdata) $nextTick(() => refreshIcons())">
-                                                    <i data-lucide="package" class="w-3 h-3"></i>
-                                                </span>
-                                                <span class="text-xs text-muted-foreground ml-auto opacity-60" x-text="estimateTokens(file.content)"></span>
-                                            </div>
-                                            <div x-show="isExpanded(`file-${file.id || index}`)"
-                                                 x-transition:enter="transition ease-out duration-150"
-                                                 x-transition:enter-start="opacity-0"
-                                                 x-transition:enter-end="opacity-100"
-                                                 class="prompt-section-content file-content-wrapper">
-                                                <div class="text-xs text-muted-foreground mb-2 font-mono truncate" x-text="getPathWithMapping(file.path)"></div>
-                                                <!-- Content type based rendering (Story 23.6 AC2-AC5) -->
-                                                <div class="file-content-code">
-                                                    <!-- Markdown content -->
-                                                    <template x-if="file.contentType === 'markdown'">
-                                                        <div class="markdown-content text-sm"
-                                                             x-html="renderMarkdownContent(file.content, `file-${file.id || index}`)"></div>
-                                                    </template>
-                                                    <!-- XML content -->
-                                                    <template x-if="file.contentType === 'xml'">
-                                                        <div class="xml-content"
-                                                             x-html="renderXmlContent(file.content, `file-${file.id || index}`)"></div>
-                                                    </template>
-                                                    <!-- Plain text fallback -->
-                                                    <template x-if="file.contentType === 'text' || !file.contentType">
-                                                        <pre class="shiki shiki-loading text-sm"><code x-text="file.content"></code></pre>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Variables Section (Story 23.7 - Enhanced with view toggle) -->
-                    <template x-if="promptBrowser.parsed?.variables?.length > 0">
-                        <div class="prompt-section" data-testid="section-variables">
-                            <div class="prompt-section-header"
-                                 :class="{ 'expanded': isExpanded('variables') }"
-                                 @click="toggleSection('variables')"
-                                 @keydown.enter="toggleSection('variables')"
-                                 @keydown.space.prevent="toggleSection('variables')"
-                                 tabindex="0"
-                                 role="button"
-                                 :aria-expanded="isExpanded('variables')">
-                                <i :data-lucide="getChevronIcon('variables')" class="w-4 h-4 chevron"></i>
-                                <i data-lucide="variable" class="w-4 h-4 text-chart-3"></i>
-                                <span>Variables</span>
-                                <span class="text-xs text-muted-foreground ml-auto mr-2" x-text="`${promptBrowser.parsed?.variables?.length || 0} vars`"></span>
-                                <!-- View toggle buttons (Story 23.7 AC1) -->
-                                <div class="variables-view-toggle" @click.stop data-testid="variables-view-toggle">
-                                    <button @click="variablesView = 'rendered'"
-                                            :class="{'active': variablesView === 'rendered'}"
-                                            class="flex items-center gap-1 px-2 py-0.5 text-xs rounded"
-                                            title="Rendered view"
-                                            data-testid="variables-view-rendered">
-                                        <i data-lucide="layout-grid" class="w-3 h-3"></i>
-                                    </button>
-                                    <button @click="variablesView = 'raw'"
-                                            :class="{'active': variablesView === 'raw'}"
-                                            class="flex items-center gap-1 px-2 py-0.5 text-xs rounded"
-                                            title="Raw XML"
-                                            data-testid="variables-view-raw">
-                                        <i data-lucide="code" class="w-3 h-3"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div x-show="isExpanded('variables')"
-                                 x-transition:enter="transition ease-out duration-150"
-                                 x-transition:enter-start="opacity-0"
-                                 x-transition:enter-end="opacity-100"
-                                 class="prompt-section-content">
-                                <!-- Rendered view (Story 23.7 AC2) -->
-                                <template x-if="variablesView === 'rendered'">
-                                    <div class="variables-rendered-view" data-testid="variables-rendered">
-                                        <template x-for="categoryName in getVariableCategoryOrder()" :key="categoryName">
-                                            <div class="variables-category">
-                                                <div class="variables-category-header" x-text="categoryName"></div>
-                                                <div class="variables-grid">
-                                                    <template x-for="v in getVariablesForCategory(categoryName)" :key="v.name">
-                                                        <div class="variable-item">
-                                                            <span class="variable-name" x-text="v.name"></span>
-                                                            <span class="text-muted-foreground">=</span>
-                                                            <!-- FIX: Show tooltip for all values (paths or long values get truncated at 200px) -->
-                                                            <span class="variable-value"
-                                                                  :class="{'cursor-help': isPathShortened(v) || (v.fullValue && v.fullValue.length > 30)}"
-                                                                  :title="v.fullValue"
-                                                                  x-text="v.displayValue"></span>
-                                                            <span x-show="v.fileId" class="text-xs text-muted-foreground opacity-60" x-text="`[${v.fileId}]`"></span>
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </div>
-                                        </template>
-                                    </div>
-                                </template>
-                                <!-- Raw XML view (Story 23.7 AC4) -->
-                                <template x-if="variablesView === 'raw'">
-                                    <div class="xml-content" data-testid="variables-raw"
-                                         x-html="renderXmlContent(getVariablesRawXml(), 'variables-raw')"></div>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Instructions Section (expanded by default) - Story 23.6: Content type detection, Story 24.4: Default via JS -->
-                    <div class="prompt-section" data-testid="section-instructions">
-                        <div class="prompt-section-header"
-                             :class="{ 'expanded': isExpanded('instructions') }"
-                             @click="toggleSection('instructions')"
-                             @keydown.enter="toggleSection('instructions')"
-                             @keydown.space.prevent="toggleSection('instructions')"
-                             tabindex="0"
-                             role="button"
-                             :aria-expanded="isExpanded('instructions')">
-                            <i :data-lucide="getChevronIcon('instructions')" class="w-4 h-4 chevron"></i>
-                            <i data-lucide="list-checks" class="w-4 h-4 text-primary"></i>
-                            <span class="font-medium">Instructions</span>
-                        </div>
-                        <div x-show="isExpanded('instructions')"
-                             x-transition:enter="transition ease-out duration-150"
-                             x-transition:enter-start="opacity-0"
-                             x-transition:enter-end="opacity-100"
-                             class="prompt-section-content">
-                            <!-- Instructions content with cached type detection (typically XML) -->
-                            <template x-if="promptBrowser.parsed?.instructionsContentType === 'xml'">
-                                <div class="xml-content"
-                                     x-html="renderXmlContent(promptBrowser.parsed?.instructions || '', 'instructions')"></div>
-                            </template>
-                            <template x-if="promptBrowser.parsed?.instructionsContentType !== 'xml'">
-                                <pre class="text-sm whitespace-pre-wrap font-mono overflow-x-auto" x-text="promptBrowser.parsed?.instructions || ''"></pre>
-                            </template>
-                        </div>
+                        </template>
                     </div>
-
-                    <!-- Output Template Section (collapsed by default) - Story 23.6: Content type detection -->
-                    <template x-if="promptBrowser.parsed?.output">
-                        <div class="prompt-section" data-testid="section-output">
-                            <div class="prompt-section-header"
-                                 :class="{ 'expanded': isExpanded('output') }"
-                                 @click="toggleSection('output')"
-                                 @keydown.enter="toggleSection('output')"
-                                 @keydown.space.prevent="toggleSection('output')"
-                                 tabindex="0"
-                                 role="button"
-                                 :aria-expanded="isExpanded('output')">
-                                <i :data-lucide="getChevronIcon('output')" class="w-4 h-4 chevron"></i>
-                                <i data-lucide="file-output" class="w-4 h-4 text-bp-warning"></i>
-                                <span>Output Template</span>
-                            </div>
-                            <div x-show="isExpanded('output')"
-                                 x-transition:enter="transition ease-out duration-150"
-                                 x-transition:enter-start="opacity-0"
-                                 x-transition:enter-end="opacity-100"
-                                 class="prompt-section-content">
-                                <!-- Output content with cached type detection (typically markdown) -->
-                                <template x-if="promptBrowser.parsed?.outputContentType === 'markdown'">
-                                    <div class="markdown-content text-sm"
-                                         x-html="renderMarkdownContent(promptBrowser.parsed?.output || '', 'output')"></div>
-                                </template>
-                                <template x-if="promptBrowser.parsed?.outputContentType !== 'markdown'">
-                                    <pre class="text-sm whitespace-pre-wrap font-mono" x-text="promptBrowser.parsed?.output || ''"></pre>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
                 </div>
-            </div>
+            </template>
         </div>
     </div>
 
-    <!-- Report List Modal (Story 16.9 - AC 4) - Updated for both Validation and Code Review -->
-    <div x-show="reportModal.show"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @keydown.escape.window="if (reportModal.show && !contentModal.show && !busyModal.show) reportModal.show = false"
-         class="fixed inset-0 z-40 flex items-center justify-center bg-black/50"
-         data-testid="report-modal">
+    <!-- Segment Tooltip (positioned fixed, outside modal card) -->
+    <div x-show="_hoveredSegment" x-transition
+        class="metrics-tooltip fixed z-50 bg-popover border border-border px-3 py-2 rounded shadow-lg text-sm pointer-events-none"
+        :style="`left: ${_tooltipPosition.x}px; top: ${_tooltipPosition.y}px`" data-testid="metrics-tooltip">
+        <span x-text="_hoveredSegment?.label || ''"></span>
+    </div>
+</div>
 
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden w-[480px] max-h-[70vh] flex flex-col"
-             x-show="reportModal.show"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95"
-             role="dialog"
-             aria-modal="true"
-             @click.outside="reportModal.show = false">
+<!-- Prompt Browser Modal (Story 23.5) -->
+<div x-show="promptBrowser.show" x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    @keydown.escape.window="if (promptBrowser.show && !contentModal.show && !busyModal.show) closePromptBrowser()"
+    class="fixed inset-0 z-40 flex items-center justify-center bg-black/50" data-testid="prompt-browser-modal">
 
-            <!-- Header -->
-            <div class="px-4 py-2 border-b border-border">
-                <h2 class="text-lg font-semibold flex items-center gap-2">
-                    <i data-lucide="file-text" class="w-5 h-5"></i>
-                    Review Reports
-                    <span class="text-muted-foreground text-sm" x-text="`${reportModal.epic}.${reportModal.story}`"></span>
-                </h2>
-            </div>
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden w-4/5 max-h-[80vh] flex flex-col" x-show="promptBrowser.show"
+        x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" role="dialog"
+        aria-modal="true" @click.outside="closePromptBrowser()">
 
-            <!-- Report List -->
-            <div class="flex-1 overflow-auto p-3 space-y-4">
-
-                <!-- Validation Section -->
-                <div class="space-y-2">
-                    <h3 class="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                        <i data-lucide="check-circle" class="w-4 h-4 text-bp-warning"></i>
-                        Validation Reports
-                    </h3>
-
-                    <!-- Validation Synthesis -->
-                    <template x-if="reportModal.validation?.synthesis">
-                        <button @click="loadReportContent(reportModal.validation.synthesis)"
-                                class="w-full text-left px-3 py-2 rounded bg-bp-warning/10 hover:bg-bp-warning/20 focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
-                                data-testid="validation-synthesis">
-                            <i data-lucide="edit" class="w-4 h-4 text-bp-warning"></i>
-                            <span class="text-bp-warning font-medium">Validation Synthesis</span>
-                        </button>
-                    </template>
-
-                    <!-- Validation Individual Reports (Story 24.8: Show mapped model names) -->
-                    <template x-for="report in (reportModal.validation?.reports || [])" :key="report.path">
-                        <button @click="loadReportContent(report)"
-                                class="w-full text-left px-3 py-2 rounded hover:bg-secondary focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
-                                data-testid="validation-report-item">
-                            <i data-lucide="file" class="w-4 h-4"></i>
-                            <span x-text="getReportDisplayName(report)"></span>
-                        </button>
-                    </template>
-
-                    <!-- Validation Empty State -->
-                    <div x-show="(reportModal.validation?.reports || []).length === 0 && !reportModal.validation?.synthesis"
-                         class="text-muted-foreground text-center py-2 text-sm">
-                        No validation reports
-                    </div>
-                </div>
-
-                <!-- Code Review Section -->
-                <div class="space-y-2 pt-2 border-t border-border">
-                    <h3 class="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                        <i data-lucide="code" class="w-4 h-4 text-destructive"></i>
-                        Code Review Reports
-                    </h3>
-
-                    <!-- Code Review Synthesis -->
-                    <template x-if="reportModal.code_review?.synthesis">
-                        <button @click="loadReportContent(reportModal.code_review.synthesis)"
-                                class="w-full text-left px-3 py-2 rounded bg-destructive/10 hover:bg-destructive/20 focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
-                                data-testid="code-review-synthesis">
-                            <i data-lucide="edit" class="w-4 h-4 text-destructive"></i>
-                            <span class="text-destructive font-medium">Code Review Synthesis</span>
-                        </button>
-                    </template>
-
-                    <!-- Code Review Individual Reports (Story 24.8: Show mapped model names) -->
-                    <template x-for="report in (reportModal.code_review?.reports || [])" :key="report.path">
-                        <button @click="loadReportContent(report)"
-                                class="w-full text-left px-3 py-2 rounded hover:bg-secondary focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
-                                data-testid="code-review-report-item">
-                            <i data-lucide="file" class="w-4 h-4"></i>
-                            <span x-text="getReportDisplayName(report)"></span>
-                        </button>
-                    </template>
-
-                    <!-- Code Review Empty State -->
-                    <div x-show="(reportModal.code_review?.reports || []).length === 0 && !reportModal.code_review?.synthesis"
-                         class="text-muted-foreground text-center py-2 text-sm">
-                        No code review reports
-                    </div>
-                </div>
-            </div>
-
-            <!-- Footer -->
-            <div class="px-4 py-3 border-t border-border">
-                <button @click="reportModal.show = false"
-                        class="btn-outline w-full"
-                        data-testid="close-report-modal">
-                    Close
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-2 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="file-code" class="w-5 h-5"></i>
+                <span x-text="promptBrowser.title"></span>
+            </h2>
+            <div class="flex items-center gap-2">
+                <button @click="copyToClipboard(promptBrowser.content)" class="btn-sm-icon-ghost" title="Copy raw XML"
+                    aria-label="Copy raw XML to clipboard">
+                    <i data-lucide="clipboard" class="w-4 h-4"></i>
                 </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Import Preview Modal (Story 17.12 AC6) -->
-    <div x-show="importView.modalOpen"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         @keydown.escape.window="if (importView.modalOpen && !busyModal.show) closeImportModal()"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-         data-testid="import-modal">
-
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden w-[600px] max-h-[80vh] flex flex-col"
-             x-show="importView.modalOpen"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100">
-
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2 border-b border-border">
-                <h2 class="text-lg font-semibold flex items-center gap-2">
-                    <i data-lucide="file-up" class="w-5 h-5"></i>
-                    Import Preview
-                    <span class="text-muted-foreground text-sm" x-text="importView.filename"></span>
-                </h2>
-                <button @click="closeImportModal()"
-                        class="btn-sm-icon-ghost">
+                <button @click="closePromptBrowser()" class="btn-sm-icon-ghost" data-testid="close-prompt-browser">
                     <i data-lucide="x" class="w-4 h-4"></i>
                 </button>
             </div>
+        </div>
 
-            <!-- Scope Selector (disabled while loading) -->
-            <div class="px-4 py-2 border-b border-border flex items-center gap-4">
-                <span class="text-sm text-muted-foreground">Import to:</span>
-                <label class="flex items-center gap-2 cursor-pointer" :class="{'opacity-50': importView.loading}">
-                    <input type="radio" value="global" x-model="importView.scope"
-                           :disabled="importView.loading"
-                           @change="refreshImportPreview()"
-                           class="form-radio text-primary">
-                    <span>Global</span>
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer" :class="{'opacity-50': importView.loading}">
-                    <input type="radio" value="project" x-model="importView.scope"
-                           :disabled="importView.loading"
-                           @change="refreshImportPreview()"
-                           class="form-radio text-primary">
-                    <span>Project</span>
-                </label>
+        <!-- Content -->
+        <div class="flex-1 overflow-auto p-4">
+
+            <!-- Loading State -->
+            <div x-show="promptBrowser.loading" class="flex items-center justify-center py-12">
+                <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-primary"></i>
+                <span class="ml-3 text-muted-foreground">Parsing prompt structure...</span>
             </div>
 
-            <!-- Content -->
-            <div class="flex-1 overflow-auto p-4 space-y-4">
-
-                <!-- Loading -->
-                <div x-show="importView.loading" class="flex items-center justify-center py-8">
-                    <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-primary"></i>
-                    <span class="ml-2">Validating import...</span>
-                </div>
-
-                <!-- Errors -->
-                <div x-show="importView.errors && !importView.loading"
-                     class="bg-destructive/10 border border-destructive/30 rounded p-4">
+            <!-- Error State -->
+            <div x-show="promptBrowser.parseError && !promptBrowser.loading" class="space-y-4">
+                <div class="bg-destructive/10 border border-destructive/30 rounded p-4">
                     <div class="flex items-center gap-2 text-destructive mb-2">
                         <i data-lucide="alert-circle" class="w-5 h-5"></i>
-                        <span class="font-medium">Import Validation Failed</span>
+                        <span class="font-medium">Unable to parse prompt structure</span>
                     </div>
-                    <div x-show="importView.errors === 'validation'" class="space-y-2">
-                        <template x-for="(msg, path) in validationErrors" :key="path">
-                            <div class="text-sm">
-                                <span class="font-mono text-xs" x-text="path"></span>:
-                                <span class="text-destructive" x-text="msg"></span>
+                    <p class="text-sm text-muted-foreground" x-text="promptBrowser.parseError"></p>
+                </div>
+                <button
+                    @click="contentModal.title = promptBrowser.title; contentModal.content = promptBrowser.content; contentModal.type = 'xml'; contentModal.show = true; closePromptBrowser();"
+                    class="btn-outline" data-testid="view-raw-xml">
+                    <i data-lucide="code" class="w-4 h-4 mr-2"></i>
+                    View Raw XML
+                </button>
+            </div>
+
+            <!-- Parsed Content -->
+            <div x-show="promptBrowser.parsed && !promptBrowser.loading && !promptBrowser.parseError" class="space-y-3">
+
+                <!-- Mission Section (collapsible, starts expanded) - Story 23.6: Content type detection, Story 24.4: Collapsible -->
+                <div class="prompt-section" data-testid="section-mission">
+                    <div class="prompt-section-header" :class="{ 'expanded': isExpanded('mission') }"
+                        @click="toggleSection('mission')" @keydown.enter="toggleSection('mission')"
+                        @keydown.space.prevent="toggleSection('mission')" tabindex="0" role="button"
+                        :aria-expanded="isExpanded('mission')">
+                        <i :data-lucide="getChevronIcon('mission')" class="w-4 h-4 chevron"></i>
+                        <i data-lucide="target" class="w-4 h-4 text-primary"></i>
+                        <span class="font-medium">Mission</span>
+                    </div>
+                    <div x-show="isExpanded('mission')" x-transition:enter="transition ease-out duration-150"
+                        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                        class="prompt-section-content">
+                        <!-- Mission content with cached type detection (typically markdown) -->
+                        <template x-if="promptBrowser.parsed?.missionContentType === 'markdown'">
+                            <div class="markdown-content text-sm"
+                                x-html="renderMarkdownContent(promptBrowser.parsed?.mission || '', 'mission')"></div>
+                        </template>
+                        <template x-if="promptBrowser.parsed?.missionContentType !== 'markdown'">
+                            <pre class="text-sm whitespace-pre-wrap font-mono"
+                                x-text="promptBrowser.parsed?.mission || ''"></pre>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- File Index Section (collapsed by default) -->
+                <template x-if="promptBrowser.parsed?.fileIndex?.length > 0">
+                    <div class="prompt-section" data-testid="section-file-index">
+                        <div class="prompt-section-header" :class="{ 'expanded': isExpanded('file-index') }"
+                            @click="toggleSection('file-index')" @keydown.enter="toggleSection('file-index')"
+                            @keydown.space.prevent="toggleSection('file-index')" tabindex="0" role="button"
+                            :aria-expanded="isExpanded('file-index')">
+                            <i :data-lucide="getChevronIcon('file-index')" class="w-4 h-4 chevron"></i>
+                            <i data-lucide="list" class="w-4 h-4 text-muted-foreground"></i>
+                            <span>File Index</span>
+                            <span class="text-xs text-muted-foreground ml-auto"
+                                x-text="`${promptBrowser.parsed?.fileIndex?.length || 0} files`"></span>
+                        </div>
+                        <div x-show="isExpanded('file-index')" x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                            class="prompt-section-content">
+                            <div class="space-y-1">
+                                <template x-for="entry in promptBrowser.parsed?.fileIndex || []" :key="entry.id">
+                                    <div class="flex items-center gap-2 text-sm font-mono">
+                                        <span class="text-muted-foreground w-20 truncate" x-text="entry.id"></span>
+                                        <span x-text="entry.path"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Context Files Section -->
+                <template x-if="promptBrowser.parsed?.context?.files?.length > 0">
+                    <div class="prompt-section" data-testid="section-context">
+                        <div class="prompt-section-header expanded">
+                            <i data-lucide="folder-open" class="w-4 h-4 text-accent"></i>
+                            <span class="font-medium">Context Files</span>
+                            <span class="text-xs text-muted-foreground ml-auto"
+                                x-text="`${promptBrowser.parsed?.context?.files?.length || 0} files`"></span>
+                        </div>
+                        <div class="prompt-section-content p-0">
+                            <div class="space-y-1">
+                                <template x-for="(file, index) in promptBrowser.parsed?.context?.files || []"
+                                    :key="file.id || index">
+                                    <div class="prompt-file-section" :data-section-id="`file-${file.id || index}`">
+                                        <div class="prompt-section-header"
+                                            :class="{ 'expanded': isExpanded(`file-${file.id || index}`) }"
+                                            @click="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
+                                            @keydown.enter="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
+                                            @keydown.space.prevent="toggleFileSection(`file-${file.id || index}`, file.content, getFileLanguage(file.path))"
+                                            tabindex="0" role="button"
+                                            :aria-expanded="isExpanded(`file-${file.id || index}`)">
+                                            <i :data-lucide="getChevronIcon(`file-${file.id || index}`)"
+                                                class="w-4 h-4 chevron"></i>
+                                            <i data-lucide="file" class="w-4 h-4 text-muted-foreground"></i>
+                                            <span class="text-sm font-mono truncate"
+                                                x-text="getFilenameWithMapping(file.path)"
+                                                :title="getPathWithMapping(file.path)"></span>
+                                            <!-- CDATA indicator (Story 23.6 AC1, Story 24.4: package icon) -->
+                                            <span x-show="file.hasCdata" class="cdata-indicator ml-1"
+                                                title="Content wrapped in CDATA"
+                                                x-effect="if (file.hasCdata) $nextTick(() => refreshIcons())">
+                                                <i data-lucide="package" class="w-3 h-3"></i>
+                                            </span>
+                                            <span class="text-xs text-muted-foreground ml-auto opacity-60"
+                                                x-text="estimateTokens(file.content)"></span>
+                                        </div>
+                                        <div x-show="isExpanded(`file-${file.id || index}`)"
+                                            x-transition:enter="transition ease-out duration-150"
+                                            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                                            class="prompt-section-content file-content-wrapper">
+                                            <div class="text-xs text-muted-foreground mb-2 font-mono truncate"
+                                                x-text="getPathWithMapping(file.path)"></div>
+                                            <!-- Content type based rendering (Story 23.6 AC2-AC5) -->
+                                            <div class="file-content-code">
+                                                <!-- Markdown content -->
+                                                <template x-if="file.contentType === 'markdown'">
+                                                    <div class="markdown-content text-sm"
+                                                        x-html="renderMarkdownContent(file.content, `file-${file.id || index}`)">
+                                                    </div>
+                                                </template>
+                                                <!-- XML content -->
+                                                <template x-if="file.contentType === 'xml'">
+                                                    <div class="xml-content"
+                                                        x-html="renderXmlContent(file.content, `file-${file.id || index}`)">
+                                                    </div>
+                                                </template>
+                                                <!-- Plain text fallback -->
+                                                <template x-if="file.contentType === 'text' || !file.contentType">
+                                                    <pre
+                                                        class="shiki shiki-loading text-sm"><code x-text="file.content"></code></pre>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Variables Section (Story 23.7 - Enhanced with view toggle) -->
+                <template x-if="promptBrowser.parsed?.variables?.length > 0">
+                    <div class="prompt-section" data-testid="section-variables">
+                        <div class="prompt-section-header" :class="{ 'expanded': isExpanded('variables') }"
+                            @click="toggleSection('variables')" @keydown.enter="toggleSection('variables')"
+                            @keydown.space.prevent="toggleSection('variables')" tabindex="0" role="button"
+                            :aria-expanded="isExpanded('variables')">
+                            <i :data-lucide="getChevronIcon('variables')" class="w-4 h-4 chevron"></i>
+                            <i data-lucide="variable" class="w-4 h-4 text-chart-3"></i>
+                            <span>Variables</span>
+                            <span class="text-xs text-muted-foreground ml-auto mr-2"
+                                x-text="`${promptBrowser.parsed?.variables?.length || 0} vars`"></span>
+                            <!-- View toggle buttons (Story 23.7 AC1) -->
+                            <div class="variables-view-toggle" @click.stop data-testid="variables-view-toggle">
+                                <button @click="variablesView = 'rendered'"
+                                    :class="{'active': variablesView === 'rendered'}"
+                                    class="flex items-center gap-1 px-2 py-0.5 text-xs rounded" title="Rendered view"
+                                    data-testid="variables-view-rendered">
+                                    <i data-lucide="layout-grid" class="w-3 h-3"></i>
+                                </button>
+                                <button @click="variablesView = 'raw'" :class="{'active': variablesView === 'raw'}"
+                                    class="flex items-center gap-1 px-2 py-0.5 text-xs rounded" title="Raw XML"
+                                    data-testid="variables-view-raw">
+                                    <i data-lucide="code" class="w-3 h-3"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div x-show="isExpanded('variables')" x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                            class="prompt-section-content">
+                            <!-- Rendered view (Story 23.7 AC2) -->
+                            <template x-if="variablesView === 'rendered'">
+                                <div class="variables-rendered-view" data-testid="variables-rendered">
+                                    <template x-for="categoryName in getVariableCategoryOrder()" :key="categoryName">
+                                        <div class="variables-category">
+                                            <div class="variables-category-header" x-text="categoryName"></div>
+                                            <div class="variables-grid">
+                                                <template x-for="v in getVariablesForCategory(categoryName)"
+                                                    :key="v.name">
+                                                    <div class="variable-item">
+                                                        <span class="variable-name" x-text="v.name"></span>
+                                                        <span class="text-muted-foreground">=</span>
+                                                        <!-- FIX: Show tooltip for all values (paths or long values get truncated at 200px) -->
+                                                        <span class="variable-value"
+                                                            :class="{'cursor-help': isPathShortened(v) || (v.fullValue && v.fullValue.length > 30)}"
+                                                            :title="v.fullValue" x-text="v.displayValue"></span>
+                                                        <span x-show="v.fileId"
+                                                            class="text-xs text-muted-foreground opacity-60"
+                                                            x-text="`[${v.fileId}]`"></span>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <!-- Raw XML view (Story 23.7 AC4) -->
+                            <template x-if="variablesView === 'raw'">
+                                <div class="xml-content" data-testid="variables-raw"
+                                    x-html="renderXmlContent(getVariablesRawXml(), 'variables-raw')"></div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Instructions Section (expanded by default) - Story 23.6: Content type detection, Story 24.4: Default via JS -->
+                <div class="prompt-section" data-testid="section-instructions">
+                    <div class="prompt-section-header" :class="{ 'expanded': isExpanded('instructions') }"
+                        @click="toggleSection('instructions')" @keydown.enter="toggleSection('instructions')"
+                        @keydown.space.prevent="toggleSection('instructions')" tabindex="0" role="button"
+                        :aria-expanded="isExpanded('instructions')">
+                        <i :data-lucide="getChevronIcon('instructions')" class="w-4 h-4 chevron"></i>
+                        <i data-lucide="list-checks" class="w-4 h-4 text-primary"></i>
+                        <span class="font-medium">Instructions</span>
+                    </div>
+                    <div x-show="isExpanded('instructions')" x-transition:enter="transition ease-out duration-150"
+                        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                        class="prompt-section-content">
+                        <!-- Instructions content with cached type detection (typically XML) -->
+                        <template x-if="promptBrowser.parsed?.instructionsContentType === 'xml'">
+                            <div class="xml-content"
+                                x-html="renderXmlContent(promptBrowser.parsed?.instructions || '', 'instructions')">
+                            </div>
+                        </template>
+                        <template x-if="promptBrowser.parsed?.instructionsContentType !== 'xml'">
+                            <pre class="text-sm whitespace-pre-wrap font-mono overflow-x-auto"
+                                x-text="promptBrowser.parsed?.instructions || ''"></pre>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Output Template Section (collapsed by default) - Story 23.6: Content type detection -->
+                <template x-if="promptBrowser.parsed?.output">
+                    <div class="prompt-section" data-testid="section-output">
+                        <div class="prompt-section-header" :class="{ 'expanded': isExpanded('output') }"
+                            @click="toggleSection('output')" @keydown.enter="toggleSection('output')"
+                            @keydown.space.prevent="toggleSection('output')" tabindex="0" role="button"
+                            :aria-expanded="isExpanded('output')">
+                            <i :data-lucide="getChevronIcon('output')" class="w-4 h-4 chevron"></i>
+                            <i data-lucide="file-output" class="w-4 h-4 text-bp-warning"></i>
+                            <span>Output Template</span>
+                        </div>
+                        <div x-show="isExpanded('output')" x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+                            class="prompt-section-content">
+                            <!-- Output content with cached type detection (typically markdown) -->
+                            <template x-if="promptBrowser.parsed?.outputContentType === 'markdown'">
+                                <div class="markdown-content text-sm"
+                                    x-html="renderMarkdownContent(promptBrowser.parsed?.output || '', 'output')"></div>
+                            </template>
+                            <template x-if="promptBrowser.parsed?.outputContentType !== 'markdown'">
+                                <pre class="text-sm whitespace-pre-wrap font-mono"
+                                    x-text="promptBrowser.parsed?.output || ''"></pre>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Report List Modal (Story 16.9 - AC 4) - Updated for both Validation and Code Review -->
+<div x-show="reportModal.show" x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    @keydown.escape.window="if (reportModal.show && !contentModal.show && !busyModal.show) reportModal.show = false"
+    class="fixed inset-0 z-40 flex items-center justify-center bg-black/50" data-testid="report-modal">
+
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden w-[480px] max-h-[70vh] flex flex-col" x-show="reportModal.show"
+        x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95" role="dialog"
+        aria-modal="true" @click.outside="reportModal.show = false">
+
+        <!-- Header -->
+        <div class="px-4 py-2 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="file-text" class="w-5 h-5"></i>
+                Review Reports
+                <span class="text-muted-foreground text-sm" x-text="`${reportModal.epic}.${reportModal.story}`"></span>
+            </h2>
+        </div>
+
+        <!-- Report List -->
+        <div class="flex-1 overflow-auto p-3 space-y-4">
+
+            <!-- Validation Section -->
+            <div class="space-y-2">
+                <h3 class="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <i data-lucide="check-circle" class="w-4 h-4 text-bp-warning"></i>
+                    Validation Reports
+                </h3>
+
+                <!-- Validation Synthesis -->
+                <template x-if="reportModal.validation?.synthesis">
+                    <button @click="loadReportContent(reportModal.validation.synthesis)"
+                        class="w-full text-left px-3 py-2 rounded bg-bp-warning/10 hover:bg-bp-warning/20 focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
+                        data-testid="validation-synthesis">
+                        <i data-lucide="edit" class="w-4 h-4 text-bp-warning"></i>
+                        <span class="text-bp-warning font-medium">Validation Synthesis</span>
+                    </button>
+                </template>
+
+                <!-- Validation Individual Reports (Story 24.8: Show mapped model names) -->
+                <template x-for="report in (reportModal.validation?.reports || [])" :key="report.path">
+                    <button @click="loadReportContent(report)"
+                        class="w-full text-left px-3 py-2 rounded hover:bg-secondary focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
+                        data-testid="validation-report-item">
+                        <i data-lucide="file" class="w-4 h-4"></i>
+                        <span x-text="getReportDisplayName(report)"></span>
+                    </button>
+                </template>
+
+                <!-- Validation Empty State -->
+                <div x-show="(reportModal.validation?.reports || []).length === 0 && !reportModal.validation?.synthesis"
+                    class="text-muted-foreground text-center py-2 text-sm">
+                    No validation reports
+                </div>
+            </div>
+
+            <!-- Code Review Section -->
+            <div class="space-y-2 pt-2 border-t border-border">
+                <h3 class="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                    <i data-lucide="code" class="w-4 h-4 text-destructive"></i>
+                    Code Review Reports
+                </h3>
+
+                <!-- Code Review Synthesis -->
+                <template x-if="reportModal.code_review?.synthesis">
+                    <button @click="loadReportContent(reportModal.code_review.synthesis)"
+                        class="w-full text-left px-3 py-2 rounded bg-destructive/10 hover:bg-destructive/20 focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
+                        data-testid="code-review-synthesis">
+                        <i data-lucide="edit" class="w-4 h-4 text-destructive"></i>
+                        <span class="text-destructive font-medium">Code Review Synthesis</span>
+                    </button>
+                </template>
+
+                <!-- Code Review Individual Reports (Story 24.8: Show mapped model names) -->
+                <template x-for="report in (reportModal.code_review?.reports || [])" :key="report.path">
+                    <button @click="loadReportContent(report)"
+                        class="w-full text-left px-3 py-2 rounded hover:bg-secondary focus:ring-2 focus:ring-ring focus:outline-none flex items-center gap-2"
+                        data-testid="code-review-report-item">
+                        <i data-lucide="file" class="w-4 h-4"></i>
+                        <span x-text="getReportDisplayName(report)"></span>
+                    </button>
+                </template>
+
+                <!-- Code Review Empty State -->
+                <div x-show="(reportModal.code_review?.reports || []).length === 0 && !reportModal.code_review?.synthesis"
+                    class="text-muted-foreground text-center py-2 text-sm">
+                    No code review reports
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-4 py-3 border-t border-border">
+            <button @click="reportModal.show = false" class="btn-outline w-full" data-testid="close-report-modal">
+                Close
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Import Preview Modal (Story 17.12 AC6) -->
+<div x-show="importView.modalOpen" x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+    @keydown.escape.window="if (importView.modalOpen && !busyModal.show) closeImportModal()"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" data-testid="import-modal">
+
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden w-[600px] max-h-[80vh] flex flex-col"
+        x-show="importView.modalOpen" x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-2 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="file-up" class="w-5 h-5"></i>
+                Import Preview
+                <span class="text-muted-foreground text-sm" x-text="importView.filename"></span>
+            </h2>
+            <button @click="closeImportModal()" class="btn-sm-icon-ghost">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- Scope Selector (disabled while loading) -->
+        <div class="px-4 py-2 border-b border-border flex items-center gap-4">
+            <span class="text-sm text-muted-foreground">Import to:</span>
+            <label class="flex items-center gap-2 cursor-pointer" :class="{'opacity-50': importView.loading}">
+                <input type="radio" value="global" x-model="importView.scope" :disabled="importView.loading"
+                    @change="refreshImportPreview()" class="form-radio text-primary">
+                <span>Global</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer" :class="{'opacity-50': importView.loading}">
+                <input type="radio" value="project" x-model="importView.scope" :disabled="importView.loading"
+                    @change="refreshImportPreview()" class="form-radio text-primary">
+                <span>Project</span>
+            </label>
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 overflow-auto p-4 space-y-4">
+
+            <!-- Loading -->
+            <div x-show="importView.loading" class="flex items-center justify-center py-8">
+                <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-primary"></i>
+                <span class="ml-2">Validating import...</span>
+            </div>
+
+            <!-- Errors -->
+            <div x-show="importView.errors && !importView.loading"
+                class="bg-destructive/10 border border-destructive/30 rounded p-4">
+                <div class="flex items-center gap-2 text-destructive mb-2">
+                    <i data-lucide="alert-circle" class="w-5 h-5"></i>
+                    <span class="font-medium">Import Validation Failed</span>
+                </div>
+                <div x-show="importView.errors === 'validation'" class="space-y-2">
+                    <template x-for="(msg, path) in validationErrors" :key="path">
+                        <div class="text-sm">
+                            <span class="font-mono text-xs" x-text="path"></span>:
+                            <span class="text-destructive" x-text="msg"></span>
+                        </div>
+                    </template>
+                </div>
+                <div x-show="typeof importView.errors === 'string'" class="text-sm" x-text="importView.errors"></div>
+            </div>
+
+            <!-- Diff Preview -->
+            <div x-show="importView.diff && !importView.loading && !importView.errors" class="space-y-4">
+
+                <!-- No Changes -->
+                <div x-show="!hasImportChanges()" class="text-center py-8 text-muted-foreground">
+                    <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-accent"></i>
+                    <p>No changes detected.</p>
+                    <p class="text-sm">Import matches current <span x-text="importView.scope"></span> config.</p>
+                </div>
+
+                <!-- Added Fields -->
+                <div x-show="Object.keys(importView.diff?.added || {}).length > 0">
+                    <h4 class="text-sm font-medium text-accent mb-2 flex items-center gap-2">
+                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                        Added (<span x-text="Object.keys(importView.diff?.added || {}).length"></span>)
+                    </h4>
+                    <div class="space-y-1">
+                        <template x-for="(value, path) in importView.diff?.added || {}" :key="path">
+                            <div class="flex items-center gap-2 px-3 py-2 bg-accent/10 rounded text-sm">
+                                <span class="font-mono text-xs flex-1" x-text="path"></span>
+                                <span class="text-accent truncate max-w-[200px]" x-text="JSON.stringify(value)"></span>
+                                <i x-show="importView.riskyFields?.includes(path)" data-lucide="alert-triangle"
+                                    class="w-4 h-4 text-bp-warning" title="Risky field"></i>
                             </div>
                         </template>
                     </div>
-                    <div x-show="typeof importView.errors === 'string'" class="text-sm" x-text="importView.errors"></div>
                 </div>
 
-                <!-- Diff Preview -->
-                <div x-show="importView.diff && !importView.loading && !importView.errors" class="space-y-4">
-
-                    <!-- No Changes -->
-                    <div x-show="!hasImportChanges()"
-                         class="text-center py-8 text-muted-foreground">
-                        <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-accent"></i>
-                        <p>No changes detected.</p>
-                        <p class="text-sm">Import matches current <span x-text="importView.scope"></span> config.</p>
+                <!-- Modified Fields -->
+                <div x-show="Object.keys(importView.diff?.modified || {}).length > 0">
+                    <h4 class="text-sm font-medium text-bp-warning mb-2 flex items-center gap-2">
+                        <i data-lucide="edit" class="w-4 h-4"></i>
+                        Modified (<span x-text="Object.keys(importView.diff?.modified || {}).length"></span>)
+                    </h4>
+                    <div class="space-y-1">
+                        <template x-for="(change, path) in importView.diff?.modified || {}" :key="path">
+                            <div class="flex items-center gap-2 px-3 py-2 bg-bp-warning/10 rounded text-sm">
+                                <span class="font-mono text-xs" x-text="path"></span>
+                                <span class="text-muted-foreground line-through truncate max-w-[100px]"
+                                    x-text="JSON.stringify(change.old)"></span>
+                                <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                                <span class="text-bp-warning truncate max-w-[100px]"
+                                    x-text="JSON.stringify(change.new)"></span>
+                                <i x-show="importView.riskyFields?.includes(path)" data-lucide="alert-triangle"
+                                    class="w-4 h-4 text-bp-warning ml-auto" title="Risky field"></i>
+                            </div>
+                        </template>
                     </div>
+                </div>
 
-                    <!-- Added Fields -->
-                    <div x-show="Object.keys(importView.diff?.added || {}).length > 0">
-                        <h4 class="text-sm font-medium text-accent mb-2 flex items-center gap-2">
-                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
-                            Added (<span x-text="Object.keys(importView.diff?.added || {}).length"></span>)
-                        </h4>
-                        <div class="space-y-1">
-                            <template x-for="(value, path) in importView.diff?.added || {}" :key="path">
-                                <div class="flex items-center gap-2 px-3 py-2 bg-accent/10 rounded text-sm">
-                                    <span class="font-mono text-xs flex-1" x-text="path"></span>
-                                    <span class="text-accent truncate max-w-[200px]" x-text="JSON.stringify(value)"></span>
-                                    <i x-show="importView.riskyFields?.includes(path)"
-                                       data-lucide="alert-triangle" class="w-4 h-4 text-bp-warning" title="Risky field"></i>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- Modified Fields -->
-                    <div x-show="Object.keys(importView.diff?.modified || {}).length > 0">
-                        <h4 class="text-sm font-medium text-bp-warning mb-2 flex items-center gap-2">
-                            <i data-lucide="edit" class="w-4 h-4"></i>
-                            Modified (<span x-text="Object.keys(importView.diff?.modified || {}).length"></span>)
-                        </h4>
-                        <div class="space-y-1">
-                            <template x-for="(change, path) in importView.diff?.modified || {}" :key="path">
-                                <div class="flex items-center gap-2 px-3 py-2 bg-bp-warning/10 rounded text-sm">
-                                    <span class="font-mono text-xs" x-text="path"></span>
-                                    <span class="text-muted-foreground line-through truncate max-w-[100px]" x-text="JSON.stringify(change.old)"></span>
-                                    <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                                    <span class="text-bp-warning truncate max-w-[100px]" x-text="JSON.stringify(change.new)"></span>
-                                    <i x-show="importView.riskyFields?.includes(path)"
-                                       data-lucide="alert-triangle" class="w-4 h-4 text-bp-warning ml-auto" title="Risky field"></i>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- Removed Fields -->
-                    <div x-show="(importView.diff?.removed || []).length > 0">
-                        <h4 class="text-sm font-medium text-destructive mb-2 flex items-center gap-2">
-                            <i data-lucide="minus-circle" class="w-4 h-4"></i>
-                            Removed (<span x-text="(importView.diff?.removed || []).length"></span>)
-                        </h4>
-                        <div class="space-y-1">
-                            <template x-for="path in importView.diff?.removed || []" :key="path">
-                                <div class="flex items-center gap-2 px-3 py-2 bg-destructive/10 rounded text-sm">
-                                    <span class="font-mono text-xs text-destructive" x-text="path"></span>
-                                </div>
-                            </template>
-                        </div>
+                <!-- Removed Fields -->
+                <div x-show="(importView.diff?.removed || []).length > 0">
+                    <h4 class="text-sm font-medium text-destructive mb-2 flex items-center gap-2">
+                        <i data-lucide="minus-circle" class="w-4 h-4"></i>
+                        Removed (<span x-text="(importView.diff?.removed || []).length"></span>)
+                    </h4>
+                    <div class="space-y-1">
+                        <template x-for="path in importView.diff?.removed || []" :key="path">
+                            <div class="flex items-center gap-2 px-3 py-2 bg-destructive/10 rounded text-sm">
+                                <span class="font-mono text-xs text-destructive" x-text="path"></span>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </div>
+        </div>
 
-            <!-- Footer -->
-            <div class="flex justify-end gap-3 px-4 py-3 border-t border-border">
-                <button class="btn-outline" @click="closeImportModal()">
-                    Cancel
-                </button>
-                <button class="btn"
-                        :disabled="importView.loading || importView.errors || !importView.diff || !hasImportChanges()"
-                        @click="applyImport()">
-                    <template x-if="importView.loading">
-                        <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 px-4 py-3 border-t border-border">
+            <button class="btn-outline" @click="closeImportModal()">
+                Cancel
+            </button>
+            <button class="btn"
+                :disabled="importView.loading || importView.errors || !importView.diff || !hasImportChanges()"
+                @click="applyImport()">
+                <template x-if="importView.loading">
+                    <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                </template>
+                Apply Import
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Run Trigger Modal (Story 19.6) -->
+<div x-show="runTrigger.modalOpen" x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0" @keydown.escape.window="if (runTrigger.modalOpen) closeRunTriggerModal()"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" data-testid="run-trigger-modal">
+
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden w-full max-w-md" x-show="runTrigger.modalOpen"
+        x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+        @click.outside="closeRunTriggerModal()">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-2 border-b border-border">
+            <h2 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="play-circle" class="w-5 h-5"></i>
+                Start Experiment Run
+            </h2>
+            <button @click="closeRunTriggerModal()" class="btn-sm-icon-ghost">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <!-- Form -->
+        <div class="p-4 space-y-4">
+            <!-- Error -->
+            <div x-show="runTrigger.error"
+                class="bg-destructive/10 border border-destructive/30 rounded p-3 text-sm text-destructive">
+                <i data-lucide="alert-circle" class="w-4 h-4 inline-block mr-1"></i>
+                <span x-text="runTrigger.error"></span>
+            </div>
+
+            <!-- Fixture -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Fixture</label>
+                <select x-model="runTrigger.fixture" class="input w-full" data-testid="run-trigger-fixture">
+                    <template x-for="f in runTrigger.fixtures" :key="f.name">
+                        <option :value="f.name" x-text="f.name"></option>
                     </template>
-                    Apply Import
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Run Trigger Modal (Story 19.6) -->
-    <div x-show="runTrigger.modalOpen"
-         x-transition:enter="transition ease-out duration-200"
-         x-transition:enter-start="opacity-0"
-         x-transition:enter-end="opacity-100"
-         x-transition:leave="transition ease-in duration-150"
-         x-transition:leave-start="opacity-100"
-         x-transition:leave-end="opacity-0"
-         @keydown.escape.window="if (runTrigger.modalOpen) closeRunTriggerModal()"
-         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-         data-testid="run-trigger-modal">
-
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden w-full max-w-md"
-             x-show="runTrigger.modalOpen"
-             x-transition:enter="transition ease-out duration-200"
-             x-transition:enter-start="opacity-0 scale-95"
-             x-transition:enter-end="opacity-100 scale-100"
-             x-transition:leave="transition ease-in duration-150"
-             x-transition:leave-start="opacity-100 scale-100"
-             x-transition:leave-end="opacity-0 scale-95"
-             @click.outside="closeRunTriggerModal()">
-
-            <!-- Header -->
-            <div class="flex items-center justify-between px-4 py-2 border-b border-border">
-                <h2 class="text-lg font-semibold flex items-center gap-2">
-                    <i data-lucide="play-circle" class="w-5 h-5"></i>
-                    Start Experiment Run
-                </h2>
-                <button @click="closeRunTriggerModal()" class="btn-sm-icon-ghost">
-                    <i data-lucide="x" class="w-4 h-4"></i>
-                </button>
+                </select>
+                <p x-show="runTrigger.fixtures.length === 0" class="text-sm text-muted-foreground mt-1">
+                    No fixtures found
+                </p>
             </div>
 
-            <!-- Form -->
-            <div class="p-4 space-y-4">
-                <!-- Error -->
-                <div x-show="runTrigger.error"
-                     class="bg-destructive/10 border border-destructive/30 rounded p-3 text-sm text-destructive">
-                    <i data-lucide="alert-circle" class="w-4 h-4 inline-block mr-1"></i>
-                    <span x-text="runTrigger.error"></span>
-                </div>
-
-                <!-- Fixture -->
-                <div>
-                    <label class="block text-sm font-medium mb-1">Fixture</label>
-                    <select x-model="runTrigger.fixture"
-                            class="input w-full"
-                            data-testid="run-trigger-fixture">
-                        <template x-for="f in runTrigger.fixtures" :key="f.name">
-                            <option :value="f.name" x-text="f.name"></option>
-                        </template>
-                    </select>
-                    <p x-show="runTrigger.fixtures.length === 0" class="text-sm text-muted-foreground mt-1">
-                        No fixtures found
-                    </p>
-                </div>
-
-                <!-- Config -->
-                <div>
-                    <label class="block text-sm font-medium mb-1">Config</label>
-                    <select x-model="runTrigger.config"
-                            class="input w-full"
-                            data-testid="run-trigger-config">
-                        <template x-for="c in runTrigger.configs" :key="c.name">
-                            <option :value="c.name" x-text="c.name"></option>
-                        </template>
-                    </select>
-                    <p x-show="runTrigger.configs.length === 0" class="text-sm text-muted-foreground mt-1">
-                        No configs found
-                    </p>
-                </div>
-
-                <!-- Patch-Set -->
-                <div>
-                    <label class="block text-sm font-medium mb-1">Patch-Set</label>
-                    <select x-model="runTrigger.patchSet"
-                            class="input w-full"
-                            data-testid="run-trigger-patchset">
-                        <template x-for="p in runTrigger.patchSets" :key="p.name">
-                            <option :value="p.name" x-text="p.name"></option>
-                        </template>
-                    </select>
-                    <p x-show="runTrigger.patchSets.length === 0" class="text-sm text-muted-foreground mt-1">
-                        No patch-sets found
-                    </p>
-                </div>
-
-                <!-- Loop -->
-                <div>
-                    <label class="block text-sm font-medium mb-1">Loop</label>
-                    <select x-model="runTrigger.loop"
-                            class="input w-full"
-                            data-testid="run-trigger-loop">
-                        <template x-for="l in runTrigger.loops" :key="l.name">
-                            <option :value="l.name" x-text="l.name"></option>
-                        </template>
-                    </select>
-                    <p x-show="runTrigger.loops.length === 0" class="text-sm text-muted-foreground mt-1">
-                        No loops found
-                    </p>
-                </div>
-            </div>
-
-            <!-- Footer -->
-            <div class="flex justify-end gap-3 px-4 py-3 border-t border-border">
-                <button class="btn-outline" @click="closeRunTriggerModal()">
-                    Cancel
-                </button>
-                <button class="btn"
-                        :disabled="runTrigger.loading || !runTrigger.fixture || !runTrigger.config || !runTrigger.patchSet || !runTrigger.loop"
-                        @click="submitRunTrigger()"
-                        data-testid="run-trigger-submit">
-                    <template x-if="runTrigger.loading">
-                        <i data-lucide="loader-2" class="w-4 h-4 animate-spin mr-1"></i>
+            <!-- Config -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Config</label>
+                <select x-model="runTrigger.config" class="input w-full" data-testid="run-trigger-config">
+                    <template x-for="c in runTrigger.configs" :key="c.name">
+                        <option :value="c.name" x-text="c.name"></option>
                     </template>
-                    <i x-show="!runTrigger.loading" data-lucide="play" class="w-4 h-4 mr-1"></i>
-                    Start Run
+                </select>
+                <p x-show="runTrigger.configs.length === 0" class="text-sm text-muted-foreground mt-1">
+                    No configs found
+                </p>
+            </div>
+
+            <!-- Patch-Set -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Patch-Set</label>
+                <select x-model="runTrigger.patchSet" class="input w-full" data-testid="run-trigger-patchset">
+                    <template x-for="p in runTrigger.patchSets" :key="p.name">
+                        <option :value="p.name" x-text="p.name"></option>
+                    </template>
+                </select>
+                <p x-show="runTrigger.patchSets.length === 0" class="text-sm text-muted-foreground mt-1">
+                    No patch-sets found
+                </p>
+            </div>
+
+            <!-- Loop -->
+            <div>
+                <label class="block text-sm font-medium mb-1">Loop</label>
+                <select x-model="runTrigger.loop" class="input w-full" data-testid="run-trigger-loop">
+                    <template x-for="l in runTrigger.loops" :key="l.name">
+                        <option :value="l.name" x-text="l.name"></option>
+                    </template>
+                </select>
+                <p x-show="runTrigger.loops.length === 0" class="text-sm text-muted-foreground mt-1">
+                    No loops found
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-3 px-4 py-3 border-t border-border">
+            <button class="btn-outline" @click="closeRunTriggerModal()">
+                Cancel
+            </button>
+            <button class="btn"
+                :disabled="runTrigger.loading || !runTrigger.fixture || !runTrigger.config || !runTrigger.patchSet || !runTrigger.loop"
+                @click="submitRunTrigger()" data-testid="run-trigger-submit">
+                <template x-if="runTrigger.loading">
+                    <i data-lucide="loader-2" class="w-4 h-4 animate-spin mr-1"></i>
+                </template>
+                <i x-show="!runTrigger.loading" data-lucide="play" class="w-4 h-4 mr-1"></i>
+                Start Run
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Active Experiment Progress (Story 19.6) - Fixed position floating card -->
+<div x-show="activeExperiment.runId" x-transition:enter="transition ease-out duration-300"
+    x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0"
+    x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0"
+    x-transition:leave-end="opacity-0 translate-y-4" class="fixed bottom-4 right-4 z-40 w-80"
+    data-testid="active-experiment-progress">
+
+    <div class="card shadow-xl p-0 gap-0 overflow-hidden border border-border">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
+            <div class="flex items-center gap-2">
+                <i data-lucide="flask-conical" class="w-4 h-4 text-primary"></i>
+                <span class="text-sm font-medium truncate max-w-[140px]" x-text="activeExperiment.runId"></span>
+            </div>
+            <div class="flex items-center gap-1">
+                <span :class="getExperimentStatusClass()" class="px-2 py-0.5 text-xs rounded-full"
+                    x-text="activeExperiment.status"></span>
+                <button @click="clearActiveExperiment()" class="btn-sm-icon-ghost" title="Dismiss">
+                    <i data-lucide="x" class="w-3 h-3"></i>
                 </button>
             </div>
         </div>
-    </div>
 
-    <!-- Active Experiment Progress (Story 19.6) - Fixed position floating card -->
-    <div x-show="activeExperiment.runId"
-         x-transition:enter="transition ease-out duration-300"
-         x-transition:enter-start="opacity-0 translate-y-4"
-         x-transition:enter-end="opacity-100 translate-y-0"
-         x-transition:leave="transition ease-in duration-200"
-         x-transition:leave-start="opacity-100 translate-y-0"
-         x-transition:leave-end="opacity-0 translate-y-4"
-         class="fixed bottom-4 right-4 z-40 w-80"
-         data-testid="active-experiment-progress">
-
-        <div class="card shadow-xl p-0 gap-0 overflow-hidden border border-border">
-            <!-- Header -->
-            <div class="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
-                <div class="flex items-center gap-2">
-                    <i data-lucide="flask-conical" class="w-4 h-4 text-primary"></i>
-                    <span class="text-sm font-medium truncate max-w-[140px]" x-text="activeExperiment.runId"></span>
-                </div>
-                <div class="flex items-center gap-1">
-                    <span :class="getExperimentStatusClass()" class="px-2 py-0.5 text-xs rounded-full"
-                          x-text="activeExperiment.status"></span>
-                    <button @click="clearActiveExperiment()"
-                            class="btn-sm-icon-ghost"
-                            title="Dismiss">
-                        <i data-lucide="x" class="w-3 h-3"></i>
-                    </button>
-                </div>
+        <!-- Progress -->
+        <div class="px-3 py-3 space-y-2">
+            <!-- Progress Bar -->
+            <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
+                <div class="bg-primary h-2 rounded-full transition-all duration-300"
+                    :style="`width: ${activeExperiment.percent}%`"></div>
             </div>
 
-            <!-- Progress -->
-            <div class="px-3 py-3 space-y-2">
-                <!-- Progress Bar -->
-                <div class="w-full bg-muted rounded-full h-2 overflow-hidden">
-                    <div class="bg-primary h-2 rounded-full transition-all duration-300"
-                         :style="`width: ${activeExperiment.percent}%`"></div>
-                </div>
-
-                <!-- Stats -->
-                <div class="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                        <span x-text="activeExperiment.storiesCompleted"></span>/<span x-text="activeExperiment.storiesTotal"></span> stories
-                    </span>
-                    <span x-text="`${activeExperiment.percent}%`"></span>
-                </div>
-
-                <!-- Current Phase/Story -->
-                <div x-show="activeExperiment.phase || activeExperiment.story" class="text-xs text-muted-foreground truncate">
-                    <span x-show="activeExperiment.phase" x-text="activeExperiment.phase"></span>
-                    <span x-show="activeExperiment.story">
-                        - <span x-text="activeExperiment.story"></span>
-                    </span>
-                </div>
-
-                <!-- Cancel Button -->
-                <button x-show="hasActiveExperiment()"
-                        @click="cancelExperiment()"
-                        class="btn-outline btn-destructive w-full text-sm"
-                        data-testid="cancel-experiment-btn">
-                    <i data-lucide="square" class="w-3 h-3 mr-1"></i>
-                    Cancel
-                </button>
+            <!-- Stats -->
+            <div class="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                    <span x-text="activeExperiment.storiesCompleted"></span>/<span
+                        x-text="activeExperiment.storiesTotal"></span> stories
+                </span>
+                <span x-text="`${activeExperiment.percent}%`"></span>
             </div>
+
+            <!-- Current Phase/Story -->
+            <div x-show="activeExperiment.phase || activeExperiment.story"
+                class="text-xs text-muted-foreground truncate">
+                <span x-show="activeExperiment.phase" x-text="activeExperiment.phase"></span>
+                <span x-show="activeExperiment.story">
+                    - <span x-text="activeExperiment.story"></span>
+                </span>
+            </div>
+
+            <!-- Cancel Button -->
+            <button x-show="hasActiveExperiment()" @click="cancelExperiment()"
+                class="btn-outline btn-destructive w-full text-sm" data-testid="cancel-experiment-btn">
+                <i data-lucide="square" class="w-3 h-3 mr-1"></i>
+                Cancel
+            </button>
         </div>
     </div>
+</div>
 
-    <!-- Component scripts (load before alpine-init.js orchestrator) -->
-    <script src="/js/utils.js"></script>
-    <!-- Shiki highlighter - ESM module for CDN imports (Story 23.3) -->
-    <script src="/js/shiki-highlighter.js" type="module"></script>
-    <script src="/js/components/tree-view.js"></script>
-    <script src="/js/components/terminal.js"></script>
-    <script src="/js/components/settings.js"></script>
-    <script src="/js/components/experiments.js"></script>
-    <script src="/js/components/context-menu.js"></script>
-    <script src="/js/components/modals.js"></script>
-    <!-- Shared content browser utilities (Story 24.1) - must load BEFORE prompt-browser.js which uses it -->
-    <script src="/js/components/content-browser.js"></script>
-    <!-- Epic metrics browser (Story 24.7) -->
-    <script src="/js/components/epic-metrics.js"></script>
-    <script src="/js/components/prompt-browser.js"></script>
-    <script src="/js/components/sse-connection.js"></script>
-    <script src="/js/components/loop-control.js"></script>
-    <!-- Orchestrator that combines all components -->
-    <script src="/js/alpine-init.js"></script>
+<!-- Component scripts (load before alpine-init.js orchestrator) -->
+<script src="/js/utils.js"></script>
+<!-- Shiki highlighter - ESM module for CDN imports (Story 23.3) -->
+<script src="/js/shiki-highlighter.js" type="module"></script>
+<script src="/js/components/tree-view.js"></script>
+<script src="/js/components/terminal.js"></script>
+<script src="/js/components/settings.js"></script>
+<script src="/js/components/experiments.js"></script>
+<script src="/js/components/context-menu.js"></script>
+<script src="/js/components/modals.js"></script>
+<!-- Shared content browser utilities (Story 24.1) - must load BEFORE prompt-browser.js which uses it -->
+<script src="/js/components/content-browser.js"></script>
+<!-- Epic metrics browser (Story 24.7) -->
+<script src="/js/components/epic-metrics.js"></script>
+<script src="/js/components/prompt-browser.js"></script>
+<script src="/js/components/sse-connection.js"></script>
+<script src="/js/components/loop-control.js"></script>
+<!-- Multi-project dashboard (Story MPD) -->
+<script src="/js/components/multi-project.js"></script>
+<!-- Orchestrator that combines all components -->
+<script src="/js/alpine-init.js"></script>
 </body>
+
 </html>
