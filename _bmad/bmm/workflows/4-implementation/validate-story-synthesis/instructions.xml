@@ -1,0 +1,130 @@
+<workflow>
+  <critical>Communicate all responses in {communication_language} and generate all documents in {document_output_language}</critical>
+
+  <critical>You are the MASTER SYNTHESIS agent. Your role is to evaluate validator findings
+    and produce a definitive synthesis with applied fixes.</critical>
+  <critical>You have WRITE PERMISSION to modify the story file being validated.</critical>
+  <critical>All context (project_context.md, story file, anonymized validations) is EMBEDDED below - do NOT attempt to read files.</critical>
+  <critical>Apply changes to story file directly using atomic write pattern (temp file + rename).</critical>
+
+  <step n="1" goal="Analyze validator findings">
+    <action>Read all anonymized validator outputs (Validator A, B, C, D, etc.)</action>
+    <action>For each issue raised:
+      - Cross-reference with story content and project_context.md
+      - Determine if issue is valid or false positive
+      - Note validator consensus (if 3+ validators agree, high confidence issue)
+    </action>
+    <action>Issues with low validator agreement (1-2 validators) require extra scrutiny</action>
+  </step>
+
+  <step n="2" goal="Verify and prioritize issues">
+    <action>For verified issues, assign severity:
+      - Critical: Blocks implementation or causes major problems
+      - High: Significant gaps or ambiguities that need attention
+      - Medium: Improvements that would help quality
+      - Low: Nice-to-have suggestions
+    </action>
+    <action>Document false positives with clear reasoning for dismissal:
+      - Why the validator was wrong
+      - What evidence contradicts the finding
+      - Reference specific story content or project_context.md
+    </action>
+  </step>
+
+  <step n="3" goal="Apply changes to story file">
+    <action>For each verified issue (starting with Critical, then High), apply fix directly to story file</action>
+    <action>Changes should be natural improvements:
+      - DO NOT add review metadata or synthesis comments to story
+      - DO NOT reference the synthesis or validation process
+      - Preserve story structure, formatting, and style
+      - Make changes look like they were always there
+    </action>
+    <action>For each change, log in synthesis output:
+      - File path modified
+      - Section/line reference (e.g., "AC4", "Task 2.3")
+      - Brief description of change
+      - Before snippet (2-3 lines context)
+      - After snippet (2-3 lines context)
+    </action>
+    <action>Use atomic write pattern for story modifications to prevent corruption</action>
+  </step>
+
+  <step n="4" goal="Generate synthesis report">
+    <critical>Your synthesis report MUST be wrapped in HTML comment markers for extraction:</critical>
+    <action>Produce structured output in this exact format (including the markers):</action>
+    <output-format>
+&lt;!-- VALIDATION_SYNTHESIS_START --&gt;
+## Synthesis Summary
+[Brief overview: X issues verified, Y false positives dismissed, Z changes applied to story file]
+
+## Validations Quality
+[For each validator: name, score, comments]
+[Summary of validation quality - 1-10 scale]
+
+## Issues Verified (by severity)
+
+### Critical
+[Issues that block implementation - list with evidence and fixes applied]
+[Format: "- **Issue**: Description | **Source**: Validator(s) | **Fix**: What was changed"]
+
+### High
+[Significant gaps requiring attention]
+
+### Medium
+[Quality improvements]
+
+### Low
+[Nice-to-have suggestions - may be deferred]
+
+## Issues Dismissed
+[False positives with reasoning for each dismissal]
+[Format: "- **Claimed Issue**: Description | **Raised by**: Validator(s) | **Dismissal Reason**: Why this is incorrect"]
+
+## Changes Applied
+[Complete list of modifications made to story file]
+[Format for each change:
+  **Location**: [File path] - [Section/line]
+  **Change**: [Brief description]
+  **Before**:
+  ```
+  [2-3 lines of original content]
+  ```
+  **After**:
+  ```
+  [2-3 lines of updated content]
+  ```
+]
+&lt;!-- VALIDATION_SYNTHESIS_END --&gt;
+    </output-format>
+
+    <action>After the synthesis report (outside the markers), output structured metrics for benchmarking:</action>
+    <critical>Include EXACTLY this JSON structure between markers - all fields are REQUIRED:</critical>
+    <output-format><![CDATA[
+<!-- METRICS_JSON_START -->
+{
+  "quality": {
+    "actionable_ratio": <0.0-1.0: (findings with specific fix suggestion) / total_findings, or 1.0 if no findings>,
+    "specificity_score": <0.0-1.0: (findings with location + evidence) / total_findings, or 1.0 if no findings>,
+    "evidence_quality": <0.0-1.0: average per finding of (has_source_citation*0.5 + has_code_snippet*0.3 + has_reasoning*0.2), or 1.0 if no findings>,
+    "follows_template": <true|false: output matches expected synthesis format with all required headings>,
+    "internal_consistency": <0.0-1.0: 1 - (contradictions_count / total_findings), clamped to [0,1], or 1.0 if no findings>
+  },
+  "consensus": {
+    "agreed_findings": <int: count of issues where 3+ validators flagged same problem>,
+    "unique_findings": <int: count of issues flagged by exactly 1 validator>,
+    "disputed_findings": <int: count of issues where validators disagreed>,
+    "missed_findings": 0,
+    "agreement_score": <0.0-1.0: agreed_findings / (agreed + unique + disputed), or 1.0 if denominator is 0>,
+    "false_positive_count": <int: count of findings dismissed as false positives>
+  }
+}
+<!-- METRICS_JSON_END -->
+]]></output-format>
+  </step>
+
+  <step n="5" goal="Final verification">
+    <action>Verify all Critical and High issues have been addressed</action>
+    <action>Confirm story file changes are coherent and preserve structure</action>
+    <action>Ensure synthesis report is complete with all sections populated</action>
+  </step>
+</workflow>
