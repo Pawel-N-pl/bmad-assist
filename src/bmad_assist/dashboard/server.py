@@ -914,6 +914,24 @@ class DashboardServer:
         # Store server reference in app state
         app.state.server = self
 
+        # Multi-project support: Initialize manager components
+        from bmad_assist.dashboard.manager import ProcessSupervisor, ProjectRegistry
+        from bmad_assist.dashboard.sse_channel import SSEChannelManager
+
+        # Initialize project registry (loads persisted projects from ~/.config/bmad-assist)
+        app.state.project_registry = ProjectRegistry()
+
+        # Initialize process supervisor for subprocess lifecycle management
+        app.state.process_supervisor = ProcessSupervisor()
+
+        # Initialize SSE channel manager for per-project event streaming
+        app.state.sse_channel_manager = SSEChannelManager()
+
+        # Reconcile registry on startup (clean up stale flags, mark broken projects)
+        broken = app.state.project_registry.reconcile()
+        if broken:
+            logger.warning("Found %d broken projects (paths no longer exist)", len(broken))
+
         self._app = app
         return app
 
@@ -961,6 +979,22 @@ class DashboardServer:
         # Clear output hook before shutdown
         set_output_hook(None)
         unregister_output_bridge()
+
+        # Multi-project cleanup: Stop all project subprocesses and shutdown managers
+        if self._app is not None:
+            # Stop all running project subprocesses
+            supervisor = getattr(self._app.state, "process_supervisor", None)
+            registry = getattr(self._app.state, "project_registry", None)
+            if supervisor and registry:
+                for context in registry._projects.values():
+                    if context.is_active():
+                        await supervisor.stop_subprocess(context)
+                await supervisor.shutdown()
+
+            # Shutdown SSE channel manager
+            sse_manager = getattr(self._app.state, "sse_channel_manager", None)
+            if sse_manager:
+                await sse_manager.shutdown()
 
         logger.info("Dashboard server shutting down...")
         await self.sse_broadcaster.shutdown()
