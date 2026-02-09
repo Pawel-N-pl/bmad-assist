@@ -10,11 +10,13 @@ This package contains all HTTP route handlers organized by domain:
 - experiments: Experiment run management and comparison
 - projects: Multi-project registration and management
 - project_loop: Per-project loop control
+- filesystem: Directory browsing for project selection
 """
 
 from .config import routes as config_routes
 from .content import routes as content_routes
 from .experiments import routes as experiments_routes
+from .filesystem import filesystem_routes
 from .loop import routes as loop_routes
 from .playwright import routes as playwright_routes
 from .project_loop import routes as project_loop_routes
@@ -34,6 +36,7 @@ API_ROUTES = (
     + experiments_routes
     + projects_routes
     + project_loop_routes
+    + filesystem_routes
 )
 
 __all__ = ["API_ROUTES", "sse_output"]

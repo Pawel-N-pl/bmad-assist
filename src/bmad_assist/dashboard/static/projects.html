@@ -403,11 +403,56 @@
 
             <div class="add-project-form-group">
                 <label for="project-path">Project Path <span class="text-destructive">*</span></label>
-                <input type="text" id="project-path" x-model="multiProjectView.addProjectPath"
-                    placeholder="/path/to/your/project" @keydown.enter="submitAddProject()"
-                    data-testid="project-path-input">
-                <p class="text-xs text-muted-foreground mt-1">Enter the absolute path to a bmad-assist project directory
-                </p>
+                <div class="flex gap-2">
+                    <input type="text" id="project-path" x-model="multiProjectView.addProjectPath"
+                        placeholder="/path/to/your/project" @keydown.enter="submitAddProject()"
+                        data-testid="project-path-input" class="flex-1">
+                    <button x-show="dirBrowser.hasNativePicker" @click="openNativePicker('add')" class="btn-outline"
+                        type="button" title="Browse with system dialog">
+                        <i data-lucide="folder-open" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="openDirBrowser('add')" class="btn-outline" type="button" title="Browse directories"
+                        data-testid="browse-add-btn">
+                        <i data-lucide="folder-tree" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-muted-foreground mt-1">Enter path or use browse button to select a project
+                    directory</p>
+            </div>
+
+            <!-- Directory Browser Panel -->
+            <div x-show="dirBrowser.show && dirBrowser.mode === 'add'" class="dir-browser" x-transition>
+                <div class="dir-browser-header">
+                    <button @click="dirBrowser.parentPath && browsePath(dirBrowser.parentPath)"
+                        :disabled="!dirBrowser.parentPath" class="btn-outline btn-sm" title="Go up">
+                        <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="browsePath(dirBrowser.homePath)" class="btn-outline btn-sm" title="Go home">
+                        <i data-lucide="home" class="w-4 h-4"></i>
+                    </button>
+                    <span class="dir-browser-path" x-text="dirBrowser.currentPath"></span>
+                    <button @click="closeDirBrowser()" class="btn-outline btn-sm ml-auto" title="Close browser">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="dir-browser-list" x-show="!dirBrowser.loading && !dirBrowser.error">
+                    <template x-for="entry in dirBrowser.entries" :key="entry.path">
+                        <div class="dir-browser-item" @click="selectDirEntry(entry)"
+                            :class="{'is-project': entry.is_project}" @dblclick="browsePath(entry.path)">
+                            <i :data-lucide="entry.is_project ? 'folder-check' : 'folder'" class="w-4 h-4"></i>
+                            <span x-text="entry.name"></span>
+                            <span x-show="entry.is_project" class="project-badge">project</span>
+                        </div>
+                    </template>
+                    <div x-show="dirBrowser.entries.length === 0" class="dir-browser-empty">
+                        No directories found
+                    </div>
+                </div>
+                <div x-show="dirBrowser.loading" class="dir-browser-loading">
+                    <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+                    <span>Loading...</span>
+                </div>
+                <div x-show="dirBrowser.error" class="dir-browser-error" x-text="dirBrowser.error"></div>
             </div>
 
             <div class="add-project-form-group">
@@ -445,11 +490,56 @@
 
             <div class="add-project-form-group">
                 <label for="scan-directory">Directory to Scan <span class="text-destructive">*</span></label>
-                <input type="text" id="scan-directory" x-model="multiProjectView.scanDirectory"
-                    placeholder="/path/to/projects/folder" @keydown.enter="submitScanDirectory()"
-                    data-testid="scan-directory-input">
+                <div class="flex gap-2">
+                    <input type="text" id="scan-directory" x-model="multiProjectView.scanDirectory"
+                        placeholder="/path/to/projects/folder" @keydown.enter="submitScanDirectory()"
+                        data-testid="scan-directory-input" class="flex-1">
+                    <button x-show="dirBrowser.hasNativePicker" @click="openNativePicker('scan')" class="btn-outline"
+                        type="button" title="Browse with system dialog">
+                        <i data-lucide="folder-open" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="openDirBrowser('scan')" class="btn-outline" type="button" title="Browse directories"
+                        data-testid="browse-scan-btn">
+                        <i data-lucide="folder-tree" class="w-4 h-4"></i>
+                    </button>
+                </div>
                 <p class="text-xs text-muted-foreground mt-1">Scans for subdirectories containing <code
                         class="bg-muted px-1 py-0.5 rounded">.bmad-assist/</code></p>
+            </div>
+
+            <!-- Directory Browser Panel for Scan -->
+            <div x-show="dirBrowser.show && dirBrowser.mode === 'scan'" class="dir-browser" x-transition>
+                <div class="dir-browser-header">
+                    <button @click="dirBrowser.parentPath && browsePath(dirBrowser.parentPath)"
+                        :disabled="!dirBrowser.parentPath" class="btn-outline btn-sm" title="Go up">
+                        <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="browsePath(dirBrowser.homePath)" class="btn-outline btn-sm" title="Go home">
+                        <i data-lucide="home" class="w-4 h-4"></i>
+                    </button>
+                    <span class="dir-browser-path" x-text="dirBrowser.currentPath"></span>
+                    <button @click="closeDirBrowser()" class="btn-outline btn-sm ml-auto" title="Close browser">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="dir-browser-list" x-show="!dirBrowser.loading && !dirBrowser.error">
+                    <template x-for="entry in dirBrowser.entries" :key="entry.path">
+                        <div class="dir-browser-item" @click="selectDirEntry(entry)"
+                            :class="{'is-project': entry.is_project}" @dblclick="browsePath(entry.path)">
+                            <i :data-lucide="entry.is_project ? 'folder-check' : 'folder'" class="w-4 h-4"></i>
+                            <span x-text="entry.name"></span>
+                            <span x-show="entry.is_project" class="project-badge">project</span>
+                        </div>
+                    </template>
+                    <div x-show="dirBrowser.entries.length === 0" class="dir-browser-empty">
+                        No directories found
+                    </div>
+                </div>
+                <div x-show="dirBrowser.loading" class="dir-browser-loading">
+                    <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+                    <span>Loading...</span>
+                </div>
+                <div x-show="dirBrowser.error" class="dir-browser-error" x-text="dirBrowser.error"></div>
             </div>
 
             <div class="add-project-modal-actions">
@@ -491,6 +581,19 @@
                     addProjectPath: '',
                     addProjectName: '',
                     scanDirectory: '',
+                },
+
+                // Directory browser state
+                dirBrowser: {
+                    show: false,
+                    mode: 'add', // 'add' or 'scan'
+                    currentPath: '',
+                    parentPath: null,
+                    homePath: '',
+                    entries: [],
+                    loading: false,
+                    error: null,
+                    hasNativePicker: 'showDirectoryPicker' in window,
                 },
 
                 toast: {
@@ -949,6 +1052,95 @@
                     const result = await this.scanForProjects(directory);
                     if (result) {
                         this.closeScanModal();
+                    }
+                },
+
+                // Directory Browser Methods
+                async openDirBrowser(mode) {
+                    this.dirBrowser.mode = mode;
+                    this.dirBrowser.show = true;
+                    this.dirBrowser.error = null;
+
+                    // Start from home if no path set
+                    if (!this.dirBrowser.homePath) {
+                        await this.browsePath();  // Will get home from API
+                    } else {
+                        await this.browsePath(this.dirBrowser.currentPath || this.dirBrowser.homePath);
+                    }
+                },
+
+                closeDirBrowser() {
+                    this.dirBrowser.show = false;
+                },
+
+                async browsePath(path = null) {
+                    this.dirBrowser.loading = true;
+                    this.dirBrowser.error = null;
+
+                    try {
+                        const url = path
+                            ? `/api/filesystem/browse?path=${encodeURIComponent(path)}`
+                            : '/api/filesystem/browse';
+                        const response = await fetch(url);
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.dirBrowser.error = data.error || 'Failed to browse directory';
+                            return;
+                        }
+
+                        this.dirBrowser.currentPath = data.path;
+                        this.dirBrowser.parentPath = data.parent;
+                        this.dirBrowser.homePath = data.home;
+                        this.dirBrowser.entries = data.entries || [];
+
+                        this.$nextTick(() => this.refreshIcons());
+                    } catch (error) {
+                        console.error('Failed to browse directory:', error);
+                        this.dirBrowser.error = 'Failed to connect to server';
+                    } finally {
+                        this.dirBrowser.loading = false;
+                    }
+                },
+
+                selectDirEntry(entry) {
+                    // Set the appropriate input field based on mode
+                    if (this.dirBrowser.mode === 'add') {
+                        this.multiProjectView.addProjectPath = entry.path;
+                    } else {
+                        this.multiProjectView.scanDirectory = entry.path;
+                    }
+                    this.refreshIcons();
+                },
+
+                async openNativePicker(mode) {
+                    try {
+                        // Use File System Access API
+                        const dirHandle = await window.showDirectoryPicker({
+                            mode: 'read',
+                            startIn: 'documents'
+                        });
+
+                        // Get the full path - this requires user permission
+                        // Note: We can only get the directory name, not full path
+                        // The full path isn't accessible for security reasons
+                        // So we'll just show a hint and close the browser
+                        this.showToast(`Selected: ${dirHandle.name}`, 'info');
+
+                        // Since we can't get the full path from native picker,
+                        // we show the user they need to enter the full path
+                        // or use the server-side browser
+                        if (mode === 'add') {
+                            // Offer to type path manually
+                            document.getElementById('project-path')?.focus();
+                        } else {
+                            document.getElementById('scan-directory')?.focus();
+                        }
+                    } catch (error) {
+                        if (error.name !== 'AbortError') {
+                            console.error('Native picker error:', error);
+                            this.showToast('Could not open directory picker', 'error');
+                        }
                     }
                 },
             };

@@ -50,30 +50,49 @@
 }
 
 /* Provider colors - semantic names for LLM providers */
-.provider-opus { color: oklch(0.6959 0.1491 300); }
-.provider-gemini { color: var(--accent); }
-.provider-glm { color: var(--chart-4); }
-.provider-claude { color: var(--bp-warning); }
-.provider-bmad { color: var(--muted-foreground); }
+.provider-opus {
+    color: oklch(0.6959 0.1491 300);
+}
+
+.provider-gemini {
+    color: var(--accent);
+}
+
+.provider-glm {
+    color: var(--chart-4);
+}
+
+.provider-claude {
+    color: var(--bp-warning);
+}
+
+.provider-bmad {
+    color: var(--muted-foreground);
+}
 
 /* Context menu animations */
-[x-cloak] { display: none !important; }
+[x-cloak] {
+    display: none !important;
+}
 
 /* Dropdown menu hover - darker bg, white text */
 .dropdown-menu [role="menuitem"]:hover {
     background-color: var(--primary) !important;
     color: #fff !important;
 }
+
 /* Lucide replaces <i> with <svg>, so target svg + use stroke for icon color */
 .dropdown-menu [role="menuitem"]:hover svg {
     color: #fff !important;
     stroke: #fff !important;
 }
+
 /* Keep destructive items red on hover */
 .dropdown-menu [role="menuitem"].text-destructive:hover {
     background-color: var(--destructive) !important;
     color: #fff !important;
 }
+
 .dropdown-menu [role="menuitem"].text-destructive:hover svg {
     color: #fff !important;
     stroke: #fff !important;
@@ -102,7 +121,8 @@ input:focus {
 
 /* Shiki code block container - matches dark-plus theme */
 .shiki {
-    background-color: #1e1e1e !important;  /* VSCode dark-plus bg */
+    background-color: #1e1e1e !important;
+    /* VSCode dark-plus bg */
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 1rem;
@@ -144,7 +164,8 @@ input:focus {
 /* Pending state (before async highlight completes) */
 /* Uses same background as .shiki to prevent visual flash (Story 23.3 - synthesis fix) */
 .shiki-pending {
-    background-color: #1e1e1e !important;  /* Match Shiki dark-plus bg */
+    background-color: #1e1e1e !important;
+    /* Match Shiki dark-plus bg */
     opacity: 0.85;
 }
 
@@ -156,7 +177,8 @@ input:focus {
 /* Loading state while fetching grammar (Story 23.4 - AC7) */
 .shiki-loading {
     position: relative;
-    min-height: 3rem;  /* Prevent layout shift during load */
+    min-height: 3rem;
+    /* Prevent layout shift during load */
 }
 
 .shiki-loading::after {
@@ -173,7 +195,9 @@ input:focus {
 }
 
 @keyframes shiki-spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* Smooth transition when highlighting completes */
@@ -268,8 +292,8 @@ input:focus {
     margin-bottom: 0.25rem;
 }
 
-.markdown-content li > ul,
-.markdown-content li > ol {
+.markdown-content li>ul,
+.markdown-content li>ol {
     margin-top: 0.25rem;
     margin-bottom: 0;
 }
@@ -342,12 +366,12 @@ input:focus {
 }
 
 /* First element shouldn't have top margin */
-.markdown-content > *:first-child {
+.markdown-content>*:first-child {
     margin-top: 0;
 }
 
 /* Last element shouldn't have bottom margin */
-.markdown-content > *:last-child {
+.markdown-content>*:last-child {
     margin-bottom: 0;
 }
 
@@ -598,8 +622,15 @@ input:focus {
 
 /* Pulsing animation for active/in-progress phases */
 @keyframes phase-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 .phase-pulse {
@@ -608,25 +639,69 @@ input:focus {
 
 /* Bright status colors for tree icons (higher lightness than theme defaults) */
 :root {
-    --status-green: oklch(0.78 0.16 155);    /* Bright green */
-    --status-blue: oklch(0.72 0.18 255);     /* Bright blue */
-    --status-yellow: oklch(0.85 0.18 95);    /* Yellow-leaning (1/3 from yellow to orange) */
-    --status-red: oklch(0.72 0.20 25);       /* Bright red */
+    --status-green: oklch(0.78 0.16 155);
+    /* Bright green */
+    --status-blue: oklch(0.72 0.18 255);
+    /* Bright blue */
+    --status-yellow: oklch(0.85 0.18 95);
+    /* Yellow-leaning (1/3 from yellow to orange) */
+    --status-red: oklch(0.72 0.20 25);
+    /* Bright red */
 }
 
 /* Phase status colors */
-.phase-completed { color: var(--status-green); }  /* Green */
-.phase-error { color: var(--status-red); }  /* Red */
-.phase-in-progress { color: var(--status-blue); }  /* Blue */
-.phase-paused { color: var(--status-yellow); }  /* Yellow (run stopped) */
-.phase-pending { color: var(--muted-foreground); }  /* Gray */
+.phase-completed {
+    color: var(--status-green);
+}
+
+/* Green */
+.phase-error {
+    color: var(--status-red);
+}
+
+/* Red */
+.phase-in-progress {
+    color: var(--status-blue);
+}
+
+/* Blue */
+.phase-paused {
+    color: var(--status-yellow);
+}
+
+/* Yellow (run stopped) */
+.phase-pending {
+    color: var(--muted-foreground);
+}
+
+/* Gray */
 
 /* Epic/Story status colors (same as phase but for tree icons) */
-.status-done { color: var(--status-green); }  /* Green */
-.status-error { color: var(--status-red); }  /* Red */
-.status-active { color: var(--status-blue); }  /* Blue (running) */
-.status-paused { color: var(--status-yellow); }  /* Yellow (stopped) */
-.status-pending { color: var(--muted-foreground); }  /* Gray */
+.status-done {
+    color: var(--status-green);
+}
+
+/* Green */
+.status-error {
+    color: var(--status-red);
+}
+
+/* Red */
+.status-active {
+    color: var(--status-blue);
+}
+
+/* Blue (running) */
+.status-paused {
+    color: var(--status-yellow);
+}
+
+/* Yellow (stopped) */
+.status-pending {
+    color: var(--muted-foreground);
+}
+
+/* Gray */
 
 /* ==========================================
    Epic Metrics Browser (Story 24.7)
@@ -786,8 +861,15 @@ input:focus {
 }
 
 @keyframes pulse-glow {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 /* Project Info Section */
@@ -1131,4 +1213,117 @@ input:focus {
     font-size: 0.875rem;
     margin-bottom: 1.5rem;
     max-width: 400px;
+}
+
+/* ==========================================
+   Directory Browser Component
+   ========================================== */
+.dir-browser {
+    margin-top: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--background);
+    overflow: hidden;
+}
+
+.dir-browser-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--muted);
+    border-bottom: 1px solid var(--border);
+}
+
+.dir-browser-path {
+    flex: 1;
+    font-size: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dir-browser-list {
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.dir-browser-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-bottom: 1px solid var(--border);
+}
+
+.dir-browser-item:last-child {
+    border-bottom: none;
+}
+
+.dir-browser-item:hover {
+    background: var(--accent);
+}
+
+.dir-browser-item.is-project {
+    background: oklch(0.3 0.08 155 / 0.15);
+}
+
+.dir-browser-item.is-project:hover {
+    background: oklch(0.4 0.12 155 / 0.25);
+}
+
+.dir-browser-item svg,
+.dir-browser-item i {
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+}
+
+.dir-browser-item.is-project svg,
+.dir-browser-item.is-project i {
+    color: oklch(0.65 0.16 155);
+}
+
+.project-badge {
+    margin-left: auto;
+    font-size: 0.625rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.125rem 0.375rem;
+    border-radius: 9999px;
+    background: oklch(0.55 0.16 155);
+    color: #fff;
+}
+
+.dir-browser-empty {
+    padding: 1.5rem;
+    text-align: center;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+}
+
+.dir-browser-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 2rem;
+    color: var(--muted-foreground);
+}
+
+.dir-browser-error {
+    padding: 1rem;
+    color: var(--destructive);
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+/* Small button variant for browser controls */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
 }
