@@ -81,6 +81,16 @@ providers:
     # - provider: opencode
     #   model: opencode/gemini-3-pro          # Gemini 3 Pro via OpenCode
 
+    # Kilo / Kilocode providers
+    # - provider: kilo
+    #   model: kilo/meta-llama/llama-3.3-70b-instruct:free    # Default model
+    # - provider: kilo
+    #   model: kilo/openai/gpt-oss-120b:free
+    # - provider: kilo
+    #   model: kilo/z-ai/glm-4.7:free
+
+
+
     # Amp providers - Sourcegraph's Claude wrapper
     # Note: Amp uses "modes" instead of model names
     # WARNING: Only "smart" mode works with bmad-assist (rush/free lack tool use)
