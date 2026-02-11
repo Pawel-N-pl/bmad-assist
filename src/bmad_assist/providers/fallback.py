@@ -166,8 +166,8 @@ class FallbackProvider(BaseProvider):
                 raise
             logger.warning("Primary provider failed with transient error: %s", e)
             last_error = e
-        except Exception as e:
-            logger.warning("Primary provider failed with unexpected error: %s", e)
+        except (ProviderError, OSError) as e:
+            logger.warning("Primary provider failed with operational error: %s", e)
             last_error = e
 
         # 2. Try Fallbacks
@@ -180,16 +180,15 @@ class FallbackProvider(BaseProvider):
                     fallback.provider.provider_name,
                     fallback.model,
                 )
-                return fallback.invoke(
+                result = fallback.invoke(
                     prompt,
                     timeout=timeout,
                     cwd=cwd,
                     disable_tools=disable_tools,
                     allowed_tools=allowed_tools,
                     no_cache=no_cache,
-                    # We reuse color_index/display_model/etc from primary call
                     color_index=color_index,
-                    display_model=display_model,  # Maybe fallback has its own?
+                    display_model=display_model,
                     thinking=thinking,
                     cancel_token=cancel_token,
                     reasoning_effort=reasoning_effort,

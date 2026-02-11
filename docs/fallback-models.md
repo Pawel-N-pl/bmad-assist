@@ -6,7 +6,7 @@ The **Fallback Models** feature enhances the operational resilience of `bmad-ass
 
 ## 2. Architecture & Logic Flow
 
-The fallback mechanism operates on a simple but robust failover chain handling specifically **transient errors**. Non-transient errors (like authentication failures or invalid requests) immediately halt execution to prevent cascading failures.
+The fallback mechanism operates on a simple but robust failover chain. Non-transient errors on the **primary** provider (like authentication failures or invalid requests) immediately halt execution. For **fallback** providers, all errors (transient or not) trigger the next fallback in the chain, maximizing resilience.
 
 ### Logic Schema
 
@@ -22,10 +22,7 @@ flowchart TD
 
     Next -- Yes --> AttemptFallback[Attempt Fallback Provider]
     AttemptFallback -- Success --> End
-    AttemptFallback -- Failure --> CheckErrorFallback{Is Error\nTransient?}
-
-    CheckErrorFallback -- No --> Error
-    CheckErrorFallback -- Yes --> Next
+    AttemptFallback -- Failure --> Next
 
     Next -- No --> FinalError([Fail Operation])
 
@@ -49,7 +46,7 @@ providers:
     # Primary Provider: The preferred high-performance model
     provider: anthropic
     model: claude-3-5-sonnet-20241022
-    settings_path: ~/.bmad/claude_settings.json
+    settings: ~/.bmad/claude_settings.json
 
     # Fallback Chain: Tried sequentially upon transient failure
     fallbacks:
