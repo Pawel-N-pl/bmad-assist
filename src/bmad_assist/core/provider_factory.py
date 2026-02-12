@@ -4,7 +4,7 @@ This module provides functions to create provider instances from configuration
 objects, automatically handling fallback wrapping and specific settings.
 """
 
-from typing import cast
+
 
 from bmad_assist.core.config.models.providers import (
     HelperProviderConfig,
@@ -29,6 +29,7 @@ def create_provider(
 
     Returns:
         Configured BaseProvider instance.
+
     """
     # Create primary provider
     primary = get_provider(config.provider)
@@ -43,8 +44,7 @@ def create_provider(
     for fb_config in config.fallbacks:
         # Recursively create the base provider for the fallback
         # This allows chains of fallbacks (e.g., Primary -> Fallback1 -> Fallback2)
-        # Type ignored because fallbacks list contains same type as config
-        fb_provider = create_provider(fb_config)  # type: ignore
+        fb_provider = create_provider(fb_config)
 
         # Create ConfiguredProvider wrapper to bind specific model/settings
         configured = ConfiguredProvider(

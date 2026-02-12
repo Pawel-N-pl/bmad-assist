@@ -16,7 +16,6 @@ from bmad_assist.core.exceptions import (
 )
 from bmad_assist.providers.base import (
     BaseProvider,
-    ExitStatus,
     ProviderResult,
     is_transient_error,
 )
@@ -37,6 +36,14 @@ class ConfiguredProvider:
         model: str | None = None,
         settings_file: Path | None = None,
     ) -> None:
+        """Initialize with provider and optional overrides.
+
+        Args:
+            provider: The underlying provider to wrap.
+            model: Optional model to override on invocation.
+            settings_file: Optional settings file to override on invocation.
+
+        """
         self.provider = provider
         self.model = model
         self.settings_file = settings_file
@@ -48,10 +55,11 @@ class ConfiguredProvider:
             prompt: The prompt text.
             **kwargs: Arguments to pass to invoke. 'model' and 'settings_file'
                 will be overridden by configured values if they exist.
+
         """
         # Create a copy of kwargs to modify
         invoke_kwargs = kwargs.copy()
-        
+
         # Override model and settings_file if configured
         if self.model:
             invoke_kwargs["model"] = self.model
@@ -71,6 +79,7 @@ class FallbackProvider(BaseProvider):
     Attributes:
         primary: The primary provider instance.
         fallbacks: List of ConfiguredProvider instances to try in order.
+
     """
 
     def __init__(
@@ -83,6 +92,7 @@ class FallbackProvider(BaseProvider):
         Args:
             primary: The main provider to use.
             fallbacks: List of backup configured providers.
+
         """
         self.primary = primary
         self.fallbacks = fallbacks
@@ -140,6 +150,7 @@ class FallbackProvider(BaseProvider):
         Raises:
             ProviderError: If all providers fail. The exception from the
                 last provider is raised.
+
         """
         last_error: Exception | None = None
 

@@ -5,7 +5,7 @@ ConfiguredProvider kwargs override, and delegation to primary provider.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,7 +16,6 @@ from bmad_assist.core.exceptions import (
 )
 from bmad_assist.providers.base import BaseProvider, ExitStatus, ProviderResult
 from bmad_assist.providers.fallback import ConfiguredProvider, FallbackProvider
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -75,6 +74,7 @@ class TestFallbackProviderPrimarySucceeds:
     """When the primary provider succeeds, fallbacks are never invoked."""
 
     def test_returns_primary_result(self):
+        """Primary result is returned when invocation succeeds."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
         expected = _make_result("primary-output")
@@ -87,6 +87,7 @@ class TestFallbackProviderPrimarySucceeds:
         fb.invoke.assert_not_called()
 
     def test_fallbacks_never_touched(self):
+        """Fallback providers are never invoked on primary success."""
         primary = _make_provider("primary")
         fb1 = _make_provider("fb1")
         fb2 = _make_provider("fb2")
@@ -106,6 +107,7 @@ class TestFallbackProviderTransientFallover:
     """When the primary fails with a transient error, fallbacks are tried."""
 
     def test_fallback_succeeds_after_primary_transient(self):
+        """First fallback is used when primary fails transiently."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
 
@@ -119,6 +121,7 @@ class TestFallbackProviderTransientFallover:
         assert result is expected
 
     def test_second_fallback_after_first_fails(self):
+        """Second fallback is used when first also fails transiently."""
         primary = _make_provider("primary")
         fb1 = _make_provider("fb1")
         fb2 = _make_provider("fb2")
@@ -137,6 +140,7 @@ class TestFallbackProviderTransientFallover:
         assert result is expected
 
     def test_timeout_error_is_transient(self):
+        """ProviderTimeoutError triggers fallback (treated as transient)."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
 
@@ -156,6 +160,7 @@ class TestFallbackProviderNonTransient:
     """Non-transient errors on primary raise immediately."""
 
     def test_primary_nontransient_raises(self):
+        """Non-transient primary error raises without trying fallbacks."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
 
@@ -193,6 +198,7 @@ class TestFallbackProviderAllFail:
     """When all providers fail, the last error is raised."""
 
     def test_raises_last_error(self):
+        """Last error is raised when all providers fail."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
 
@@ -223,23 +229,27 @@ class TestFallbackProviderDelegation:
     """Properties and methods delegate to the primary provider."""
 
     def test_provider_name_proxies(self):
+        """Provider name is proxied from the primary."""
         primary = _make_provider("claude")
         provider = FallbackProvider(primary, [])
         assert provider.provider_name == "claude"
 
     def test_default_model_proxies(self):
+        """Default model is proxied from the primary."""
         primary = _make_provider("claude")
         primary.default_model = "opus"
         provider = FallbackProvider(primary, [])
         assert provider.default_model == "opus"
 
     def test_supports_model_proxies(self):
+        """Supports-model check is proxied from the primary."""
         primary = _make_provider("claude")
         primary.supports_model.return_value = False
         provider = FallbackProvider(primary, [])
         assert provider.supports_model("unknown") is False
 
     def test_parse_output_delegates_to_primary(self):
+        """Parse-output delegates to the primary provider."""
         primary = _make_provider("claude")
         primary.parse_output.side_effect = None  # Remove side_effect
         primary.parse_output.return_value = "parsed"
@@ -248,6 +258,7 @@ class TestFallbackProviderDelegation:
         assert provider.parse_output(result) == "parsed"
 
     def test_cancel_propagates_to_all(self):
+        """Cancel propagates to primary and all fallbacks."""
         primary = _make_provider("primary")
         fb1 = _make_provider("fb1")
         fb2 = _make_provider("fb2")
@@ -267,6 +278,7 @@ class TestFallbackProviderLogging:
     """Success logging is emitted when a fallback succeeds."""
 
     def test_success_log_emitted(self, caplog):
+        """Info log is emitted when a fallback provider succeeds."""
         primary = _make_provider("primary")
         fb = _make_provider("fallback")
 
@@ -292,6 +304,7 @@ class TestConfiguredProvider:
     """ConfiguredProvider overrides model and settings_file in kwargs."""
 
     def test_overrides_model(self):
+        """Model kwarg is overridden by ConfiguredProvider."""
         inner = _make_provider("inner")
         inner.invoke.return_value = _make_result()
 
@@ -302,6 +315,7 @@ class TestConfiguredProvider:
         assert kwargs["model"] == "custom-model"
 
     def test_overrides_settings_file(self, tmp_path):
+        """Settings-file kwarg is overridden by ConfiguredProvider."""
         inner = _make_provider("inner")
         inner.invoke.return_value = _make_result()
         settings = tmp_path / "settings.json"
@@ -313,6 +327,7 @@ class TestConfiguredProvider:
         assert kwargs["settings_file"] == settings
 
     def test_passes_through_other_kwargs(self):
+        """Non-overridden kwargs are passed through to the inner provider."""
         inner = _make_provider("inner")
         inner.invoke.return_value = _make_result()
 
@@ -324,6 +339,7 @@ class TestConfiguredProvider:
         assert kwargs["cwd"] == Path("/tmp")
 
     def test_no_override_when_none(self):
+        """Kwargs are not overridden when ConfiguredProvider has no overrides."""
         inner = _make_provider("inner")
         inner.invoke.return_value = _make_result()
 

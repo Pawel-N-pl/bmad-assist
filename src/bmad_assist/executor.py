@@ -15,7 +15,6 @@ from bmad_assist.compiler import CompilerContext, compile_workflow
 from bmad_assist.core.config import Config
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.types import EpicId
-from bmad_assist.providers import get_provider
 from bmad_assist.qa.checker import get_qa_plan_path
 
 logger = logging.getLogger(__name__)

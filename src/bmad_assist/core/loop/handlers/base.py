@@ -45,7 +45,6 @@ from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.retry import invoke_with_timeout_retry
 from bmad_assist.core.state import State
-from bmad_assist.providers import get_provider
 from bmad_assist.providers.base import BaseProvider, ProviderResult
 from bmad_assist.providers.claude import ClaudeSubprocessProvider
 

@@ -55,6 +55,7 @@ from bmad_assist.core.config.models.providers import (
 )
 from bmad_assist.core.exceptions import BmadAssistError
 from bmad_assist.core.io import get_original_cwd, save_prompt
+from bmad_assist.core.provider_factory import create_provider
 from bmad_assist.core.retry import invoke_with_timeout_retry
 
 # get_paths() NOT used - validations_dir derived from project_path directly
@@ -64,7 +65,6 @@ from bmad_assist.core.types import EpicId
 # Story 26.16: Deep Verify integration
 from bmad_assist.deep_verify.core.types import DeepVerifyValidationResult
 from bmad_assist.deep_verify.integration import run_deep_verify_validation
-from bmad_assist.core.provider_factory import create_provider
 from bmad_assist.providers.base import BaseProvider
 from bmad_assist.validation.anonymizer import (
     AnonymizedValidation,

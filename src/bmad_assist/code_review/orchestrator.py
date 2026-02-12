@@ -68,7 +68,6 @@ from bmad_assist.deep_verify.integration import (
     run_deep_verify_code_review_batch,
     save_dv_findings_for_synthesis,
 )
-from bmad_assist.providers import get_provider
 from bmad_assist.providers.base import BaseProvider
 from bmad_assist.security.agent import run_security_review
 from bmad_assist.security.integration import save_security_findings_for_synthesis
