@@ -135,18 +135,21 @@ def _get_interrupt_exit_reason() -> LoopExitReason:
 def _handle_sigint(signum: int, frame: FrameType | None) -> None:
     """Handle SIGINT (Ctrl+C) signal with immediate hard kill.
 
-    Kills all child processes and exits immediately. No graceful shutdown,
-    no waiting for loops to check flags.
+    Kills all child processes (including those in separate sessions)
+    and exits immediately. No graceful shutdown, no waiting for loops.
 
     Args:
         signum: Signal number (always signal.SIGINT=2).
         frame: Current stack frame (unused).
 
     """
-    # Get our PID and kill entire process group
+    from bmad_assist.providers.base import kill_all_child_pgids
+
+    # Kill child processes in separate sessions (start_new_session=True)
+    kill_all_child_pgids()
+    # Kill our own process group
     pid = os.getpid()
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-        # Kill all child processes in our process group
         os.killpg(os.getpgid(pid), signal.SIGKILL)
     # Hard exit - no cleanup, no atexit handlers
     os._exit(130)  # 128 + SIGINT(2) = 130
@@ -155,13 +158,17 @@ def _handle_sigint(signum: int, frame: FrameType | None) -> None:
 def _handle_sigterm(signum: int, frame: FrameType | None) -> None:
     """Handle SIGTERM (kill) signal with immediate hard kill.
 
-    Kills all child processes and exits immediately.
+    Kills all child processes (including those in separate sessions)
+    and exits immediately.
 
     Args:
         signum: Signal number (always signal.SIGTERM=15).
         frame: Current stack frame (unused).
 
     """
+    from bmad_assist.providers.base import kill_all_child_pgids
+
+    kill_all_child_pgids()
     pid = os.getpid()
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         os.killpg(os.getpgid(pid), signal.SIGKILL)

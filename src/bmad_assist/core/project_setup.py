@@ -35,6 +35,17 @@ class OverwriteDecision(Enum):
     SHOW_DIFF = "d"
 
 
+class SingleOverwriteDecision(Enum):
+    """User's decision for single file overwrite in interactive mode."""
+
+    YES = "y"
+    NO = "n"
+    DIFF = "d"
+    YES_ALL = "ya"
+    NO_ALL = "na"
+    DIFF_ALL = "da"
+
+
 @dataclass
 class CopyResult:
     """Result of copying bundled workflows."""
@@ -227,8 +238,8 @@ def _prompt_overwrite_single(
     src: Path,
     dst: Path,
     console: Console,
-) -> bool:
-    """Prompt for single file overwrite. Returns True to overwrite.
+) -> SingleOverwriteDecision:
+    """Prompt for single file overwrite.
 
     Args:
         src: Source (bundled) file.
@@ -236,7 +247,7 @@ def _prompt_overwrite_single(
         console: Rich console for output.
 
     Returns:
-        True if user wants to overwrite, False to skip.
+        User's decision (including all variants).
 
     """
     try:
@@ -246,15 +257,18 @@ def _prompt_overwrite_single(
 
     while True:
         choice = Prompt.ask(
-            f"Overwrite {rel_path}? \\[y]es / \\[n]o / \\[d]iff",
-            choices=["y", "n", "d"],
+            f"Overwrite {rel_path}? \\[y]es / \\[n]o / \\[d]iff / \\[ya]ll / \\[na]o all / \\[da]iff all",
+            choices=["y", "n", "d", "ya", "na", "da"],
             default="n",
             show_choices=False,
         )
         if choice == "d":
             _show_diff(src, dst, console)
             continue
-        return choice == "y"
+        if choice == "da":
+            _show_diff(src, dst, console)
+            return SingleOverwriteDecision.DIFF_ALL
+        return SingleOverwriteDecision(choice)
 
 
 def _atomic_copy_file(src: Path, dst: Path) -> None:
@@ -521,14 +535,38 @@ def copy_bundled_workflows(
                         result.skipped.append(name)
                 elif decision == OverwriteDecision.INTERACTIVE:
                     # Interactive mode - prompt per file
+                    apply_all: SingleOverwriteDecision | None = None
                     for name, _src_dir, _dst_dir in differing_workflows:
                         files = workflow_files_map.get(name, [])
                         all_overwritten = True
                         for src_file, dst_file in files:
-                            if _prompt_overwrite_single(src_file, dst_file, console):
+                            # If we have a global decision, use it
+                            if apply_all == SingleOverwriteDecision.YES_ALL:
+                                _atomic_copy_file(src_file, dst_file)
+                            elif apply_all == SingleOverwriteDecision.NO_ALL:
+                                all_overwritten = False
+                            elif apply_all == SingleOverwriteDecision.DIFF_ALL:
+                                _show_diff(src_file, dst_file, console)
                                 _atomic_copy_file(src_file, dst_file)
                             else:
-                                all_overwritten = False
+                                # Prompt for this file
+                                single_decision = _prompt_overwrite_single(
+                                    src_file, dst_file, console
+                                )
+                                if single_decision == SingleOverwriteDecision.YES:
+                                    _atomic_copy_file(src_file, dst_file)
+                                elif single_decision == SingleOverwriteDecision.NO:
+                                    all_overwritten = False
+                                elif single_decision == SingleOverwriteDecision.YES_ALL:
+                                    apply_all = SingleOverwriteDecision.YES_ALL
+                                    _atomic_copy_file(src_file, dst_file)
+                                elif single_decision == SingleOverwriteDecision.NO_ALL:
+                                    apply_all = SingleOverwriteDecision.NO_ALL
+                                    all_overwritten = False
+                                elif single_decision == SingleOverwriteDecision.DIFF_ALL:
+                                    apply_all = SingleOverwriteDecision.DIFF_ALL
+                                    _show_diff(src_file, dst_file, console)
+                                    _atomic_copy_file(src_file, dst_file)
                         if all_overwritten:
                             result.copied.append(name)
                         else:

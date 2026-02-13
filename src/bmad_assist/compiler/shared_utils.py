@@ -579,16 +579,20 @@ def find_sprint_status_file(context: CompilerContext) -> Path | None:
 
 
 def find_project_context_file(context: CompilerContext) -> Path | None:
-    """Find project_context.md (or project-context.md) in known locations.
+    """Find project-context.md (or project_context.md) in known locations.
 
-    Searches in: project_knowledge/ (if set), output_folder/, project_root/docs/,
-    and project_root/. Supports both naming conventions (hyphen and underscore).
+    Search order (hyphen variant first, then underscore fallback at each level):
+    1. project_knowledge/ (planning_artifacts by default)
+    2. output_folder (implementation_artifacts)
+    3. output_folder parent (_bmad-output/ base)
+    4. docs/ fallback (brownfield projects)
+    5. project root (legacy)
 
     Args:
         context: Compilation context with paths.
 
     Returns:
-        Path to project_context.md or None if not found.
+        Path to project-context.md or None if not found.
 
     """
     candidates: list[Path] = []
@@ -602,7 +606,7 @@ def find_project_context_file(context: CompilerContext) -> Path | None:
             ]
         )
 
-    # Priority 2: Output folder
+    # Priority 2: Output folder (implementation_artifacts)
     candidates.extend(
         [
             context.output_folder / "project-context.md",
@@ -610,7 +614,19 @@ def find_project_context_file(context: CompilerContext) -> Path | None:
         ]
     )
 
-    # Priority 3: docs/ fallback (brownfield projects)
+    # Priority 3: Output folder parent (_bmad-output/ base)
+    # output_folder is typically _bmad-output/implementation-artifacts/,
+    # but project-context.md may live directly in _bmad-output/
+    output_parent = context.output_folder.parent
+    if output_parent != context.output_folder and output_parent != context.project_root:
+        candidates.extend(
+            [
+                output_parent / "project-context.md",
+                output_parent / "project_context.md",
+            ]
+        )
+
+    # Priority 4: docs/ fallback (brownfield projects)
     docs_fallback = context.project_root / "docs"
     if context.project_knowledge is None or context.project_knowledge.resolve() != docs_fallback.resolve():
         candidates.extend(
@@ -620,14 +636,19 @@ def find_project_context_file(context: CompilerContext) -> Path | None:
             ]
         )
 
-    # Priority 4: Project root (legacy)
-    candidates.append(context.project_root / "project_context.md")
+    # Priority 5: Project root (legacy)
+    candidates.extend(
+        [
+            context.project_root / "project-context.md",
+            context.project_root / "project_context.md",
+        ]
+    )
 
     for candidate in candidates:
         if candidate.exists():
             return candidate
 
-    logger.debug("project_context.md not found in any location")
+    logger.debug("project-context.md not found in any location")
     return None
 
 
@@ -880,6 +901,8 @@ def apply_post_process(xml: str, context: CompilerContext) -> str:
     rules if present, and returns modified XML. Returns original XML
     if no patch, patch not found, or rules empty.
 
+    Also inserts project-tree critical instruction if project-tree is present.
+
     Args:
         xml: Compiled XML content.
         context: Compiler context with optional patch_path.
@@ -888,31 +911,38 @@ def apply_post_process(xml: str, context: CompilerContext) -> str:
         XML content with post_process rules applied, or original if none.
 
     """
-    if context.patch_path is None:
-        logger.debug("No patch_path set, skipping post_process")
-        return xml
+    result = xml
 
-    if not context.patch_path.exists():
-        logger.debug("Patch file not found: %s", context.patch_path)
-        return xml
+    # Apply patch post_process rules if available
+    if context.patch_path is not None and context.patch_path.exists():
+        try:
+            patch = load_patch(context.patch_path)
+            if patch.post_process:
+                result = post_process_compiled(xml, patch.post_process)
+                logger.debug(
+                    "Applied %d post_process rules from %s",
+                    len(patch.post_process),
+                    context.patch_path.name,
+                )
+        except Exception as e:
+            logger.warning("Failed to load/apply patch %s: %s", context.patch_path.name, e)
+            result = xml
 
-    try:
-        patch = load_patch(context.patch_path)
-        if not patch.post_process:
-            logger.debug("No post_process rules in patch: %s", context.patch_path.name)
-            return xml
+    # Insert project-tree critical instruction if project-tree is present
+    if "<project-tree>" in result:
+        try:
+            from bmad_assist.compiler.critical_instruction import (
+                has_project_tree_instruction,
+                insert_project_tree_instruction,
+            )
 
-        result = post_process_compiled(xml, patch.post_process)
-        logger.debug(
-            "Applied %d post_process rules from %s",
-            len(patch.post_process),
-            context.patch_path.name,
-        )
-        return result
+            if not has_project_tree_instruction(result):
+                result = insert_project_tree_instruction(result)
+                logger.debug("Inserted project-tree critical instruction")
+        except Exception as e:
+            logger.warning("Failed to insert project-tree critical instruction: %s", e)
 
-    except Exception as e:
-        logger.warning("Failed to load/apply patch %s: %s", context.patch_path.name, e)
-        return xml
+    return result
 
 
 def _prioritize_findings(

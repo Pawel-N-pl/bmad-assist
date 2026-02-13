@@ -64,6 +64,30 @@ def _escape_xml_attr(value: str) -> str:
     )
 
 
+def _sanitize_xml_content(content: str) -> str:
+    """Remove invalid XML characters from content.
+
+    XML 1.0 spec only allows these control characters:
+    - 0x09 (TAB)
+    - 0x0A (LF)
+    - 0x0D (CR)
+
+    All other chars in range 0x00-0x1F are invalid even inside CDATA.
+    This commonly occurs in minified JS, binary diffs, or build artifacts.
+
+    Args:
+        content: Raw content to sanitize.
+
+    Returns:
+        Content with invalid control chars removed.
+
+    """
+    if not content:
+        return ""
+    # Remove invalid control chars (keep tab, newline, carriage return)
+    return "".join(ch for ch in content if ord(ch) >= 0x20 or ord(ch) in (0x09, 0x0A, 0x0D))
+
+
 def _wrap_cdata(content: str) -> str:
     """Wrap content in CDATA section to preserve < > characters.
 
@@ -72,15 +96,20 @@ def _wrap_cdata(content: str) -> str:
 
     Adds two newlines after <![CDATA[ and before ]]> for readability.
 
+    Sanitizes content to remove invalid XML control characters (0x00-0x1F
+    except tab/LF/CR) that can appear in minified JS or binary diffs.
+
     Args:
         content: Raw content to wrap.
 
     Returns:
-        CDATA-wrapped string.
+        CDATA-wrapped sanitized string.
 
     """
     if not content:
         return ""
+    # Sanitize first to remove invalid XML control chars
+    content = _sanitize_xml_content(content)
     # Handle ]]> in content by splitting CDATA sections
     # "foo]]>bar" becomes "<![CDATA[\n\nfoo\n\n]]]]><![CDATA[\n\n>\n\n]]>"
     if "]]>" in content:
@@ -132,13 +161,16 @@ def _get_file_label(path_str: str) -> str:
     # Story files
     if "sprint-artifacts" in path_lower or "implementation-artifacts" in path_lower:
         import re
+
         if re.search(r"/\d+-\d+-[^/]+\.md$", path_lower):
             return "STORY FILE"
         if "sprint-status" in path_lower:
             return "SPRINT STATUS"
 
     # Source code
-    if path_str.endswith((".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp", ".c", ".h")):
+    if path_str.endswith(
+        (".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".java", ".cpp", ".c", ".h")
+    ):
         return "SOURCE CODE"
     if path_str.endswith((".yaml", ".yml", ".toml", ".json", ".xml")):
         return "CONFIG FILE"
@@ -354,6 +386,11 @@ def _build_context_section(
         if not content:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Skipping empty file: {path_str}")
+            continue
+
+        # Special handling for project-tree: insert raw XML (not wrapped in <file>)
+        if path_str == "[PROJECT-TREE]":
+            file_elements.append(content)
             continue
 
         # Get label for this file type

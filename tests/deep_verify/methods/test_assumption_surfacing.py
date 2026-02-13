@@ -7,6 +7,7 @@ implicit assumptions in implementation artifacts.
 from __future__ import annotations
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -902,6 +903,205 @@ class TestResponseParsing:
         """Test that invalid JSON raises ValueError."""
         with pytest.raises(ValueError):
             method._parse_response("not json at all")
+
+
+class TestPartialJsonHandling:
+    """Tests for partial/incomplete JSON handling - fallback parsing."""
+
+    def test_parse_response_filters_assumption_missing_violation_risk(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that assumption missing violation_risk is filtered out with warning."""
+        # Simulate LLM response where one assumption is missing violation_risk
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "complete assumption with enough length",
+                    "category": "data",
+                    "violation_risk": "high",
+                    "evidence_quote": "complete code",
+                },
+                {
+                    "assumption": "incomplete assumption missing risk",
+                    "category": "ordering",
+                    # violation_risk is MISSING
+                    "evidence_quote": "incomplete code",
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        # Only the complete assumption should remain
+        assert len(result.assumptions) == 1
+        assert result.assumptions[0].assumption == "complete assumption with enough length"
+
+        # Should have logged a warning about the incomplete assumption
+        assert any("missing required fields" in record.message for record in caplog.records)
+
+    def test_parse_response_filters_assumption_missing_evidence_quote(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that assumption missing evidence_quote is filtered out."""
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "complete assumption with enough length",
+                    "category": "data",
+                    "violation_risk": "high",
+                    "evidence_quote": "code",
+                },
+                {
+                    "assumption": "assumption missing evidence quote",
+                    "category": "timing",
+                    "violation_risk": "medium",
+                    # evidence_quote is MISSING
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        # Only complete assumption should remain
+        assert len(result.assumptions) == 1
+        assert result.assumptions[0].assumption == "complete assumption with enough length"
+
+    def test_parse_response_filters_assumption_missing_category(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that assumption missing category is filtered out."""
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "complete assumption with enough length",
+                    "category": "data",
+                    "violation_risk": "high",
+                    "evidence_quote": "code",
+                },
+                {
+                    "assumption": "assumption missing category",
+                    # category is MISSING
+                    "violation_risk": "low",
+                    "evidence_quote": "code",
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        assert len(result.assumptions) == 1
+
+    def test_parse_response_filters_assumption_with_empty_required_field(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that assumption with empty string for required field is filtered out."""
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "complete assumption with enough length",
+                    "category": "data",
+                    "violation_risk": "high",
+                    "evidence_quote": "code",
+                },
+                {
+                    "assumption": "",  # Empty assumption
+                    "category": "ordering",
+                    "violation_risk": "medium",
+                    "evidence_quote": "code",
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        # Empty assumption should be filtered out
+        assert len(result.assumptions) == 1
+
+    def test_parse_response_returns_empty_when_all_incomplete(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that empty response is returned when all assumptions are incomplete."""
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "first incomplete",
+                    # missing violation_risk
+                    "category": "data",
+                    "evidence_quote": "code1",
+                },
+                {
+                    "assumption": "second incomplete",
+                    "category": "timing",
+                    # missing evidence_quote
+                    "violation_risk": "medium",
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        # All assumptions filtered out
+        assert len(result.assumptions) == 0
+
+        # Should have warning about all being incomplete
+        assert any("All" in record.message and "incomplete" in record.message for record in caplog.records)
+
+    def test_parse_response_handles_multiple_missing_fields_in_single_assumption(
+        self, method: AssumptionSurfacingMethod, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that assumption with multiple missing fields is filtered correctly."""
+        partial_json = json.dumps({
+            "assumptions": [
+                {
+                    "assumption": "complete assumption with enough length",
+                    "category": "data",
+                    "violation_risk": "high",
+                    "evidence_quote": "code",
+                },
+                {
+                    "assumption": "very incomplete",
+                    # category MISSING
+                    # violation_risk MISSING
+                    # evidence_quote MISSING
+                },
+            ]
+        })
+
+        with caplog.at_level(logging.WARNING):
+            result = method._parse_response(partial_json)
+
+        # Only complete one remains
+        assert len(result.assumptions) == 1
+        # Warning should mention all missing fields
+        assert any("missing required fields" in record.message for record in caplog.records)
+
+    def test_parse_response_preserves_complete_assumptions_with_optional_fields_missing(
+        self, method: AssumptionSurfacingMethod
+    ) -> None:
+        """Test that assumptions with only optional fields missing are kept."""
+        # Optional fields: line_number, consequences, recommendation
+        json_str = json.dumps({
+            "assumptions": [{
+                "assumption": "assumption with only required fields and enough length",
+                "category": "data",
+                "violation_risk": "high",
+                "evidence_quote": "code snippet",
+                # Optional fields not provided - should still work
+            }]
+        })
+
+        result = method._parse_response(json_str)
+
+        # Should parse successfully
+        assert len(result.assumptions) == 1
+        assert result.assumptions[0].line_number is None
+        assert result.assumptions[0].consequences == ""
+        assert result.assumptions[0].recommendation == ""
 
 
 # =============================================================================

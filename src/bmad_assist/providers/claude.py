@@ -40,7 +40,9 @@ from bmad_assist.providers.base import (
     extract_tool_details,
     format_tag,
     is_full_stream,
+    register_child_pgid,
     should_print_progress,
+    unregister_child_pgid,
     validate_settings_file,
     write_progress,
 )
@@ -404,6 +406,16 @@ class ClaudeSubprocessProvider(BaseProvider):
 
         # Prepare environment (inherit current + optionally disable caching)
         env = os.environ.copy()
+        # Strip CLAUDECODE marker to prevent nested session guard (Claude Code 2.1.41+)
+        env.pop("CLAUDECODE", None)
+        # Strip all inherited experimental features to prevent uncontrolled
+        # behavior (e.g. AGENT_TEAMS spawns 5-6 teammate processes at 100% CPU).
+        for key in list(env):
+            if key.startswith("CLAUDE_CODE_EXPERIMENTAL_"):
+                env.pop(key)
+        # Re-enable agent teams if explicitly configured in bmad-assist.yaml
+        if os.environ.get("BMAD_AGENT_TEAMS") == "1":
+            env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
         if no_cache:
             env["DISABLE_PROMPT_CACHING"] = "1"
 
@@ -417,6 +429,7 @@ class ClaudeSubprocessProvider(BaseProvider):
         response_text_parts: list[str] = []
         stderr_chunks: list[str] = []
         raw_stdout_lines: list[str] = []
+        child_pgid: int | None = None
 
         try:
             process = Popen(
@@ -436,6 +449,13 @@ class ClaudeSubprocessProvider(BaseProvider):
             with self._process_lock:
                 self._current_process = process
 
+            # Register child pgid for signal handler cleanup (Ctrl+C)
+            try:
+                child_pgid = os.getpgid(process.pid)
+                register_child_pgid(child_pgid)
+            except (ProcessLookupError, OSError):
+                pass
+
             # Write prompt to stdin and close it
             if process.stdin:
                 process.stdin.write(prompt)
@@ -447,8 +467,43 @@ class ClaudeSubprocessProvider(BaseProvider):
                 raw_lines: list[str],
                 json_logger: DebugJsonLogger,
                 color_idx: int | None,
+                term_event: threading.Event | None = None,
             ) -> None:
-                """Process stream-json output, extracting text and showing progress."""
+                """Process stream-json output, extracting text and showing progress.
+
+                Early Termination Detection:
+                    Detects common output markers and completion phrases to terminate
+                    the stream early, preventing timeout when LLM doesn't close stream
+                    (known issue with GLM-4.7 and similar models via Claude CLI).
+
+                    Termination triggers:
+                    - End markers: <!-- *_END --> (VALIDATION_REPORT_END, etc.)
+                    - Completion phrases: "successfully completed", "task is done"
+                    - After final assistant summary following tool use
+                """
+                # Early termination markers (common end markers from extraction.py + others)
+                end_markers = [
+                    "<!-- VALIDATION_REPORT_END -->",
+                    "<!-- CODE_REVIEW_REPORT_END -->",
+                    "<!-- CODE_REVIEW_SYNTHESIS_END -->",
+                    "<!-- VALIDATION_SYNTHESIS_END -->",
+                    "<!-- RETROSPECTIVE_REPORT_END -->",
+                    "<!-- SECURITY_REPORT_END -->",
+                    "<!-- QA_PLAN_END -->",
+                    "<!-- REMEDIATE_ESCALATIONS_END -->",
+                    "BMAD Method Quality Competition v1.0",
+                ]
+
+                # Completion phrases that indicate task is done
+                completion_phrases = [
+                    "successfully completed",
+                    "task is done",
+                    "task is complete",
+                    "synthesis complete",
+                    "review complete",
+                    "validation complete",
+                ]
+
                 for line in iter(stream.readline, ""):
                     raw_lines.append(line)
                     stripped = line.strip()
@@ -476,6 +531,31 @@ class ClaudeSubprocessProvider(BaseProvider):
                                 if block.get("type") == "text":
                                     text = block.get("text", "")
                                     text_parts.append(text)
+
+                                    # Check for early termination markers/phrases
+                                    text_lower = text.lower()
+                                    should_terminate = False
+
+                                    # Check end markers
+                                    for marker in end_markers:
+                                        if marker in text:
+                                            logger.info(
+                                                "Early termination: detected end marker %s", marker
+                                            )
+                                            should_terminate = True
+                                            break
+
+                                    # Check completion phrases
+                                    if not should_terminate:
+                                        for phrase in completion_phrases:
+                                            if phrase in text_lower:
+                                                logger.info(
+                                                    "Early termination: detected completion phrase '%s'",
+                                                    phrase,
+                                                )
+                                                should_terminate = True
+                                                break
+
                                     if should_print_progress():
                                         if is_full_stream():
                                             tag = format_tag("ASSISTANT", color_idx)
@@ -486,6 +566,16 @@ class ClaudeSubprocessProvider(BaseProvider):
                                                 preview += "..."
                                             tag = format_tag("ASSISTANT", color_idx)
                                             write_progress(f"{tag} {preview}")
+
+                                    # Terminate stream if marker/phrase detected
+                                    if should_terminate:
+                                        if should_print_progress():
+                                            tag = format_tag("TERM", color_idx)
+                                            write_progress(f"{tag} Stream terminated early")
+                                        if term_event is not None:
+                                            term_event.set()
+                                        stream.close()
+                                        return
                                 elif block.get("type") == "tool_use":
                                     tool_name = block.get("name", "?")
                                     tool_input = block.get("input", {})
@@ -538,6 +628,9 @@ class ClaudeSubprocessProvider(BaseProvider):
                         write_progress(f"{tag} {line.rstrip()}")
                 stream.close()
 
+            # Event signaled by stdout reader on early termination
+            early_term_event = threading.Event()
+
             # Start reader threads
             stdout_thread = threading.Thread(
                 target=process_json_stream,
@@ -547,6 +640,7 @@ class ClaudeSubprocessProvider(BaseProvider):
                     raw_stdout_lines,
                     debug_json_logger,
                     color_index,
+                    early_term_event,
                 ),
             )
             stderr_thread = threading.Thread(
@@ -579,6 +673,13 @@ class ClaudeSubprocessProvider(BaseProvider):
                     returncode = -15  # SIGTERM
                     break
 
+                # Check for early termination (end marker detected)
+                if early_term_event.is_set():
+                    logger.info("Early termination signaled, killing process")
+                    self._terminate_process(process)
+                    returncode = 0
+                    break
+
                 # Check for timeout
                 if time.perf_counter() >= deadline:
                     process.kill()
@@ -608,6 +709,8 @@ class ClaudeSubprocessProvider(BaseProvider):
 
                     # Close debug logger and clear process before raising
                     debug_json_logger.close()
+                    if child_pgid is not None:
+                        unregister_child_pgid(child_pgid)
                     with self._process_lock:
                         self._current_process = None
 
@@ -627,7 +730,9 @@ class ClaudeSubprocessProvider(BaseProvider):
             stdout_thread.join(timeout=10)
             stderr_thread.join(timeout=10)
 
-            # Clear current process
+            # Clear current process and unregister from signal handler
+            if child_pgid is not None:
+                unregister_child_pgid(child_pgid)
             with self._process_lock:
                 self._current_process = None
 
@@ -653,6 +758,8 @@ class ClaudeSubprocessProvider(BaseProvider):
 
         except FileNotFoundError as e:
             logger.error("Claude CLI not found in PATH")
+            if child_pgid is not None:
+                unregister_child_pgid(child_pgid)
             with self._process_lock:
                 self._current_process = None
             debug_json_logger.close()

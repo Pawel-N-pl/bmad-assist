@@ -2,6 +2,28 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.29] - 2026-02-13
+
+### Added
+- **Source Context Budgets** - Configurable token budgets per source context type with scoring-based file selection
+- **Subprocess Fallback** - Automatic subprocess fallback in retry logic and multi-LLM orchestration when SDK fails
+- **Outlier Filters** - Sigma-based outlier detection wired into validation/review handlers
+
+### Fixed
+- **SDK Provider Reliability** - Init timeout reduced to 10s, global flag for init fallback, early subprocess termination, bundled CLI for streaming protocol
+- **Validation Resilience** - Truncate oversized validations instead of dropping; safety net to never reduce below synthesis minimum (2 reports)
+- **Agent Teams Leak** - Prevent orphaned child processes, kill child process tree on Ctrl+C
+- **Stream Termination** - Early stream termination for SDK provider and GLM-4.7 models with extended markers
+- **Story Header Parsing** - Support French typographic convention (non-breaking space before colon) ([#15](https://github.com/Pawel-N-pl/bmad-assist/issues/15))
+- **XML Sanitization** - Invalid XML control characters in CDATA sections now sanitized
+- **Partial JSON Parsing** - Fallback parsing for incomplete JSON responses in assumption surfacing
+- **Antipatterns Extraction** - Added "Minor" severity support to extraction regex
+- **Crash/Resume** - Proper handling of empty `epic_stories` in crash/resume scenarios
+
+### Changed
+- **Sprint Reconciler** - Improved reconciliation logic and config updates
+- **Display Model** - Use `display_model` (user-friendly name) in SDK logs instead of internal model ID
+
 ## [0.4.28] - 2026-02-10
 
 ### Added

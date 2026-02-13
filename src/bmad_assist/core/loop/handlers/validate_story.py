@@ -27,6 +27,7 @@ from bmad_assist.deep_verify.integration.reports import save_deep_verify_report
 from bmad_assist.validation.orchestrator import (
     InsufficientValidationsError,
     ValidationError,
+    _filter_outlier_validations,
     run_validation_phase,
     save_validations_for_synthesis,
 )
@@ -115,6 +116,12 @@ class ValidateStoryHandler(BaseHandler):
                 result.session_id,
             )
 
+            # Filter outlier validations by size (F4-IMPL: prevent token explosion)
+            filtered_validations = _filter_outlier_validations(
+                result.anonymized_validations,
+                sigma_threshold=2.0,  # Reject if > mean + 2*std_dev
+            )
+
             # Save validations for synthesis handler to retrieve
             # Use session_id from mapping to maintain traceability
             # Story 22.8 AC#4: Pass failed_validators for synthesis context
@@ -122,7 +129,7 @@ class ValidateStoryHandler(BaseHandler):
             # Story 26.16: Pass Deep Verify result for synthesis
             logger.debug("HANG_DEBUG: Calling save_validations_for_synthesis")
             save_validations_for_synthesis(
-                result.anonymized_validations,
+                filtered_validations,
                 self.project_path,
                 session_id=result.session_id,  # Use mapping session_id
                 failed_validators=result.failed_validators,

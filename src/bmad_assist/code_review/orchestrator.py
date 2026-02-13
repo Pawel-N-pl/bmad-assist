@@ -332,12 +332,21 @@ async def _invoke_reviewer(
         start_time = datetime.now(UTC)
         review_timestamp = run_timestamp or start_time
 
+        # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
+        fallback_invoke_fn = None
+        if provider.provider_name == "claude":
+            from bmad_assist.providers.claude import ClaudeSubprocessProvider
+
+            fallback_invoke_fn = ClaudeSubprocessProvider().invoke
+            logger.debug("Configured subprocess fallback for %s", reviewer_id)
+
         # Use asyncio.to_thread with timeout retry wrapper
         result = await asyncio.to_thread(
             invoke_with_timeout_retry,
             provider.invoke,
             timeout_retries=timeout_retries,
             phase_name="code_review",
+            fallback_invoke_fn=fallback_invoke_fn,
             prompt=prompt,
             model=model,
             timeout=timeout,
@@ -1110,6 +1119,65 @@ async def run_code_review_phase(
         evaluation_records=evaluation_records,
         evidence_aggregate=evidence_aggregate,
     )
+
+
+def _filter_outlier_reviews(
+    reviews: list[AnonymizedValidation],
+    sigma_threshold: float = 2.0,
+) -> list[AnonymizedValidation]:
+    """Drop statistical outlier reviews by size (sigma test only).
+
+    Uses standard deviation to detect reviews that are significantly
+    larger than their peers — these are likely malformed or runaway outputs.
+    Normal-size variation is expected and preserved.
+
+    Args:
+        reviews: List of anonymized reviews.
+        sigma_threshold: Number of standard deviations above mean to drop.
+            Default 2.0 means drop if > mean + 2*std_dev.
+
+    Returns:
+        List with extreme outliers removed.
+
+    """
+    if len(reviews) <= 2:
+        # Need at least 3 for meaningful statistics
+        return reviews
+
+    lengths = [len(r.content) for r in reviews]
+    mean_len = sum(lengths) / len(lengths)
+    variance = sum((ln - mean_len) ** 2 for ln in lengths) / len(lengths)
+    std_dev = variance ** 0.5
+
+    if std_dev == 0:
+        return reviews
+
+    result: list[AnonymizedValidation] = []
+    rejected: list[tuple[str, int, float]] = []
+
+    for review in reviews:
+        length = len(review.content)
+        sigma = (length - mean_len) / std_dev
+
+        if sigma > sigma_threshold:
+            rejected.append((review.validator_id, length, sigma))
+        else:
+            result.append(review)
+
+    if rejected:
+        logger.warning(
+            "Dropped %d outlier review(s): %s",
+            len(rejected),
+            ", ".join(
+                f"{vid} ({length:,} chars, {sigma:.1f}σ)" for vid, length, sigma in rejected
+            ),
+        )
+        logger.info(
+            "Review size stats: mean=%.0f chars, std=%.0f chars, kept=%d, dropped=%d",
+            mean_len, std_dev, len(result), len(rejected),
+        )
+
+    return result
 
 
 # =============================================================================

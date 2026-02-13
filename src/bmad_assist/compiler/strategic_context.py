@@ -35,6 +35,15 @@ from bmad_assist.compiler.shared_utils import (
 )
 from bmad_assist.compiler.types import CompilerContext
 
+# Import project tree service
+try:
+    from bmad_assist.core.config.loaders import get_config
+    from bmad_assist.core.paths import get_paths
+    from bmad_assist.core.project_tree import ProjectTreeService
+    _PROJECT_TREE_AVAILABLE = True
+except ImportError:
+    _PROJECT_TREE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,6 +65,7 @@ DOC_PATTERNS: dict[str, tuple[list[str] | None, str | None, DocType | None]] = {
     "architecture": (["architecture.md"], "architecture", "architecture"),
     # Prioritized patterns - try specific first, then fallback
     "ux": (["ux.md", "ux-design.md", "ux-*.md"], "ux", "ux"),
+    "project-tree": (None, None, None),  # Special handling via ProjectTreeService
 }
 
 # Truncation notice appended to truncated content
@@ -259,6 +269,16 @@ class StrategicContextService:
                 logger.debug("Doc %s not found or empty", doc_type)
                 continue
 
+            # Special handling for project-tree: include raw XML (not file-wrapped)
+            if path == "[PROJECT-TREE]":
+                # Project tree XML is not wrapped in <file> tag
+                # Use a special key that the compiler will recognize
+                files["[PROJECT-TREE]"] = content
+                tokens = estimate_tokens(content)
+                total_tokens += tokens
+                loaded_docs.append(doc_type)
+                continue
+
             tokens = estimate_tokens(content)
             remaining_budget = budget - total_tokens
 
@@ -336,6 +356,24 @@ class StrategicContextService:
                     content = safe_read_file(path, project_root)
                     return str(path), content
                 return "", ""
+
+            # Special handling for project-tree
+            if doc_type == "project-tree":
+                if not _PROJECT_TREE_AVAILABLE:
+                    logger.debug("Project tree module not available")
+                    return "", ""
+                try:
+                    config = get_config()
+                    paths = get_paths()
+                    service = ProjectTreeService(config, paths)
+                    tree_xml = service.generate_tree(self.workflow_name)
+                    if tree_xml:
+                        # Return with special marker path to indicate raw XML (not file-wrapped)
+                        return "[PROJECT-TREE]", tree_xml
+                    return "", ""
+                except Exception as e:
+                    logger.warning("Error generating project tree: %s", e)
+                    return "", ""
 
             # Get patterns for this doc type
             patterns = DOC_PATTERNS.get(doc_type)

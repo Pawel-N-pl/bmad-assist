@@ -15,11 +15,15 @@ Tests cover:
 - AC12: invoke() handles SDK edge cases
 """
 
+import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+# Force SDK path in tests (bypass nested Claude Code detection)
+os.environ["BMAD_SDK_FORCE"] = "1"
 
 from bmad_assist.core.exceptions import ProviderError, ProviderTimeoutError
 from bmad_assist.providers import (
@@ -113,6 +117,35 @@ async def _mock_async_generator(
         yield msg
 
 
+def _patch_sdk_client(messages: list[MagicMock] | None = None, connect_error: Exception | None = None):
+    """Create a patch context for ClaudeSDKClient that returns mock messages.
+
+    Args:
+        messages: Messages to yield from receive_messages(). If None, yields nothing.
+        connect_error: If set, client.connect() raises this error.
+
+    Returns:
+        A context manager that patches ClaudeSDKClient and returns the mock class.
+    """
+    mock_client_class = MagicMock()
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+
+    if connect_error:
+        mock_client.connect = AsyncMock(side_effect=connect_error)
+    else:
+        mock_client.connect = AsyncMock()
+
+    if messages is not None:
+        mock_client.receive_messages.return_value = _mock_async_generator(messages)
+    else:
+        mock_client.receive_messages.return_value = _mock_async_generator([])
+
+    mock_client.disconnect = AsyncMock()
+
+    return patch("bmad_assist.providers.claude_sdk.ClaudeSDKClient", mock_client_class)
+
+
 class TestClaudeSDKProviderInvoke:
     """Test AC5, AC6: invoke() with SDK."""
 
@@ -164,13 +197,11 @@ class TestClaudeSDKProviderInvoke:
         """Test AC5, AC6: invoke() uses SDK and returns ProviderResult."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages) as mock_cls:
             result = provider.invoke("Hello", model="opus")
 
             assert isinstance(result, ProviderResult)
-            mock_query.assert_called_once()
+            mock_cls.assert_called_once()
 
     def test_invoke_stdout_contains_response(
         self,
@@ -181,9 +212,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.stdout contains response text from TextBlock."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello")
 
             assert result.stdout == "Hello response"
@@ -197,9 +226,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.stderr is empty string."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello")
 
             assert result.stderr == ""
@@ -213,9 +240,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.exit_code is 0."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello")
 
             assert result.exit_code == 0
@@ -229,8 +254,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.duration_ms is positive integer."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
+        with _patch_sdk_client(messages):
 
             result = provider.invoke("Hello")
 
@@ -246,9 +270,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.model contains the model used."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello", model="opus")
 
             assert result.model == "opus"
@@ -262,9 +284,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: ProviderResult.command is tuple describing SDK invocation."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello", model="opus")
 
             assert isinstance(result.command, tuple)
@@ -279,9 +299,7 @@ class TestClaudeSDKProviderInvoke:
         """Test AC6: invoke() uses default_model when none specified."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello")
 
             assert result.model == "sonnet"
@@ -295,9 +313,7 @@ class TestClaudeSDKProviderInvoke:
         """Test invoke() uses DEFAULT_TIMEOUT when timeout=None."""
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages):
             result = provider.invoke("Hello")
 
             # If timeout was used correctly, invoke succeeds
@@ -317,14 +333,12 @@ class TestClaudeSDKProviderInvoke:
 
         messages = [mock_assistant_message, mock_result_message]
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator(messages)
-
+        with _patch_sdk_client(messages) as mock_cls:
             provider.invoke("Hello", settings_file=settings_path)
 
-            # Verify options passed to query
-            call_kwargs = mock_query.call_args[1]
-            options = call_kwargs["options"]
+            # Verify options passed to ClaudeSDKClient constructor
+            call_args = mock_cls.call_args[1]
+            options = call_args["options"]
             # settings is converted to str for SDK
             assert options.settings == str(settings_path)
 
@@ -343,9 +357,7 @@ class TestClaudeSDKProviderErrors:
         """Test AC7: invoke() raises ProviderError on CLINotFoundError."""
         from claude_agent_sdk import CLINotFoundError
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.side_effect = CLINotFoundError("Claude not found")
-
+        with _patch_sdk_client(connect_error=CLINotFoundError("Claude not found")):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -355,9 +367,7 @@ class TestClaudeSDKProviderErrors:
         """Test AC7: CLINotFoundError is chained with 'from e'."""
         from claude_agent_sdk import CLINotFoundError
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.side_effect = CLINotFoundError("Claude not found")
-
+        with _patch_sdk_client(connect_error=CLINotFoundError("Claude not found")):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -370,11 +380,9 @@ class TestClaudeSDKProviderErrors:
         """Test AC7: invoke() raises ProviderError on ProcessError with exit code."""
         from claude_agent_sdk import ProcessError
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.side_effect = ProcessError(
-                "Process failed", exit_code=1, stderr="Error details"
-            )
-
+        with _patch_sdk_client(
+            connect_error=ProcessError("Process failed", exit_code=1, stderr="Error details")
+        ):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -386,9 +394,9 @@ class TestClaudeSDKProviderErrors:
         """Test AC7: ProcessError is chained with 'from e'."""
         from claude_agent_sdk import ProcessError
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.side_effect = ProcessError("Process failed", exit_code=1, stderr="Error")
-
+        with _patch_sdk_client(
+            connect_error=ProcessError("Process failed", exit_code=1, stderr="Error")
+        ):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -445,15 +453,7 @@ class TestClaudeSDKProviderEmptyResponse:
         self, provider: ClaudeSDKProvider
     ) -> None:
         """Test AC12: invoke() raises ProviderError if no AssistantMessage received."""
-
-        # Empty async generator - no messages
-        async def empty_generator() -> AsyncIterator[MagicMock]:
-            return
-            yield  # Make it a generator
-
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = empty_generator()
-
+        with _patch_sdk_client(messages=[]):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -477,9 +477,7 @@ class TestClaudeSDKProviderEmptyResponse:
             result=None,
         )
 
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.return_value = _mock_async_generator([result_msg])
-
+        with _patch_sdk_client(messages=[result_msg]):
             with pytest.raises(ProviderError) as exc_info:
                 provider.invoke("Hello")
 
@@ -538,21 +536,14 @@ class TestClaudeSDKProviderNoFallback:
         """Test AC11: SDK failure propagates immediately, no fallback."""
         from claude_agent_sdk import ProcessError
 
-        call_count = 0
-
-        def track_calls(*args: object, **kwargs: object) -> None:
-            nonlocal call_count
-            call_count += 1
-            raise ProcessError("Failed", exit_code=1, stderr="Error")
-
-        with patch("bmad_assist.providers.claude_sdk.query") as mock_query:
-            mock_query.side_effect = track_calls
-
+        with _patch_sdk_client(
+            connect_error=ProcessError("Failed", exit_code=1, stderr="Error")
+        ) as mock_cls:
             with pytest.raises(ProviderError):
                 provider.invoke("Hello")
 
-            # Should only call query once (no retry/fallback)
-            assert call_count == 1
+            # Should only create one client (no retry/fallback)
+            assert mock_cls.call_count == 1
 
 
 class TestClaudeSDKProviderParseOutput:
@@ -751,10 +742,9 @@ class TestDisableTools:
         messages = [mock_assistant_message, mock_result_message]
 
         with (
-            patch("bmad_assist.providers.claude_sdk.query") as mock_query,
+            _patch_sdk_client(messages),
             patch.object(provider, "_invoke_async", wraps=provider._invoke_async) as mock_invoke_async,
         ):
-            mock_query.return_value = _mock_async_generator(messages)
             provider.invoke("test prompt", model="sonnet", disable_tools=True)
             # _invoke_async should be called with allowed_tools=[]
             mock_invoke_async.assert_called_once()
@@ -771,10 +761,9 @@ class TestDisableTools:
         messages = [mock_assistant_message, mock_result_message]
 
         with (
-            patch("bmad_assist.providers.claude_sdk.query") as mock_query,
+            _patch_sdk_client(messages),
             patch.object(provider, "_invoke_async", wraps=provider._invoke_async) as mock_invoke_async,
         ):
-            mock_query.return_value = _mock_async_generator(messages)
             provider.invoke("test prompt", model="sonnet", disable_tools=False)
             mock_invoke_async.assert_called_once()
             call_args = mock_invoke_async.call_args
@@ -790,10 +779,9 @@ class TestDisableTools:
         messages = [mock_assistant_message, mock_result_message]
 
         with (
-            patch("bmad_assist.providers.claude_sdk.query") as mock_query,
+            _patch_sdk_client(messages),
             patch.object(provider, "_invoke_async", wraps=provider._invoke_async) as mock_invoke_async,
         ):
-            mock_query.return_value = _mock_async_generator(messages)
             provider.invoke(
                 "test prompt", model="sonnet", disable_tools=True,
                 allowed_tools=["Read", "Glob"],

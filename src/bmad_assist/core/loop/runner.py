@@ -342,6 +342,15 @@ def run_loop(
     if not epic_list:
         raise StateError("No epics found in project")
 
+    # Propagate agent_teams config to providers via env var.
+    # Providers strip all CLAUDE_CODE_EXPERIMENTAL_* from child env and only
+    # re-enable AGENT_TEAMS when BMAD_AGENT_TEAMS=1 (prevents inherited leaks).
+    if config.agent_teams:
+        os.environ["BMAD_AGENT_TEAMS"] = "1"
+        logger.info("Agent teams enabled via config")
+    else:
+        os.environ.pop("BMAD_AGENT_TEAMS", None)
+
     # Story 6.6: Clear shutdown state from any previous invocation and register handlers
     # Skip signal handlers when running in non-main thread (e.g., dashboard executor)
     reset_shutdown()

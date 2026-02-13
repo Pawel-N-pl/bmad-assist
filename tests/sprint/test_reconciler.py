@@ -1552,3 +1552,211 @@ class TestForwardOnlyProtection:
         # But "review" < "done", so forward-only should preserve "done"
         entry = result.status.entries["20-1-setup"]
         assert entry.status == "done"
+
+
+# ============================================================================
+# Tests: Epic Downgrade with Explicit Non-Done Stories (Bug Fix)
+# ============================================================================
+
+
+class TestEpicDowngradeWithExplicitNonDoneStories:
+    """Tests for epic status downgrade when stories have explicit non-done status.
+
+    This is a regression test for the bug where sprint-planning would identify
+    stories as not done (via Status: field in story files), but the epic status
+    would remain "done" due to forward-only protection, causing an infinite loop
+    when bmad-assist tried to determine the next epic.
+    """
+
+    def test_epic_downgrades_with_explicit_non_done_story(
+        self,
+        tmp_path: Path,
+        sample_metadata: SprintStatusMetadata,
+    ) -> None:
+        """Test that epic downgrades when stories have explicit non-done status.
+
+        Bug scenario:
+        1. Epic 12 was marked as done with all stories done
+        2. Sprint-planning identified story 12-4 as not done (Status: in-progress)
+        3. Epic 12 status should downgrade from done to in-progress
+        4. Without this fix, epic stays done causing infinite loop in runner
+        """
+        # Create project structure
+        impl_dir = tmp_path / "_bmad-output" / "implementation-artifacts"
+        impl_dir.mkdir(parents=True)
+
+        stories_dir = impl_dir / "stories"
+        stories_dir.mkdir()
+
+        # Story 12-1: done
+        (stories_dir / "12-1-foundation.md").write_text(
+            "# Story 12.1\n\nStatus: done\n\nCompleted."
+        )
+        # Story 12-2: done
+        (stories_dir / "12-2-config.md").write_text(
+            "# Story 12.2\n\nStatus: done\n\nCompleted."
+        )
+        # Story 12-3: done
+        (stories_dir / "12-3-parser.md").write_text(
+            "# Story 12.3\n\nStatus: done\n\nCompleted."
+        )
+        # Story 12-4: NOT done (explicit in-progress status)
+        # This is the key - sprint-planning found this story is still in-progress
+        (stories_dir / "12-4-refactor.md").write_text(
+            "# Story 12.4\n\nStatus: in-progress\n\nStill being worked on."
+        )
+
+        # Existing sprint-status: epic marked as done (from previous completion)
+        existing = SprintStatus(
+            metadata=sample_metadata,
+            entries={
+                "epic-12": SprintStatusEntry(
+                    key="epic-12",
+                    status="done",  # Epic was marked done
+                    entry_type=EntryType.EPIC_META,
+                ),
+                "12-1-foundation": SprintStatusEntry(
+                    key="12-1-foundation",
+                    status="done",
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+                "12-2-config": SprintStatusEntry(
+                    key="12-2-config",
+                    status="done",
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+                "12-3-parser": SprintStatusEntry(
+                    key="12-3-parser",
+                    status="done",
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+                # Story 12-4 was previously marked done, but is now in-progress
+                "12-4-refactor": SprintStatusEntry(
+                    key="12-4-refactor",
+                    status="in-progress",  # Updated by sprint-planning
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+            },
+        )
+
+        # Generated entries from epic files
+        generated = GeneratedEntries()
+        generated.entries = [
+            SprintStatusEntry(
+                key="epic-12",
+                status="done",
+                entry_type=EntryType.EPIC_META,
+            ),
+            SprintStatusEntry(
+                key="12-1-foundation",
+                status="done",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+            SprintStatusEntry(
+                key="12-2-config",
+                status="done",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+            SprintStatusEntry(
+                key="12-3-parser",
+                status="done",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+            SprintStatusEntry(
+                key="12-4-refactor",
+                status="in-progress",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+        ]
+
+        index = ArtifactIndex.scan(tmp_path)
+        result = reconcile(existing, generated, index)
+
+        # Epic 12 should downgrade from done to in-progress
+        # because story 12-4 has explicit non-done status
+        epic_entry = result.status.entries["epic-12"]
+        assert epic_entry.status == "in-progress", (
+            f"Epic 12 should downgrade to 'in-progress' when story 12-4 "
+            f"has explicit non-done status, but got '{epic_entry.status}'"
+        )
+
+        # Should have a change record for the epic status change
+        epic_change = next(
+            (c for c in result.changes if c.key == "epic-12"),
+            None,
+        )
+        assert epic_change is not None, "Epic 12 should have a status change record"
+        assert epic_change.old_status == "done"
+        assert epic_change.new_status == "in-progress"
+
+    def test_epic_preserved_done_without_explicit_non_done_stories(
+        self,
+        tmp_path: Path,
+        sample_metadata: SprintStatusMetadata,
+    ) -> None:
+        """Test that epic stays done when no explicit non-done stories.
+
+        If stories are marked as not-done only via inference (not explicit Status:),
+        the epic should preserve its done status (forward-only protection).
+        """
+        # Create project with NO explicit story statuses
+        impl_dir = tmp_path / "_bmad-output" / "implementation-artifacts"
+        impl_dir.mkdir(parents=True)
+
+        stories_dir = impl_dir / "stories"
+        stories_dir.mkdir()
+
+        # Stories without explicit Status fields
+        (stories_dir / "12-1-foundation.md").write_text("# Story 12.1\n\nCompleted.")
+        (stories_dir / "12-2-config.md").write_text("# Story 12.2\n\nCompleted.")
+
+        # Existing: epic marked as done
+        existing = SprintStatus(
+            metadata=sample_metadata,
+            entries={
+                "epic-12": SprintStatusEntry(
+                    key="epic-12",
+                    status="done",
+                    entry_type=EntryType.EPIC_META,
+                ),
+                "12-1-foundation": SprintStatusEntry(
+                    key="12-1-foundation",
+                    status="in-progress",  # Inferred, not explicit
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+                "12-2-config": SprintStatusEntry(
+                    key="12-2-config",
+                    status="in-progress",  # Inferred, not explicit
+                    entry_type=EntryType.EPIC_STORY,
+                ),
+            },
+        )
+
+        generated = GeneratedEntries()
+        generated.entries = [
+            SprintStatusEntry(
+                key="epic-12",
+                status="done",
+                entry_type=EntryType.EPIC_META,
+            ),
+            SprintStatusEntry(
+                key="12-1-foundation",
+                status="backlog",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+            SprintStatusEntry(
+                key="12-2-config",
+                status="backlog",
+                entry_type=EntryType.EPIC_STORY,
+            ),
+        ]
+
+        index = ArtifactIndex.scan(tmp_path)
+        result = reconcile(existing, generated, index)
+
+        # Epic 12 should preserve done status (no explicit non-done stories)
+        epic_entry = result.status.entries["epic-12"]
+        assert epic_entry.status == "done", (
+            f"Epic 12 should preserve 'done' when no explicit non-done stories, "
+            f"but got '{epic_entry.status}'"
+        )

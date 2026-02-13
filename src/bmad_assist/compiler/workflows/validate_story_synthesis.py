@@ -292,6 +292,19 @@ class ValidateStorySynthesisCompiler:
             try:
                 service = SourceContextService(context, "validate_story_synthesis")
                 source_files = service.collect_files(file_list_paths, None)
+
+                # F4-IMPL: Limit source files for synthesis to prevent token explosion
+                max_synthesis_files = 3
+                if len(source_files) > max_synthesis_files:
+                    sorted_files = sorted(source_files.items(), key=lambda x: x[0])
+                    limited_files = dict(sorted_files[:max_synthesis_files])
+                    logger.warning(
+                        "Synthesis source files limited: %d → %d (token budget protection)",
+                        len(source_files),
+                        max_synthesis_files,
+                    )
+                    source_files = limited_files
+
                 files.update(source_files)
                 if source_files:
                     logger.debug(

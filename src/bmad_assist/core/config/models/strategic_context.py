@@ -1,12 +1,12 @@
 """Strategic context configuration for workflow compilers."""
 
 import re
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Valid strategic document types
-StrategicDocType = Literal["project-context", "prd", "architecture", "ux"]
+StrategicDocType = Literal["project-context", "prd", "architecture", "ux", "project-tree"]
 
 
 class StrategicContextDefaultsConfig(BaseModel):
@@ -181,6 +181,12 @@ class StrategicContextConfig(BaseModel):
         description="Token budget for strategic docs. 0 = disabled.",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
+    tree_budget: int = Field(
+        default=5000,
+        ge=0,
+        description="Token budget for project tree generation. 0 = disabled.",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
     defaults: StrategicContextDefaultsConfig = Field(
         default_factory=StrategicContextDefaultsConfig,
         description="Default settings for all workflows",
@@ -284,3 +290,23 @@ class StrategicContextConfig(BaseModel):
         )
 
         return include, main_only
+
+    @model_validator(mode="after")
+    def validate_tree_budget(self) -> Self:
+        """Validate that tree_budget does not exceed budget.
+
+        Only validates when both budget and tree_budget are > 0.
+        tree_budget=0 disables project tree entirely.
+
+        Raises:
+            ValueError: If tree_budget exceeds strategic_context.budget (when budget > 0).
+
+        """
+        if self.tree_budget == 0:
+            return self
+        if self.budget > 0 and self.tree_budget > self.budget:
+            raise ValueError(
+                f"tree_budget ({self.tree_budget}) cannot exceed "
+                f"strategic_context.budget ({self.budget})"
+            )
+        return self

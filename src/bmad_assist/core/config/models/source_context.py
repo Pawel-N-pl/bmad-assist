@@ -30,9 +30,9 @@ class SourceContextBudgetsConfig(BaseModel):
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     code_review_synthesis: int = Field(
-        default=15000,
+        default=5000,  # Reduced from 15k: synthesis only needs git diff, not full source
         ge=0,
-        description="Token budget for code_review_synthesis workflow",
+        description="Token budget for code_review_synthesis (git diff only, skip source files)",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     create_story: int = Field(

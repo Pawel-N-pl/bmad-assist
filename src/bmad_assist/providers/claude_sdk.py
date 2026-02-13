@@ -25,7 +25,9 @@ Example:
 """
 
 import asyncio
+import contextlib
 import logging
+import os
 import shutil
 import threading
 import time
@@ -36,11 +38,11 @@ from typing import Any
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
     CLINotFoundError,
     ProcessError,
     TextBlock,
     ToolUseBlock,
-    query,
 )
 
 from bmad_assist.core.exceptions import (
@@ -62,6 +64,10 @@ logger = logging.getLogger(__name__)
 
 # Supported short model names accepted by Claude Code
 SUPPORTED_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku"})
+
+# Track SDK init failures across invocations within same process.
+# Once SDK fails to init, all subsequent calls go straight to subprocess.
+_sdk_init_failed: bool = False
 
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
@@ -204,13 +210,18 @@ class ClaudeSDKProvider(BaseProvider):
         cwd: Path | None,
         allowed_tools: list[str] | None = None,
         color_index: int | None = None,
+        display_model: str | None = None,
     ) -> str:
-        """Execute SDK query asynchronously.
+        """Execute SDK query asynchronously using ClaudeSDKClient.
 
         Internal async helper that performs the actual SDK call. Uses streaming
         input mode to pass prompt via stdin (avoids CLI argument length limits).
         Iterates through SDK messages and extracts text content from
         AssistantMessage blocks.
+
+        Uses ClaudeSDKClient (not the query() convenience function) because
+        ClaudeSDKClient.connect() correctly reads CLAUDE_CODE_STREAM_CLOSE_TIMEOUT
+        for the initialization timeout. The query() path hardcodes 60s.
 
         Args:
             prompt: The prompt text to send to Claude.
@@ -230,12 +241,61 @@ class ClaudeSDKProvider(BaseProvider):
             ProviderError: If no response is received (empty iteration).
 
         """
-        # Prefer system-installed CLI; fall back to SDK-bundled binary
-        system_cli = shutil.which("claude")
-        if system_cli:
-            logger.debug("Using system Claude CLI: %s", system_cli)
+        # CLI resolution: let SDK use its default (bundled first, then system).
+        # The bundled CLI is version-matched to the SDK's streaming protocol.
+        # User can override via BMAD_CLAUDE_CLI_PATH env var if needed.
+        cli_override = os.environ.get("BMAD_CLAUDE_CLI_PATH")
+        if cli_override:
+            cli_path: str | None = cli_override
+            logger.info("SDK using override CLI: %s", cli_override)
         else:
-            logger.warning("System Claude CLI not found, falling back to SDK-bundled binary")
+            # Let SDK resolve: bundled (version-matched) → system
+            cli_path = None
+            system_cli = shutil.which("claude")
+            logger.info(
+                "SDK CLI resolution: bundled preferred, system=%s",
+                system_cli or "not found",
+            )
+
+        shown_model = display_model or model
+        logger.info(
+            "SDK init: model=%s, prompt=%d chars, cwd=%s, cli=%s, debug=%s",
+            shown_model,
+            len(prompt),
+            cwd,
+            cli_path or "sdk-default",
+            "enabled" if os.environ.get("CLAUDE_SDK_DEBUG") else "disabled",
+        )
+
+        # Build extra_args for debug mode (if enabled via env)
+        extra_args: dict[str, str | None] = {}
+        if os.environ.get("CLAUDE_SDK_DEBUG"):
+            extra_args["debug"] = None  # Boolean flag --debug
+            logger.debug("Enabling Claude SDK debug mode via CLAUDE_SDK_DEBUG")
+
+        # Stderr capture for diagnostics — collects CLI output on init failures
+        # Stored on instance so invoke() can include it in timeout error messages
+        self._last_stderr_lines: list[str] = []
+
+        def _capture_stderr(line: str) -> None:
+            self._last_stderr_lines.append(line)
+            if len(self._last_stderr_lines) <= 5:
+                logger.debug("CLI stderr: %s", line.rstrip())
+
+        # Override env to strip experimental features that interfere with
+        # bmad-assist orchestration (e.g. AGENT_TEAMS spawns sub-agents).
+        # SDK transport merges: {**os.environ, **options.env}, so we override
+        # with empty string to effectively disable inherited experimental flags.
+        env_overrides: dict[str, str] = {}
+        for key in os.environ:
+            if key.startswith("CLAUDE_CODE_EXPERIMENTAL_"):
+                env_overrides[key] = ""
+        # Re-enable agent teams if explicitly configured in bmad-assist.yaml
+        if os.environ.get("BMAD_AGENT_TEAMS") == "1":
+            env_overrides["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
+        # Also strip nested session guard
+        if os.environ.get("CLAUDECODE"):
+            env_overrides["CLAUDECODE"] = ""
 
         # Build SDK options with explicit values
         options = ClaudeAgentOptions(
@@ -243,7 +303,7 @@ class ClaudeSDKProvider(BaseProvider):
             permission_mode="acceptEdits",  # Explicit automation mode
             settings=str(settings) if settings is not None else None,
             cwd=cwd,
-            cli_path=system_cli,  # Skip bundled CLI, use system install
+            cli_path=cli_path,  # None = SDK default (bundled → system)
             # Tool restrictions: use 'tools' parameter to set explicit list
             # IMPORTANT: empty list [] means "no tools", None means "all tools"
             # Use explicit check for None to distinguish [] from None
@@ -251,20 +311,126 @@ class ClaudeSDKProvider(BaseProvider):
             # Increase buffer size for long-running conversations (default 1MB)
             # Dev story workflows can generate extensive conversation history
             max_buffer_size=10 * 1024 * 1024,  # 10MB buffer for conversation history
+            extra_args=extra_args,
+            stderr=_capture_stderr,  # Capture stderr for diagnostics
+            env=env_overrides,  # Override experimental features
         )
 
         response_parts: list[str] = []
+        terminated_early = False  # Flag for clean async loop exit
 
+        # Early termination markers (same as claude.py for consistency)
+        end_markers = [
+            "<!-- VALIDATION_REPORT_END -->",
+            "<!-- CODE_REVIEW_REPORT_END -->",
+            "<!-- CODE_REVIEW_SYNTHESIS_END -->",
+            "<!-- VALIDATION_SYNTHESIS_END -->",
+            "<!-- RETROSPECTIVE_REPORT_END -->",
+            "<!-- SECURITY_REPORT_END -->",
+            "<!-- QA_PLAN_END -->",
+            "<!-- REMEDIATE_ESCALATIONS_END -->",
+            "BMAD Method Quality Competition v1.0",
+        ]
+
+        # Completion phrases that indicate task is done
+        completion_phrases = [
+            "successfully completed",
+            "task is done",
+            "task is complete",
+            "synthesis complete",
+            "review complete",
+            "validation complete",
+        ]
+
+        # Init timeout: CLI startup includes Node.js boot, CLAUDE.md loading,
+        # MCP server init, settings parsing. On WSL2 with slow I/O this can
+        # take 10-30s. We use asyncio.wait() (not wait_for) to avoid cancelling
+        # the coroutine — asyncio.wait_for cancellation breaks anyio's cancel
+        # scopes ("exit cancel scope in different task" error).
+        init_timeout = 5  # seconds — normal init takes ~2s, if stuck won't unstick
+
+        client = ClaudeSDKClient(options=options)
         try:
             # Use streaming input to avoid E2BIG with large prompts
             prompt_iter = self._prompt_stream(prompt)
-            async for message in query(prompt=prompt_iter, options=options):
+
+            # Run connect as a task so we can timeout without cancelling
+            connect_task = asyncio.ensure_future(
+                client.connect(prompt=prompt_iter)
+            )
+            done, _pending = await asyncio.wait(
+                {connect_task}, timeout=init_timeout
+            )
+
+            if not done:
+                # Init timed out. We can't use client.disconnect() here because
+                # it tries to exit anyio's TaskGroup from a different async context,
+                # causing "'TaskGroup' has no attribute '_exceptions'".
+                # Instead, close the transport directly to kill the subprocess,
+                # then let the orphaned anyio task group be garbage collected.
+                if client._transport:
+                    await client._transport.close()
+                connect_task.cancel()
+                connect_task.add_done_callback(lambda _: None)
+
+                stderr_tail = ""
+                if self._last_stderr_lines:
+                    stderr_tail = "; ".join(
+                        line.rstrip() for line in self._last_stderr_lines[-5:]
+                    )
+                logger.warning(
+                    "SDK init timeout after %ds: model=%s, cli=%s, "
+                    "stderr_lines=%d, stderr_tail=%s",
+                    init_timeout,
+                    shown_model,
+                    cli_path or "sdk-default",
+                    len(self._last_stderr_lines),
+                    stderr_tail[:300] if stderr_tail else "(none captured)",
+                )
+                # Remember failure so subsequent calls skip SDK entirely
+                global _sdk_init_failed
+                _sdk_init_failed = True
+                raise ProviderTimeoutError(
+                    f"SDK initialization timeout ({init_timeout}s)"
+                )
+
+            # Re-raise any exception from connect
+            connect_task.result()
+
+            async for message in client.receive_messages():
+                # Check if we should exit outer loop
+                if terminated_early:
+                    break
+
                 # Extract content from AssistantMessage only
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             text = block.text
                             response_parts.append(text)
+
+                            # Check for early termination markers/phrases
+                            text_lower = text.lower()
+                            should_terminate = False
+
+                            # Check end markers
+                            for marker in end_markers:
+                                if marker in text:
+                                    logger.info("Early termination: detected end marker %s", marker)
+                                    should_terminate = True
+                                    break
+
+                            # Check completion phrases
+                            if not should_terminate:
+                                for phrase in completion_phrases:
+                                    if phrase in text_lower:
+                                        logger.info(
+                                            "Early termination: detected completion phrase '%s'",
+                                            phrase,
+                                        )
+                                        should_terminate = True
+                                        break
+
                             # Show progress for assistant messages
                             if should_print_progress():
                                 tag = format_tag("ASSISTANT", color_index)
@@ -275,6 +441,16 @@ class ClaudeSDKProvider(BaseProvider):
                                     if len(text) > 100:
                                         preview += "..."
                                     write_progress(f"{tag} {preview}")
+
+                            # Terminate stream if marker/phrase detected
+                            if should_terminate:
+                                if should_print_progress():
+                                    tag = format_tag("TERM", color_index)
+                                    write_progress(f"{tag} Stream terminated early (SDK)")
+                                # Set flag to exit outer loop cleanly
+                                terminated_early = True
+                                break  # Exit inner loop
+
                         elif isinstance(block, ToolUseBlock):
                             # Log tool use
                             tool_name = block.name
@@ -284,9 +460,7 @@ class ClaudeSDKProvider(BaseProvider):
                                 if is_full_stream():
                                     import json as _json
 
-                                    write_progress(
-                                        f"{tag} {_json.dumps(tool_input, indent=2)}"
-                                    )
+                                    write_progress(f"{tag} {_json.dumps(tool_input, indent=2)}")
                                 else:
                                     details = extract_tool_details(tool_name, tool_input, cwd)
                                     if details:
@@ -299,6 +473,18 @@ class ClaudeSDKProvider(BaseProvider):
         except (CLINotFoundError, ProcessError):
             # Re-raise SDK errors for handling in invoke()
             raise
+        finally:
+            # Clean up subprocess. Use transport.close() directly because
+            # client.disconnect() -> query.close() tries to exit anyio's
+            # TaskGroup from a different async context, which crashes with
+            # "Attempted to exit cancel scope in a different task".
+            try:
+                await client.disconnect()
+            except Exception:
+                # Fallback: close transport directly to kill subprocess
+                if client._transport:
+                    with contextlib.suppress(Exception):
+                        await client._transport.close()
 
         # Validate we got a response (AC12)
         if not response_parts:
@@ -316,6 +502,7 @@ class ClaudeSDKProvider(BaseProvider):
         cancel_token: threading.Event,
         timeout: int,
         color_index: int | None = None,
+        display_model: str | None = None,
     ) -> str:
         """Execute SDK query with cancel_token support.
 
@@ -344,7 +531,7 @@ class ClaudeSDKProvider(BaseProvider):
 
         """
         sdk_task = asyncio.create_task(
-            self._invoke_async(prompt, model, settings, cwd, allowed_tools, color_index)
+            self._invoke_async(prompt, model, settings, cwd, allowed_tools, color_index, display_model)
         )
 
         async def _wait_for_cancel() -> None:
@@ -448,6 +635,31 @@ class ClaudeSDKProvider(BaseProvider):
             0
 
         """
+        # Auto-fallback: if SDK init previously failed in this process,
+        # skip SDK entirely and delegate to subprocess (no more wasted timeouts).
+        # Also handles nested Claude Code sessions (CLAUDECODE=1).
+        # BMAD_SDK_FORCE=1 bypasses both checks (for testing).
+        global _sdk_init_failed
+        if not os.environ.get("BMAD_SDK_FORCE") and (
+            _sdk_init_failed or os.environ.get("CLAUDECODE") == "1"
+        ):
+            from bmad_assist.providers.claude import ClaudeSubprocessProvider
+
+            logger.info("Nested Claude Code session detected, delegating to subprocess provider")
+            return ClaudeSubprocessProvider().invoke(
+                prompt,
+                model=model,
+                timeout=timeout,
+                settings_file=settings_file,
+                cwd=cwd,
+                disable_tools=disable_tools,
+                allowed_tools=allowed_tools,
+                no_cache=no_cache,
+                color_index=color_index,
+                display_model=display_model,
+                cancel_token=cancel_token,
+            )
+
         # Ignored parameters (SDK doesn't support these)
         _ = no_cache, color_index
         # Note: allowed_tools IS supported - passed to _invoke_async
@@ -500,15 +712,28 @@ class ClaudeSDKProvider(BaseProvider):
             if cancel_token is not None:
                 response_text = run_async_in_thread(
                     self._invoke_with_cancel(
-                        prompt, effective_model, validated_settings, cwd,
-                        allowed_tools, cancel_token, effective_timeout, color_index,
+                        prompt,
+                        effective_model,
+                        validated_settings,
+                        cwd,
+                        allowed_tools,
+                        cancel_token,
+                        effective_timeout,
+                        color_index,
+                        display_model,
                     )
                 )
             else:
                 response_text = run_async_in_thread(
                     asyncio.wait_for(
                         self._invoke_async(
-                            prompt, effective_model, validated_settings, cwd, allowed_tools, color_index
+                            prompt,
+                            effective_model,
+                            validated_settings,
+                            cwd,
+                            allowed_tools,
+                            color_index,
+                            display_model,
                         ),
                         timeout=effective_timeout,
                     )
@@ -528,7 +753,7 @@ class ClaudeSDKProvider(BaseProvider):
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             logger.warning(
                 "SDK timeout: model=%s, timeout=%ds, duration_ms=%d",
-                effective_model,
+                shown_model,
                 effective_timeout,
                 duration_ms,
             )
@@ -552,6 +777,26 @@ class ClaudeSDKProvider(BaseProvider):
             # Re-raise ProviderError (e.g., "No response received")
             raise
         except Exception as e:
+            # Check if this is a timeout-related error that should be retryable
+            error_str = str(e).lower()
+            if "timeout" in error_str or "control request timeout" in error_str:
+                duration_ms = int((time.perf_counter() - start_time) * 1000)
+                # Include captured stderr for diagnostics
+                stderr_tail = ""
+                if hasattr(self, "_last_stderr_lines") and self._last_stderr_lines:
+                    stderr_tail = "; ".join(
+                        line.rstrip() for line in self._last_stderr_lines[-10:]
+                    )
+                logger.warning(
+                    "SDK initialization timeout: model=%s, duration_ms=%d, error=%s, "
+                    "stderr_lines=%d, stderr_tail=%s",
+                    effective_model,
+                    duration_ms,
+                    str(e)[:100],
+                    len(getattr(self, "_last_stderr_lines", [])),
+                    stderr_tail[:500] if stderr_tail else "(none captured)",
+                )
+                raise ProviderTimeoutError(f"SDK timeout: {e}") from e
             # Catch any unexpected exception and wrap in ProviderError
             # NO FALLBACK - error propagates immediately
             logger.error("Unexpected SDK error: %s", e)

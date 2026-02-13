@@ -147,6 +147,7 @@ def _capture_git_diff(context: CompilerContext) -> str:
 def _extract_modified_files_from_stat(
     stat_output: str,
     skip_docs: bool = True,
+    skip_generated: bool = True,
 ) -> list[tuple[str, int]]:
     """Extract modified file paths and change counts from git diff --stat output.
 
@@ -158,6 +159,7 @@ def _extract_modified_files_from_stat(
     Args:
         stat_output: Raw output from git diff --stat.
         skip_docs: If True, skip files in docs/ directory.
+        skip_generated: If True, skip BMAD-generated files (_bmad-output, .bmad-assist).
 
     Returns:
         List of (path, change_count) tuples sorted by changes desc, path asc.
@@ -202,6 +204,15 @@ def _extract_modified_files_from_stat(
         if skip_docs and new_path.startswith("docs/"):
             continue
 
+        # Skip BMAD-generated files (synthesis artifacts, cache, etc.)
+        if skip_generated and (
+            new_path.startswith("_bmad-output/") or
+            new_path.startswith(".bmad-assist/") or
+            "/_bmad-output/" in new_path or
+            "/.bmad-assist/" in new_path
+        ):
+            continue
+
         if new_path not in seen_paths:
             result.append((new_path, changes))
             seen_paths.add(new_path)
@@ -225,6 +236,15 @@ def _extract_modified_files_from_stat(
 
         # Skip docs/ files if requested
         if skip_docs and path.startswith("docs/"):
+            continue
+
+        # Skip BMAD-generated files (synthesis artifacts, cache, etc.)
+        if skip_generated and (
+            path.startswith("_bmad-output/") or
+            path.startswith(".bmad-assist/") or
+            "/_bmad-output/" in path or
+            "/.bmad-assist/" in path
+        ):
             continue
 
         if path not in seen_paths:

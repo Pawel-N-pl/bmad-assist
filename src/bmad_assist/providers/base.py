@@ -41,6 +41,8 @@ Example:
 
 import contextlib
 import logging
+import os
+import signal
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
@@ -50,6 +52,38 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Child Process Group Tracking (for signal handler cleanup)
+# =============================================================================
+
+# Tracks process group IDs of child processes started with start_new_session=True.
+# These are in separate sessions and won't be killed by os.killpg(our_pgid).
+# The signal handler iterates this set to kill orphans on Ctrl+C.
+_child_pgids: set[int] = set()
+_child_pgids_lock = threading.Lock()
+
+
+def register_child_pgid(pgid: int) -> None:
+    """Register a child process group for signal handler cleanup."""
+    with _child_pgids_lock:
+        _child_pgids.add(pgid)
+
+
+def unregister_child_pgid(pgid: int) -> None:
+    """Unregister a child process group after it exits."""
+    with _child_pgids_lock:
+        _child_pgids.discard(pgid)
+
+
+def kill_all_child_pgids() -> None:
+    """Kill all tracked child process groups. Called from signal handler."""
+    with _child_pgids_lock:
+        pgids = list(_child_pgids)
+    for pgid in pgids:
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(pgid, signal.SIGKILL)
+
 
 # =============================================================================
 # Shared Output Locking for Concurrent Providers

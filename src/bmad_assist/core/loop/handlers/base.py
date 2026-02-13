@@ -30,7 +30,7 @@ from typing import Any
 import yaml
 from jinja2 import Template
 
-from bmad_assist.core.config import Config, get_phase_retries, get_phase_timeout
+from bmad_assist.core.config import Config, get_config, get_phase_retries, get_phase_timeout
 from bmad_assist.core.config.models.providers import (
     MasterProviderConfig,
     MultiProviderConfig,
@@ -47,6 +47,7 @@ from bmad_assist.core.retry import invoke_with_timeout_retry
 from bmad_assist.core.state import State
 from bmad_assist.providers import get_provider
 from bmad_assist.providers.base import BaseProvider, ProviderResult
+from bmad_assist.providers.claude import ClaudeSubprocessProvider
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +352,25 @@ class BaseHandler(ABC):
             # Add git intelligence if patch config specifies it
             prompt = compiled.context
             prompt = self._inject_git_intelligence(prompt, workflow_name, resolved_variables)
+
+            # F4-IMPL: Warn if prompt exceeds expected budget (but don't block)
+            try:
+                config = get_config()
+                workflow_budget = config.compiler.source_context.budgets.get_budget(workflow_name)
+                # Prompt is typically ~2x the token estimate due to XML overhead
+                expected_prompt_tokens = compiled.token_estimate * 2
+
+                if expected_prompt_tokens > workflow_budget:
+                    logger.warning(
+                        "Prompt may exceed budget for %s: estimated %d tokens "
+                        "(config budget: %d). Consider reducing source context.",
+                        workflow_name,
+                        expected_prompt_tokens,
+                        workflow_budget,
+                    )
+            except Exception:
+                # Config not loaded (e.g., in tests) - skip budget warning
+                pass
 
             logger.info(
                 "Using compiled prompt for %s (tokens: ~%d)",
@@ -696,12 +716,24 @@ class BaseHandler(ABC):
             # Resolve reasoning_effort from provider config
             reasoning_effort = self._get_reasoning_effort()
 
+            # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
+            fallback_invoke_fn = None
+            fallback_timeout_retries = None
+            if provider.provider_name == "claude":
+                # Claude SDK can timeout on initialization, fallback to subprocess
+                subprocess_provider = ClaudeSubprocessProvider()
+                fallback_invoke_fn = subprocess_provider.invoke
+                fallback_timeout_retries = timeout_retries  # Reset retry count for fallback
+                logger.debug("Configured subprocess fallback for claude-sdk provider")
+
             try:
                 # Use shared timeout retry wrapper for provider invocation
                 return invoke_with_timeout_retry(
                     provider.invoke,
                     timeout_retries=timeout_retries,
                     phase_name=self.phase_name,
+                    fallback_invoke_fn=fallback_invoke_fn,
+                    fallback_timeout_retries=fallback_timeout_retries,
                     prompt=prompt,
                     model=cli_model,
                     display_model=display_model,

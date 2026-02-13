@@ -19,6 +19,7 @@ from typing import Any
 from bmad_assist.code_review.orchestrator import (
     CodeReviewError,
     InsufficientReviewsError,
+    _filter_outlier_reviews,
     run_code_review_phase,
     save_reviews_for_synthesis,
 )
@@ -109,11 +110,17 @@ class CodeReviewHandler(BaseHandler):
                 executor_timeout=15.0,  # Allow 15s for executor cleanup
             )
 
+            # Filter outlier reviews by size (F4-IMPL: prevent token explosion)
+            filtered_reviews = _filter_outlier_reviews(
+                result.anonymized_reviews,
+                sigma_threshold=2.0,  # Reject if > mean + 2*std_dev
+            )
+
             # Save reviews for synthesis handler to retrieve
             # Use session_id from mapping to maintain traceability
             # Story 22.7: Include failed reviewer metadata for synthesis
             save_reviews_for_synthesis(
-                result.anonymized_reviews,
+                filtered_reviews,
                 self.project_path,
                 session_id=result.session_id,
                 failed_reviewers=result.failed_reviewers,

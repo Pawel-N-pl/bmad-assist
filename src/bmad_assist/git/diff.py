@@ -37,6 +37,8 @@ DEFAULT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "node_modules/*",
     "*.lock",
     "package-lock.json",
+    # SvelteKit generated
+    ".svelte-kit/*",
     # Build artifacts
     "dist/*",
     "build/*",
@@ -238,23 +240,43 @@ def capture_filtered_diff(
 
         # Capture stat summary separately (lightweight, always included)
         stat_cmd = [
-            "git", "diff", "--no-ext-diff", "--stat",
-            base, "HEAD", "--", *pathspec_excludes,
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--stat",
+            base,
+            "HEAD",
+            "--",
+            *pathspec_excludes,
         ]
         stat_result = subprocess.run(
-            stat_cmd, cwd=project_root, capture_output=True, text=True,
-            timeout=_GIT_TIMEOUT, errors="replace",
+            stat_cmd,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+            errors="replace",
         )
         stat_section = stat_result.stdout if stat_result.returncode == 0 else ""
 
         # Capture patch separately (will be prioritized)
         patch_cmd = [
-            "git", "diff", "--no-ext-diff", "-p",
-            base, "HEAD", "--", *pathspec_excludes,
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "-p",
+            base,
+            "HEAD",
+            "--",
+            *pathspec_excludes,
         ]
         result = subprocess.run(
-            patch_cmd, cwd=project_root, capture_output=True, text=True,
-            timeout=_GIT_TIMEOUT, errors="replace",
+            patch_cmd,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT,
+            errors="replace",
         )
 
         if result.returncode != 0:
@@ -294,24 +316,59 @@ def capture_filtered_diff(
 
 
 # File extensions considered source code (highest priority in diff)
-_SOURCE_EXTENSIONS: frozenset[str] = frozenset({
-    ".py", ".go", ".rs", ".java", ".kt", ".rb", ".swift",
-    ".c", ".cpp", ".cc", ".h", ".hpp",
-    ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
-    ".svelte", ".vue",
-    ".css", ".scss", ".html",
-    ".sh", ".bash",
-})
+_SOURCE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".py",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".rb",
+        ".swift",
+        ".c",
+        ".cpp",
+        ".cc",
+        ".h",
+        ".hpp",
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+        ".mjs",
+        ".cjs",
+        ".svelte",
+        ".vue",
+        ".css",
+        ".scss",
+        ".html",
+        ".sh",
+        ".bash",
+    }
+)
 
 # File extensions considered config (lowest priority in diff)
-_CONFIG_EXTENSIONS: frozenset[str] = frozenset({
-    ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf",
-})
+_CONFIG_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".yaml",
+        ".yml",
+        ".json",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+    }
+)
 
 # Path segments indicating test files (medium priority)
 _TEST_INDICATORS: tuple[str, ...] = (
-    "tests/", "test/", "__tests__/", "spec/",
-    "test_", "_test.", ".test.", ".spec.",
+    "tests/",
+    "test/",
+    "__tests__/",
+    "spec/",
+    "test_",
+    "_test.",
+    ".test.",
+    ".spec.",
 )
 
 # Diff section header pattern

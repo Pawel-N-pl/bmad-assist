@@ -1,9 +1,9 @@
 """Loop and sprint configuration models."""
 
 import logging
-from typing import Self
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,14 @@ class LoopConfig(BaseModel):
         default_factory=list,
         description="Phases to run once at the end of each epic",
     )
+
+    @field_validator("epic_setup", "story", "epic_teardown", mode="before")
+    @classmethod
+    def coerce_none_to_empty_list(cls, v: Any) -> list[str]:
+        """YAML parses empty keys (all items commented out) as None."""
+        if v is None:
+            return []
+        return list(v)
 
     @model_validator(mode="after")
     def validate_non_empty_story(self) -> Self:

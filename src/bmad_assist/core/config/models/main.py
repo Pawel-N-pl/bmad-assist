@@ -138,6 +138,13 @@ class Config(BaseModel):
         "Float for fixed delay (e.g., 1.0), string for random range (e.g., '0.5-1.5').",
         json_schema_extra={"security": "safe", "ui_widget": "text"},
     )
+    agent_teams: bool = Field(
+        default=False,
+        description="Enable Claude Code agent teams in child processes. "
+        "When true, spawned Claude processes can create teammate sub-agents. "
+        "WARNING: Each teammate is a separate process at ~100% CPU.",
+        json_schema_extra={"security": "safe", "ui_widget": "checkbox"},
+    )
 
     @model_validator(mode="before")
     @classmethod

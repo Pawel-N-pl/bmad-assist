@@ -309,10 +309,27 @@ class CodeReviewSynthesisCompiler:
             files[review_path] = r.content
             logger.debug("Added review to synthesis context: %s", review_path)
 
-        # 3. Git diff (embedded as section)
+        # 3. Git diff (embedded as section) - LIMITED for synthesis
+        # F4-IMPL: Truncate git diff to prevent token explosion
+        # Full diff is too large for synthesis context (can be 500k+ chars)
+        max_diff_chars = 20000  # ~5k tokens max for diff
         if git_diff:
-            files["[git-diff]"] = git_diff
-            logger.debug("Added git diff to synthesis context")
+            if len(git_diff) > max_diff_chars:
+                truncated = git_diff[:max_diff_chars]
+                # Find last complete line
+                last_nl = truncated.rfind('\n')
+                if last_nl > 0:
+                    truncated = truncated[:last_nl]
+                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
+                logger.warning(
+                    "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
+                    len(git_diff),
+                    len(truncated),
+                    100 * len(truncated) / len(git_diff),
+                )
+            else:
+                files["[git-diff]"] = git_diff
+                logger.debug("Added git diff to synthesis context: %d chars", len(git_diff))
 
         # 4. Source files using SourceContextService (File List + git diff)
         # Get story file to extract File List
@@ -332,8 +349,24 @@ class CodeReviewSynthesisCompiler:
             if modified_files:
                 git_diff_files = get_git_diff_files(project_root, git_diff)
 
+        # F4-IMPL: Limit source files for synthesis to prevent token explosion
+        # Synthesis only needs git diff + max 3 key files (not all modified files)
         service = SourceContextService(context, "code_review_synthesis")
         source_files = service.collect_files(file_list_paths, git_diff_files)
+
+        # Hard cap: max 3 files for synthesis (prioritized by score)
+        max_synthesis_files = 3
+        if len(source_files) > max_synthesis_files:
+            # Sort by file path (deterministic) and take first 3
+            sorted_files = sorted(source_files.items(), key=lambda x: x[0])
+            limited_files = dict(sorted_files[:max_synthesis_files])
+            logger.warning(
+                "Synthesis source files limited: %d → %d (token budget protection)",
+                len(source_files),
+                max_synthesis_files,
+            )
+            source_files = limited_files
+
         files.update(source_files)
         if source_files:
             logger.debug("Added %d source files to synthesis context", len(source_files))

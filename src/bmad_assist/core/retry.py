@@ -22,6 +22,8 @@ def invoke_with_timeout_retry(
     *,
     timeout_retries: int | None,
     phase_name: str,
+    fallback_invoke_fn: Callable[..., T] | None = None,
+    fallback_timeout_retries: int | None = None,
     **kwargs: Any,
 ) -> T:
     """Invoke provider function with timeout retry logic.
@@ -31,46 +33,38 @@ def invoke_with_timeout_retry(
     for each retry.
 
     Args:
-        invoke_fn: Callable that invokes the provider (e.g., provider.invoke).
+        invoke_fn: Callable that invokes the primary provider.
         timeout_retries: Retry count from get_phase_retries().
             None = no retry (fail immediately on timeout).
             0 = infinite retry (until success).
-            N = retry N times, then fail.
+            N = retry N times, then fail or fallback.
         phase_name: Phase name for logging (e.g., "dev_story", "validate_story").
-        **kwargs: Arguments to pass to invoke_fn.
+        fallback_invoke_fn: Optional fallback callable (e.g., subprocess provider).
+            If primary fails after retries, fallback is invoked with reset retry count.
+        fallback_timeout_retries: Retry count for fallback (defaults to timeout_retries).
+        **kwargs: Arguments to pass to invoke_fn and fallback_invoke_fn.
 
     Returns:
-        Result from invoke_fn on success.
+        Result from invoke_fn or fallback_invoke_fn on success.
 
     Raises:
-        ProviderTimeoutError: If all retry attempts exhausted.
+        ProviderTimeoutError: If all retry attempts exhausted (primary and fallback).
             - When timeout_retries is None: raised immediately.
-            - When timeout_retries is N: raised after N+1 attempts.
+            - When timeout_retries is N: raised after N+1 attempts (or fallback fails).
             - When timeout_retries is 0: never raised (infinite retry).
 
     Examples:
-        >>> # Single-LLM phase (BaseHandler)
+        >>> # Single-LLM phase with fallback
         >>> result = invoke_with_timeout_retry(
         ...     provider.invoke,
-        ...     timeout_retries=get_phase_retries(config, "dev_story"),
+        ...     timeout_retries=3,
         ...     phase_name="dev_story",
+        ...     fallback_invoke_fn=subprocess_provider.invoke,
+        ...     fallback_timeout_retries=3,
         ...     prompt=prompt,
         ...     model=model,
         ...     timeout=timeout,
         ... )
-
-        >>> # Multi-LLM phase (async orchestrator)
-        >>> async def invoke_with_retry():
-        ...     return await asyncio.to_thread(
-        ...         invoke_with_timeout_retry,
-        ...         provider.invoke,
-        ...         timeout_retries=get_phase_retries(config, "validate_story"),
-        ...         phase_name="validate_story",
-        ...         prompt=prompt,
-        ...         model=model,
-        ...         timeout=timeout,
-        ...     )
-        >>> result = await invoke_with_retry()
 
     """
     # Check if retry is configured
@@ -89,7 +83,23 @@ def invoke_with_timeout_retry(
         except ProviderTimeoutError as e:
             # Check retry limit
             if timeout_retries != 0 and timeout_attempt > timeout_retries:
-                # Retries exhausted
+                # Primary retries exhausted - try fallback if available
+                if fallback_invoke_fn is not None:
+                    logger.warning(
+                        "Primary provider timeout in %s phase after %d attempts, "
+                        "starting secondary provider...",
+                        phase_name,
+                        timeout_attempt,
+                    )
+                    return invoke_with_timeout_retry(
+                        fallback_invoke_fn,
+                        timeout_retries=fallback_timeout_retries if fallback_timeout_retries is not None else timeout_retries,
+                        phase_name=f"{phase_name}(fallback)",
+                        fallback_invoke_fn=None,  # No second fallback
+                        **kwargs,
+                    )
+
+                # No fallback - raise error
                 logger.error(
                     "Provider timeout in %s phase after %d attempts (max %d configured): %s",
                     phase_name,
@@ -100,14 +110,16 @@ def invoke_with_timeout_retry(
                 raise
 
             # Retry - preserve kwargs (including prompt), reset timer
-            remaining_retries = (
-                "infinite" if timeout_retries == 0 else timeout_retries - timeout_attempt
-            )
+            if timeout_retries == 0:
+                retry_status = "infinite retries"
+            else:
+                remaining = timeout_retries - timeout_attempt
+                retry_status = f"{remaining} remaining"
             logger.warning(
-                "Provider timeout in %s phase (attempt %d/%s): %s. Retrying with same prompt...",
+                "Provider timeout in %s phase (attempt %d, %s): %s. Retrying...",
                 phase_name,
                 timeout_attempt,
-                remaining_retries,
+                retry_status,
                 str(e)[:100],
             )
             # No delay for timeout retry - restart immediately

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bmad-assist"
-version = "0.4.28"
+version = "0.4.29"
 description = "CLI tool for automating BMAD methodology development loop"
 readme = "README.md"
 license = {text = "MIT"}
@@ -24,6 +24,7 @@ dependencies = [
     "textstat>=0.7.3",
     "httpx>=0.27.0",
     "questionary>=2.0.0",  # Interactive prompts with arrow-key navigation
+    "pathspec>=0.12.0,<1.0.0",  # Gitignore pattern matching for project tree generation
 ]
 
 [project.optional-dependencies]

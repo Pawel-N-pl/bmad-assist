@@ -529,6 +529,48 @@ def _merge_epic_story(
     return result_entry, change
 
 
+def _has_explicit_non_done_stories(
+    epic_id: str | int,
+    result_entries: dict[str, SprintStatusEntry],
+    index: ArtifactIndex,
+) -> bool:
+    """Check if any stories in the epic have explicit non-done statuses.
+
+    This detects when stories have been explicitly marked as not done via
+    their Status: field in the story file, which should trigger epic downgrade
+    even if the epic was previously marked as done.
+
+    Args:
+        epic_id: Epic identifier (int or str).
+        result_entries: Current result entries dict for story status lookup.
+        index: ArtifactIndex for story status lookup.
+
+    Returns:
+        True if any story has an explicit non-done status.
+
+    """
+    from bmad_assist.sprint.inference import InferenceConfidence, infer_story_status_detailed
+
+    prefix_pattern = re.compile(rf"^{re.escape(str(epic_id))}-(\d+)(?:-|$)")
+
+    for key, entry in result_entries.items():
+        if (
+            entry.entry_type in (EntryType.EPIC_STORY, EntryType.MODULE_STORY)
+            and prefix_pattern.match(key)
+            and entry.status != "done"
+        ):
+            result = infer_story_status_detailed(key, index)
+            # EXPLICIT confidence means Status: field is set in story file
+            if result.confidence == InferenceConfidence.EXPLICIT:
+                logger.debug(
+                    "Story %s has explicit non-done status '%s' - epic should downgrade",
+                    key,
+                    entry.status,
+                )
+                return True
+    return False
+
+
 def _recalculate_epic_meta(
     epic_id: str | int,
     result_entries: dict[str, SprintStatusEntry],
@@ -577,15 +619,28 @@ def _recalculate_epic_meta(
     # - Deferred stories that were removed from epic
     # - Missing artifact evidence during merge-only operations
     # - Story status discrepancies that don't indicate actual regression
+    #
+    # EXCEPTION: If any story has EXPLICIT non-done status (from Status: field),
+    # allow the downgrade. This handles cases where sprint-planning or correct-course
+    # has identified stories that are legitimately not done.
     if old_status == "done" and new_status != "done" and confidence < InferenceConfidence.STRONG:
-        logger.debug(
-            "Preserving epic %s status 'done' - would downgrade to '%s' with %s confidence",
-            epic_id,
-            new_status,
-            confidence.name,
-        )
-        new_status = "done"
-        confidence = InferenceConfidence.WEAK  # Mark as preserved, not inferred
+        # Check for explicit non-done story statuses
+        if _has_explicit_non_done_stories(epic_id, result_entries, index):
+            logger.debug(
+                "Allowing epic %s downgrade to '%s' - explicit non-done stories found",
+                epic_id,
+                new_status,
+            )
+            # Keep the inferred status (don't preserve as done)
+        else:
+            logger.debug(
+                "Preserving epic %s status 'done' - would downgrade to '%s' with %s confidence",
+                epic_id,
+                new_status,
+                confidence.name,
+            )
+            new_status = "done"
+            confidence = InferenceConfidence.WEAK  # Mark as preserved, not inferred
 
     result_entry = SprintStatusEntry(
         key=epic_key,

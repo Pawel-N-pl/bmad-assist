@@ -104,11 +104,14 @@ def is_last_story_in_epic(state: State, epic_stories: list[str]) -> bool:
         True  # 2.4 is last incomplete story
 
     """
-    if not epic_stories:
-        raise StateError("Cannot check last story: epic has no stories")
-
     if state.current_story is None:
         raise StateError("Cannot check last story: no current story set")
+
+    if not epic_stories:
+        # Empty epic_stories means all stories were filtered out as "done"
+        # This happens after crash/resume when epic completes
+        logger.info("Epic has no active stories (all done), treating as last story")
+        return True
 
     # Filter out already completed stories to find actual last incomplete story
     incomplete_stories = [s for s in epic_stories if s not in state.completed_stories]

@@ -153,15 +153,16 @@ class TestIsLastStoryInEpic:
         with pytest.raises(StateError, match="no current story set"):
             is_last_story_in_epic(state, ["1.1", "1.2"])
 
-    def test_is_last_story_raises_on_empty_list(self) -> None:
-        """AC2: Raises StateError when epic_stories is empty."""
+    def test_is_last_story_empty_list_returns_true(self) -> None:
+        """AC2: Empty epic_stories returns True (all stories done after crash/resume)."""
         from bmad_assist.core.loop import is_last_story_in_epic
         from bmad_assist.core.state import State
 
         state = State(current_story="1.1")
 
-        with pytest.raises(StateError, match="epic has no stories"):
-            is_last_story_in_epic(state, [])
+        # Empty list means all stories filtered out as "done" → last story
+        result = is_last_story_in_epic(state, [])
+        assert result is True
 
     def test_is_last_story_single_story_epic(self) -> None:
         """AC2: Single story epic returns True when it matches."""

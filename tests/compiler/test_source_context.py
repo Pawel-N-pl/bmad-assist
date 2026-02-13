@@ -64,7 +64,7 @@ class TestSourceContextBudgetsConfig:
         config = SourceContextBudgetsConfig()
 
         assert config.code_review == 15000
-        assert config.code_review_synthesis == 15000
+        assert config.code_review_synthesis == 5000
         assert config.create_story == 20000
         assert config.dev_story == 20000
         assert config.validate_story == 10000
