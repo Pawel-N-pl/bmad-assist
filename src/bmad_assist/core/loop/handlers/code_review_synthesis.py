@@ -456,6 +456,26 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     result.stdout, synthesis_type="code_review"
                 )
 
+                # Guard against silent provider failure: if provider returns
+                # exit_code=0 but empty/minimal output, synthesis is useless.
+                min_synthesis_chars = 200
+                if len(extracted_synthesis.strip()) < min_synthesis_chars:
+                    logger.error(
+                        "Code review synthesis output too short (%d chars, min %d). "
+                        "Provider returned exit_code=0 but produced no meaningful synthesis. "
+                        "Raw stdout (%d chars): %.500s",
+                        len(extracted_synthesis.strip()),
+                        min_synthesis_chars,
+                        len(result.stdout),
+                        result.stdout[:500] if result.stdout else "(empty)",
+                    )
+                    return PhaseResult.fail(
+                        f"Code review synthesis failed: provider returned empty/minimal output "
+                        f"({len(extracted_synthesis.strip())} chars, "
+                        f"duration={result.duration_ms}ms). "
+                        f"Check provider config and model availability."
+                    )
+
                 # Save synthesis report to code-reviews directory
                 paths = get_paths()
                 reviews_dir = paths.code_reviews_dir

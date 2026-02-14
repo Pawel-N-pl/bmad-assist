@@ -143,6 +143,79 @@ class TestDeepMergeLists:
         assert result["items"] == []
 
 
+class TestDeepMergeShallowKeys:
+    """Tests for _deep_merge with _SHALLOW_MERGE_KEYS (phase_models)."""
+
+    def test_phase_models_entries_replaced_not_merged(self) -> None:
+        """phase_models children are replaced atomically, not deep-merged.
+
+        When CWD has phase_models.validate_story_synthesis with model_name/settings
+        and project overrides the same phase with different provider/model,
+        the CWD-only fields (model_name, settings) must NOT leak through.
+        """
+        base = {
+            "phase_models": {
+                "validate_story_synthesis": {
+                    "provider": "claude",
+                    "model": "sonnet",
+                    "model_name": "glm-4.7",
+                    "settings": "~/.claude/glm.json",
+                },
+            }
+        }
+        override = {
+            "phase_models": {
+                "validate_story_synthesis": {
+                    "provider": "kimi",
+                    "model": "kimi-code/kimi-for-coding",
+                    "thinking": True,
+                },
+            }
+        }
+        result = _deep_merge(base, override)
+        vss = result["phase_models"]["validate_story_synthesis"]
+        assert vss["provider"] == "kimi"
+        assert vss["model"] == "kimi-code/kimi-for-coding"
+        assert vss.get("thinking") is True
+        # CWD-only fields must NOT leak through
+        assert "model_name" not in vss
+        assert "settings" not in vss
+
+    def test_phase_models_phases_from_both_sources_preserved(self) -> None:
+        """Phases defined only in base are preserved (shallow merge, not replace)."""
+        base = {
+            "phase_models": {
+                "create_story": {"provider": "claude", "model": "opus"},
+                "dev_story": {"provider": "claude", "model": "opus"},
+            }
+        }
+        override = {
+            "phase_models": {
+                "create_story": {"provider": "gemini", "model": "flash"},
+            }
+        }
+        result = _deep_merge(base, override)
+        # Override wins for create_story
+        assert result["phase_models"]["create_story"]["provider"] == "gemini"
+        # dev_story from base is preserved
+        assert result["phase_models"]["dev_story"]["provider"] == "claude"
+
+    def test_phase_models_base_not_mutated(self) -> None:
+        """Base phase_models dict is not mutated by shallow merge."""
+        base = {
+            "phase_models": {
+                "create_story": {"provider": "claude", "model": "opus"},
+            }
+        }
+        override = {
+            "phase_models": {
+                "create_story": {"provider": "kimi", "model": "kimi-for-coding"},
+            }
+        }
+        _deep_merge(base, override)
+        assert base["phase_models"]["create_story"]["provider"] == "claude"
+
+
 class TestDeepMergeEdgeCases:
     """Edge cases for _deep_merge."""
 

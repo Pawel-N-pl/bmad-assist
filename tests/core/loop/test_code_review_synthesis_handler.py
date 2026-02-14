@@ -24,6 +24,26 @@ from bmad_assist.core.state import Phase, State
 from bmad_assist.providers.base import ProviderResult
 
 # =============================================================================
+# Constants
+# =============================================================================
+
+# Realistic synthesis output for mocks (must exceed MIN_SYNTHESIS_CHARS=200)
+_MOCK_SYNTHESIS_OUTPUT = (
+    "## Synthesis Summary\n\n"
+    "6 reviewers analyzed the implementation. After cross-referencing with story "
+    "acceptance criteria and project context:\n\n"
+    "## Issues Verified\n\n"
+    "### Critical\n"
+    "- Missing input validation on user endpoint\n\n"
+    "### High\n"
+    "- Error handling incomplete in service layer\n\n"
+    "## Issues Dismissed\n\n"
+    "- False positive: style preferences from Reviewer C\n\n"
+    "## Changes Applied\n\n"
+    "Applied fixes for critical input validation issue.\n"
+)
+
+# =============================================================================
 # Fixtures
 # =============================================================================
 
@@ -260,7 +280,7 @@ class TestCodeReviewSynthesisHandler:
         ):
             mock_render.return_value = "<compiled>test synthesis prompt</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Code Review Synthesis\n\nAll reviewers agree the code is good.",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -272,7 +292,7 @@ class TestCodeReviewSynthesisHandler:
 
             assert result.success
             assert "response" in result.outputs
-            assert "Code Review Synthesis" in result.outputs["response"]
+            assert "Synthesis Summary" in result.outputs["response"]
 
     def test_execute_fails_when_no_session_found(
         self,
@@ -413,7 +433,7 @@ This is a synthesis of code reviews.
             mock_should_collect.return_value = True
             mock_render.return_value = "<compiled>test</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Synthesis",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -462,7 +482,7 @@ This is a synthesis of code reviews.
             mock_should_collect.return_value = True
             mock_render.return_value = "<compiled>test</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Synthesis",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -513,7 +533,7 @@ This is a synthesis of code reviews.
         ):
             mock_render.return_value = "<compiled>test</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Synthesis",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -577,7 +597,7 @@ This is a synthesis of code reviews.
         ):
             mock_render.return_value = "<compiled>test</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Synthesis\n\nReviewers agreed.",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -645,7 +665,7 @@ This is a synthesis of code reviews.
         ):
             mock_render.return_value = "<compiled>test</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="# Synthesis",
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,

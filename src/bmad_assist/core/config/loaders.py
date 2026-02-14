@@ -24,11 +24,18 @@ logger = logging.getLogger(__name__)
 _config: Config | None = None
 
 
+# Keys whose dict children should be replaced atomically, not deep-merged.
+# phase_models entries are complete provider configs — merging fields from
+# different tiers (CWD vs project) produces invalid hybrid configs.
+_SHALLOW_MERGE_KEYS: frozenset[str] = frozenset({"phase_models"})
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into base dictionary.
 
     Rules:
-    - Dicts are merged recursively
+    - Dicts are merged recursively (except _SHALLOW_MERGE_KEYS)
+    - For _SHALLOW_MERGE_KEYS: children are replaced atomically, not merged
     - Lists are replaced (NOT merged/appended)
     - Scalar values are replaced by override
     - Keys only in base are preserved
@@ -45,7 +52,16 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     result = copy.deepcopy(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+            if key in _SHALLOW_MERGE_KEYS:
+                # Shallow merge: each child key is replaced atomically.
+                # The parent dict itself is merged (preserving keys from both),
+                # but each child value is a complete unit, not a partial override.
+                merged = copy.deepcopy(result[key])
+                for child_key, child_value in value.items():
+                    merged[child_key] = copy.deepcopy(child_value)
+                result[key] = merged
+            else:
+                result[key] = _deep_merge(result[key], value)
         else:
             result[key] = copy.deepcopy(value)
     return result

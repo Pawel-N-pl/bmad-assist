@@ -446,7 +446,18 @@ class TestValidateStorySynthesisHandler:
         ):
             mock_render.return_value = "<compiled>test synthesis prompt</compiled>"
             mock_invoke.return_value = ProviderResult(
-                stdout="Synthesis output: All validations agree the story is good.",
+                stdout=(
+                    "## Synthesis Summary\n\n"
+                    "6 validators analyzed the story. After cross-referencing with "
+                    "project context and acceptance criteria:\n\n"
+                    "## Issues Verified\n\n"
+                    "### Critical\n"
+                    "- Missing input validation on booking endpoint\n\n"
+                    "## Issues Dismissed\n\n"
+                    "- False positive: naming convention from Validator B\n\n"
+                    "## Changes Applied\n\n"
+                    "Applied fix for critical input validation issue.\n"
+                ),
                 stderr="",
                 exit_code=0,
                 duration_ms=5000,
@@ -458,7 +469,7 @@ class TestValidateStorySynthesisHandler:
 
             assert result.success
             assert "response" in result.outputs
-            assert "Synthesis output" in result.outputs["response"]
+            assert "Synthesis Summary" in result.outputs["response"]
 
 
 # =============================================================================

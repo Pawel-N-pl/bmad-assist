@@ -27,11 +27,11 @@ One LLM (Master) writes all code. The others only validate and review - they nev
 
 - **Multi-LLM Orchestration** - Claude Code, Gemini CLI, Codex, OpenCode, Amp, Cursor Agent, GitHub Copilot, Kimi CLI working in parallel
 - **A/B Testing** - Compare workflow configs, prompts, or model fleets side-by-side with git worktree isolation and LLM-powered analysis reports
-- **Security Review Agent** - Parallel CWE pattern analysis with tech stack detection, integrated into code review phase
-- **Deep Verify** - Multi-method artifact verification (pattern matching, boundary analysis, cross-reference checks)
 - **TEA Enterprise** - Test Architect with 8 workflows: framework setup, CI scaffolding, test design, ATDD, automation, NFR assessment, traceability, test review
 - **Bundled Workflows** - BMAD workflows included and ready to use out of the box
 - **Git Auto-commit** - Automatic commits after create-story, dev-story, and code-review-synthesis phases (`-g` flag)
+- **Deep Verify** *(WIP)* - Multi-method artifact verification (pattern matching, boundary analysis, cross-reference checks)
+- **Security Agent** *(WIP)* - Parallel CWE pattern analysis with tech stack detection, integrated into code review phase
 
 ### Under the Hood
 
