@@ -2,6 +2,11 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.29.1] - 2026-02-13
+
+### Fixed
+- **Windows Compatibility** - Cross-platform file locking in benchmarking storage (`fcntl` → `msvcrt` on Windows)
+
 ## [0.4.29] - 2026-02-13
 
 ### Added
