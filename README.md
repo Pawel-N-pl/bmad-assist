@@ -55,6 +55,8 @@ pip install -e .
 
 **Requirements:** Python 3.11+ and at least one LLM CLI tool ([Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Codex](https://github.com/openai/codex)).
 
+> **Platform:** Linux and macOS only. Windows is not supported — the subprocess management layer depends on POSIX APIs (`os.killpg`, `fcntl`, `signal.SIGKILL`, process groups) throughout the codebase. On Windows, use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install).
+
 ## Quick Start
 
 ```bash
