@@ -269,31 +269,7 @@ def validate_resume_state(
             break
 
         # Check if current epic is done in sprint-status (including retrospective)
-        # BUG FIX: Also verify that all stories in the epic are considered done
-        # to handle the discrepancy where Epic="done" but stories are "backlog"
-        is_epic_done = _is_epic_done_in_sprint(current_epic, sprint_status)
-
-        # Verify stories if epic is marked done
-        if is_epic_done:
-            try:
-                current_epic_stories = epic_stories_loader(current_epic)
-                # If there are NO stories in epic_list for this epic (because they were all filtered out as 'done')
-                # then we can safely skip the epic.
-                # Otherwise, if loader returns them, they are 'backlog'.
-                if current_epic_stories:
-                    # Found at least one non-done story in an epic marked as 'done'
-                    # Prioritize story status: don't skip the epic!
-                    logger.warning(
-                        "Epic %s is marked as 'done' but has incomplete stories (e.g., %s). "
-                        "Prioritizing story status and stopping here.",
-                        current_epic,
-                        current_epic_stories[0],
-                    )
-                    is_epic_done = False
-            except Exception as e:
-                logger.warning("Failed to load stories for epic %s during validation: %s", current_epic, e)
-
-        if is_epic_done:
+        if _is_epic_done_in_sprint(current_epic, sprint_status):
             # Epic is done - add to completed_epics if not already there
             if current_epic not in current_state.completed_epics:
                 logger.info(
@@ -337,16 +313,7 @@ def validate_resume_state(
                 raise StateError(f"Failed to load stories for epic {next_epic}: {e}") from e
 
             if not next_epic_stories:
-                # This epic exists in epic_list but has no stories?
-                # Skip it and continue searching
-                logger.warning("Epic %s has no stories in epic_list, skipping", next_epic)
-                current_state = current_state.model_copy(
-                    update={
-                        "current_epic": next_epic,
-                        "updated_at": now,
-                    }
-                )
-                continue
+                raise StateError(f"No stories found in epic {next_epic}")
 
             current_state = current_state.model_copy(
                 update={
@@ -411,10 +378,7 @@ def validate_resume_state(
                     "All stories in epic %s are done but epic not marked done in sprint-status",
                     current_epic,
                 )
-                # BUG FIX: Add to completed_epics AND advance to the next epic
-                # immediately. Previously, this code only called `continue` which
-                # re-evaluated the same epic because _is_epic_done_in_sprint reads
-                # sprint-status.yaml (unchanged), causing an infinite loop.
+                # Force epic completion check in next iteration
                 if current_epic not in current_state.completed_epics:
                     epics_skipped.append(current_epic)
                     current_state = current_state.model_copy(
@@ -426,43 +390,6 @@ def validate_resume_state(
                             "updated_at": now,
                         }
                     )
-
-                # Advance to next epic immediately
-                next_epic = _find_next_incomplete_epic(
-                    current_epic,
-                    epic_list,
-                    current_state.completed_epics,
-                    sprint_status,
-                )
-
-                if next_epic is None:
-                    logger.info("No more epics to advance to")
-                    return ResumeValidationResult(
-                        state=current_state,
-                        stories_skipped=stories_skipped,
-                        epics_skipped=epics_skipped,
-                        advanced=True,
-                        project_complete=True,
-                    )
-
-                try:
-                    next_epic_stories = epic_stories_loader(next_epic)
-                    if not next_epic_stories:
-                        # Should not happen with current loader but handle for safety
-                        current_state = current_state.model_copy(update={"current_epic": next_epic})
-                        continue
-
-                    current_state = current_state.model_copy(
-                        update={
-                            "current_epic": next_epic,
-                            "current_story": next_epic_stories[0],
-                            "current_phase": Phase.CREATE_STORY,
-                        }
-                    )
-                    logger.info("Advanced to next epic %s after all stories completed", next_epic)
-                except Exception as e:
-                    logger.warning("Failed to advance to next epic: %s", e)
-
                 continue
 
             # Advance to next story

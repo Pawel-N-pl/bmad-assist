@@ -13,9 +13,9 @@ Public API:
     RecordSummary: Record metadata dataclass
 """
 
-import fcntl
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -208,8 +208,15 @@ def _update_index(
     # Open file for reading and writing (create if doesn't exist)
     # Use 'a+' mode to allow both reading and writing, create if doesn't exist
     with open(index_path, "a+", encoding="utf-8") as f:
-        # Acquire exclusive lock on file descriptor (blocking)
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        # Acquire exclusive lock (platform-specific)
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 
         try:
             # Read existing content
@@ -257,8 +264,15 @@ def _update_index(
             yaml.dump(index_data, f, default_flow_style=False, sort_keys=False)
 
         finally:
-            # Lock is automatically released when file is closed
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            # Release lock (platform-specific)
+            if sys.platform == "win32":
+                import msvcrt
+
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def save_evaluation_record(
