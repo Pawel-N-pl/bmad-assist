@@ -2,6 +2,13 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.29.2] - 2026-02-14
+
+### Fixed
+- **Silent Synthesis Failure** - Detect and fail when synthesis provider returns empty/minimal output (exit_code=0 but no content), preventing stories from progressing without actual synthesis
+- **Config Cross-Tier Leaking** - Shallow-merge `phase_models` entries so CWD-only fields (`model_name`, `settings`) don't leak into project config overrides
+- **Reset Workflows Cache** - `--reset-workflows` now also clears template cache and installs bundled pre-compiled templates
+
 ## [0.4.29] - 2026-02-13
 
 ### Added

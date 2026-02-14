@@ -579,6 +579,53 @@ def copy_bundled_workflows(
     return result
 
 
+def reset_project_cache(project_path: Path, console: Console) -> None:
+    """Clear project template cache and install bundled pre-compiled templates.
+
+    Args:
+        project_path: Project root directory.
+        console: Rich console for output.
+
+    """
+    from bmad_assist.workflows import get_bundled_cache, list_bundled_cache
+
+    cache_dir = project_path / ".bmad-assist" / "cache"
+    if not cache_dir.exists():
+        cache_dir.mkdir(parents=True)
+
+    # Clear existing cache files
+    cleared = 0
+    for f in cache_dir.iterdir():
+        if f.is_file() and f.name != "__init__.py":
+            f.unlink()
+            cleared += 1
+
+    if cleared:
+        console.print(f"\n  [yellow]Cleared {cleared} cached template file(s)[/yellow]")
+
+    # Copy bundled templates
+    bundled = list_bundled_cache()
+    if not bundled:
+        console.print("  [dim]No bundled templates to install[/dim]")
+        return
+
+    installed = 0
+    for wf_name in bundled:
+        pair = get_bundled_cache(wf_name)
+        if pair is None:
+            continue
+        tpl_content, meta_content = pair
+        tpl_path = cache_dir / f"{wf_name}.tpl.xml"
+        meta_path = cache_dir / f"{wf_name}.tpl.xml.meta.yaml"
+        tpl_path.write_text(tpl_content, encoding="utf-8")
+        meta_path.write_text(meta_content, encoding="utf-8")
+        installed += 1
+
+    console.print(
+        f"  [green]Installed {installed} bundled template(s) to cache[/green]"
+    )
+
+
 def ensure_project_setup(
     project_path: Path,
     include_gitignore: bool = False,
@@ -624,7 +671,11 @@ def ensure_project_setup(
     result.workflows_copied = copy_result.copied
     result.workflows_skipped = copy_result.skipped
 
-    # 4. Setup gitignore (init only)
+    # 4. Reset cache and install bundled templates (force/--reset-workflows only)
+    if force:
+        reset_project_cache(project_path, console)
+
+    # 5. Setup gitignore (init only)
     if include_gitignore:
         changed, msg = setup_gitignore(project_path)
         result.gitignore_updated = changed
