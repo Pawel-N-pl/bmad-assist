@@ -31,6 +31,7 @@ function dashboard() {
     const epicMetrics = window.epicMetricsComponent ? window.epicMetricsComponent() : {};
     const sseConnection = window.sseConnectionComponent ? window.sseConnectionComponent() : {};
     const loopControl = window.loopControlComponent ? window.loopControlComponent() : {};
+    const multiProject = window.multiProjectComponent ? window.multiProjectComponent() : {};
 
     // Merge all components into a single object
     // Later components override earlier ones if there are conflicts
@@ -47,6 +48,7 @@ function dashboard() {
         ...epicMetrics,
         ...sseConnection,
         ...loopControl,
+        ...multiProject,
 
         // Legacy queue state (removed in refactor but templates still reference)
         // Provides default values to prevent Alpine errors
@@ -184,6 +186,11 @@ function dashboard() {
 
             // Connect to SSE
             this.connectSSE();
+
+            // Initialize multi-project view
+            if (this.initMultiProject) {
+                this.initMultiProject();
+            }
 
             // Fetch initial data
             this.fetchStories();

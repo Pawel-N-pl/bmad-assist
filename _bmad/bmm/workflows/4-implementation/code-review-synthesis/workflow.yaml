@@ -1,0 +1,29 @@
+# Synthesis workflow for Master to evaluate code review findings and apply source code fixes
+name: code-review-synthesis
+description: "Master synthesizes code review findings and applies fixes to source code"
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+planning_artifacts: "{config_source}:planning_artifacts"
+implementation_artifacts: "{config_source}:implementation_artifacts"
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/4-implementation/code-review-synthesis"
+instructions: "{installed_path}/instructions.xml"
+template: false
+
+variables:
+  epic_num: null
+  story_num: null
+  session_id: null
+  validator_count: null
+
+# No input_file_patterns - context provided programmatically by CodeReviewSynthesisCompiler
+# The compiler embeds: project_context.md, story file, anonymized reviews
+
+standalone: true

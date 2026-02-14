@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>bmad-assist - Multi-Project Dashboard</title>
+    <meta name="description"
+        content="Manage multiple bmad-assist projects from a single dashboard. Monitor concurrent loops, control execution, and view real-time output.">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+    <!-- Tailwind CSS v4 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+        /* Enable class-based dark mode for Tailwind v4 CDN */
+        @variant dark (&:where(.dark, .dark *));
+    </style>
+
+    <!-- Basecoat UI - shadcn components without React -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10-beta.2/dist/basecoat.cdn.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.10-beta.2/dist/js/all.min.js" defer></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@0.562.0/dist/umd/lucide.min.js"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+
+    <!-- xterm.js - Terminal emulator -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+
+    <link rel="stylesheet" href="/css/index.css">
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body class="bg-background text-foreground min-h-screen" x-data="multiProjectDashboard()" x-init="initDashboard()">
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2" x-show="toast.show"
+        x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2"
+        x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-2">
+        <div class="bg-card border border-border rounded-lg px-4 py-3 shadow-lg flex items-center gap-3 max-w-sm"
+            :class="{
+                 'border-green-500/50 bg-green-500/10': toast.type === 'success',
+                 'border-red-500/50 bg-red-500/10': toast.type === 'error',
+                 'border-yellow-500/50 bg-yellow-500/10': toast.type === 'warning'
+             }">
+            <i :data-lucide="toast.type === 'error' ? 'alert-circle' : toast.type === 'warning' ? 'alert-triangle' : 'check-circle'"
+                :class="{
+                   'text-green-500': toast.type === 'success',
+                   'text-red-500': toast.type === 'error',
+                   'text-yellow-500': toast.type === 'warning'
+               }" class="w-5 h-5 flex-shrink-0"></i>
+            <span x-text="toast.message" class="text-sm"></span>
+            <button @click="toast.show = false" class="text-muted-foreground hover:text-foreground ml-2">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="flex flex-col h-screen">
+        <!-- Header -->
+        <header class="bg-card border-b border-border px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <!-- Logo & Title -->
+                    <a href="/" class="flex items-center gap-2 group">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                            class="transition-all duration-200">
+                            <!-- Blue - Plan -->
+                            <rect width="7" height="9" x="3" y="3" rx="1.5" stroke="currentColor" stroke-width="1.5"
+                                class="fill-transparent stroke-foreground transition-all group-hover:fill-[#58a6ff] group-hover:stroke-[#58a6ff]" />
+                            <!-- Orange - Validate -->
+                            <rect width="7" height="5" x="14" y="3" rx="1.5" stroke="currentColor" stroke-width="1.5"
+                                class="fill-transparent stroke-foreground transition-all group-hover:fill-[#d29922] group-hover:stroke-[#d29922]" />
+                            <!-- Green - Develop -->
+                            <rect width="7" height="9" x="14" y="12" rx="1.5" stroke="currentColor" stroke-width="1.5"
+                                class="fill-transparent stroke-foreground transition-all group-hover:fill-[#3fb950] group-hover:stroke-[#3fb950]" />
+                            <!-- Red - Review -->
+                            <rect width="7" height="5" x="3" y="16" rx="1.5" stroke="currentColor" stroke-width="1.5"
+                                class="fill-transparent stroke-foreground transition-all group-hover:fill-[#f85149] group-hover:stroke-[#f85149]" />
+                        </svg>
+                        <h1 class="text-xl font-bold group-hover:text-primary transition-colors">bmad-assist</h1>
+                    </a>
+                    <span class="text-muted-foreground">/</span>
+                    <h2 class="text-lg font-semibold">Multi-Project Dashboard</h2>
+                </div>
+
+                <!-- Global Controls -->
+                <div class="flex items-center gap-3">
+                    <!-- Running Count -->
+                    <div class="running-count-badge" :class="{'has-running': serverInfo.runningCount > 0}"
+                        data-testid="running-count">
+                        <i data-lucide="activity" class="w-4 h-4"></i>
+                        <span x-text="`${serverInfo.runningCount}/${serverInfo.maxConcurrent} running`"></span>
+                    </div>
+
+                    <!-- Add Project Button -->
+                    <button @click="openAddProjectModal()" class="btn btn-sm" data-testid="add-project-btn">
+                        <i data-lucide="plus" class="w-4 h-4"></i>
+                        Add Project
+                    </button>
+
+                    <!-- Scan Directory Button -->
+                    <button @click="openScanModal()" class="btn-outline btn-sm" data-testid="scan-directory-btn">
+                        <i data-lucide="folder-search" class="w-4 h-4"></i>
+                        Scan Directory
+                    </button>
+
+                    <!-- Stop All Button -->
+                    <button @click="stopAllProjects()"
+                        class="btn-outline btn-sm text-destructive border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                        :disabled="serverInfo.runningCount === 0" data-testid="stop-all-btn">
+                        <i data-lucide="square" class="w-4 h-4"></i>
+                        Stop All
+                    </button>
+
+                    <!-- Back to Dashboard -->
+                    <a href="/" class="btn-outline btn-sm" data-testid="back-to-dashboard">
+                        <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                        Dashboard
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-hidden flex">
+            <!-- Project Grid -->
+            <div class="flex-1 overflow-y-auto p-6">
+                <!-- Loading State -->
+                <template x-if="loading && projects.size === 0">
+                    <div class="flex items-center justify-center h-64">
+                        <div class="flex flex-col items-center gap-3">
+                            <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-primary"></i>
+                            <span class="text-muted-foreground">Loading projects...</span>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Empty State -->
+                <template x-if="!loading && getProjectsArray().length === 0">
+                    <div class="projects-empty-state">
+                        <i data-lucide="folder-open" class="w-16 h-16"></i>
+                        <h3>No Projects Registered</h3>
+                        <p>Add a bmad-assist project or scan a directory to discover projects.</p>
+                        <div class="flex gap-2">
+                            <button @click="openAddProjectModal()" class="btn">
+                                <i data-lucide="plus" class="w-4 h-4"></i>
+                                Add Project
+                            </button>
+                            <button @click="openScanModal()" class="btn-outline">
+                                <i data-lucide="folder-search" class="w-4 h-4"></i>
+                                Scan Directory
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- Project Cards Grid -->
+                <template x-if="!loading && getProjectsArray().length > 0">
+                    <div class="project-grid" data-testid="project-grid">
+                        <template x-for="project in getProjectsArray()" :key="project.uuid">
+                            <div class="project-card" :class="{'active': activeProjectId === project.uuid}"
+                                @click="selectProject(project.uuid)" :data-project-id="project.uuid"
+                                data-testid="project-card">
+
+                                <!-- Card Header -->
+                                <div class="project-card-header">
+                                    <div class="flex-1 min-w-0">
+                                        <h3 class="project-card-title" x-text="project.display_name"></h3>
+                                        <div class="project-card-path" x-text="project.path" :title="project.path">
+                                        </div>
+                                    </div>
+                                    <div class="project-state-badge" :class="'state-' + project.state"
+                                        data-testid="project-state-badge">
+                                        <i :data-lucide="getProjectStateIcon(project.state)" class="w-3.5 h-3.5"
+                                            :class="{'animate-spin': project.state === 'starting' || project.state === 'pause_requested'}"></i>
+                                        <span x-text="getProjectStateText(project.state)"></span>
+                                    </div>
+                                </div>
+
+                                <!-- Project Info (visible when running) -->
+                                <template
+                                    x-if="project.state === 'running' || project.state === 'pause_requested' || project.state === 'paused'">
+                                    <div class="project-info">
+                                        <div class="project-info-row">
+                                            <span class="project-info-label">Phase</span>
+                                            <span class="project-info-value"
+                                                x-text="getPhaseDisplayName(project.current_phase)"></span>
+                                        </div>
+                                        <template x-if="project.current_story">
+                                            <div class="project-info-row">
+                                                <span class="project-info-label">Story</span>
+                                                <span class="project-info-value" x-text="project.current_story"></span>
+                                            </div>
+                                        </template>
+                                        <template x-if="project.phase_duration_seconds !== null">
+                                            <div class="project-info-row">
+                                                <span class="project-info-label">Duration</span>
+                                                <span class="project-info-value"
+                                                    x-text="formatPhaseDuration(project.phase_duration_seconds)"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <!-- Queue Position (visible when queued) -->
+                                <template x-if="project.state === 'queued' && project.queue_position">
+                                    <div class="queue-position" data-testid="queue-position">
+                                        <i data-lucide="users" class="w-4 h-4"></i>
+                                        <span>Position <span x-text="project.queue_position"
+                                                class="font-semibold"></span> in queue</span>
+                                    </div>
+                                </template>
+
+                                <!-- Error Message (visible when error) -->
+                                <template x-if="project.state === 'error' && project.error_message">
+                                    <div class="bg-red-500/10 border border-red-500/30 rounded p-2 mb-3 text-sm text-red-400"
+                                        data-testid="error-message">
+                                        <i data-lucide="alert-circle" class="w-4 h-4 inline-block mr-1"></i>
+                                        <span x-text="project.error_message"></span>
+                                    </div>
+                                </template>
+
+                                <!-- Card Controls -->
+                                <div class="project-card-controls" @click.stop="">
+                                    <!-- Start Button -->
+                                    <button class="project-control-btn primary" x-show="canStartProject(project)"
+                                        @click.stop="startProjectLoop(project.uuid)" data-testid="start-btn">
+                                        <i data-lucide="play" class="w-4 h-4"></i>
+                                        Start
+                                    </button>
+
+                                    <!-- Pause Button -->
+                                    <button class="project-control-btn warning" x-show="canPauseProject(project)"
+                                        @click.stop="pauseProjectLoop(project.uuid)" data-testid="pause-btn">
+                                        <i data-lucide="pause" class="w-4 h-4"></i>
+                                        Pause
+                                    </button>
+
+                                    <!-- Resume Button -->
+                                    <button class="project-control-btn success" x-show="canResumeProject(project)"
+                                        @click.stop="resumeProjectLoop(project.uuid)" data-testid="resume-btn">
+                                        <i data-lucide="play" class="w-4 h-4"></i>
+                                        Resume
+                                    </button>
+
+                                    <!-- Stop Button -->
+                                    <button class="project-control-btn danger" x-show="canStopProject(project)"
+                                        @click.stop="stopProjectLoop(project.uuid)" data-testid="stop-btn">
+                                        <i data-lucide="square" class="w-4 h-4"></i>
+                                        Stop
+                                    </button>
+
+                                    <!-- View Details Button -->
+                                    <button class="project-control-btn" @click.stop="selectProject(project.uuid)"
+                                        data-testid="view-btn">
+                                        <i data-lucide="eye" class="w-4 h-4"></i>
+                                        View
+                                    </button>
+
+                                    <!-- Remove Button (only when idle/error) -->
+                                    <button class="project-control-btn text-muted-foreground hover:text-destructive"
+                                        x-show="project.state === 'idle' || project.state === 'error'"
+                                        @click.stop="if(confirm('Remove this project from the dashboard?')) removeProject(project.uuid)"
+                                        title="Remove project" data-testid="remove-btn">
+                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Slideover Panel for Project Details -->
+            <div class="project-slideover" :class="{'open': activeProjectId !== null}" data-testid="project-slideover">
+
+                <template x-if="getActiveProject()">
+                    <div class="flex flex-col h-full">
+                        <!-- Slideover Header -->
+                        <div class="slideover-header">
+                            <div class="flex items-center gap-3">
+                                <h3 class="slideover-title" x-text="getActiveProject()?.display_name"></h3>
+                                <div class="project-state-badge" :class="'state-' + getActiveProject()?.state">
+                                    <i :data-lucide="getProjectStateIcon(getActiveProject()?.state)"
+                                        class="w-3 h-3"></i>
+                                    <span x-text="getProjectStateText(getActiveProject()?.state)"></span>
+                                </div>
+                            </div>
+                            <button class="slideover-close" @click="closeProjectDetail()" data-testid="slideover-close">
+                                <i data-lucide="x" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+
+                        <!-- Slideover Content -->
+                        <div class="slideover-content">
+                            <!-- Project Info Section -->
+                            <div class="slideover-section">
+                                <h4 class="slideover-section-title">Project Info</h4>
+                                <div class="space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-muted-foreground">Path</span>
+                                        <span x-text="getActiveProject()?.path" class="truncate max-w-[200px]"
+                                            :title="getActiveProject()?.path"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-muted-foreground">State</span>
+                                        <span x-text="getProjectStateText(getActiveProject()?.state)"></span>
+                                    </div>
+                                    <template x-if="getActiveProject()?.current_phase">
+                                        <div class="flex justify-between">
+                                            <span class="text-muted-foreground">Current Phase</span>
+                                            <span
+                                                x-text="getPhaseDisplayName(getActiveProject()?.current_phase)"></span>
+                                        </div>
+                                    </template>
+                                    <template x-if="getActiveProject()?.current_story">
+                                        <div class="flex justify-between">
+                                            <span class="text-muted-foreground">Current Story</span>
+                                            <span x-text="getActiveProject()?.current_story"></span>
+                                        </div>
+                                    </template>
+                                    <template x-if="getActiveProject()?.phase_duration_seconds !== null">
+                                        <div class="flex justify-between">
+                                            <span class="text-muted-foreground">Phase Duration</span>
+                                            <span
+                                                x-text="formatPhaseDuration(getActiveProject()?.phase_duration_seconds)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Controls Section -->
+                            <div class="slideover-section">
+                                <h4 class="slideover-section-title">Controls</h4>
+                                <div class="flex flex-wrap gap-2">
+                                    <button class="project-control-btn primary"
+                                        x-show="canStartProject(getActiveProject())"
+                                        @click="startProjectLoop(getActiveProject()?.uuid)">
+                                        <i data-lucide="play" class="w-4 h-4"></i>
+                                        Start Loop
+                                    </button>
+                                    <button class="project-control-btn warning"
+                                        x-show="canPauseProject(getActiveProject())"
+                                        @click="pauseProjectLoop(getActiveProject()?.uuid)">
+                                        <i data-lucide="pause" class="w-4 h-4"></i>
+                                        Pause
+                                    </button>
+                                    <button class="project-control-btn success"
+                                        x-show="canResumeProject(getActiveProject())"
+                                        @click="resumeProjectLoop(getActiveProject()?.uuid)">
+                                        <i data-lucide="play" class="w-4 h-4"></i>
+                                        Resume
+                                    </button>
+                                    <button class="project-control-btn danger"
+                                        x-show="canStopProject(getActiveProject())"
+                                        @click="stopProjectLoop(getActiveProject()?.uuid)">
+                                        <i data-lucide="square" class="w-4 h-4"></i>
+                                        Stop
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Live Logs Section -->
+                            <div class="slideover-section flex-1">
+                                <h4 class="slideover-section-title">Live Output</h4>
+                                <div class="project-log-terminal" x-ref="projectTerminal" id="project-terminal"
+                                    data-testid="project-terminal">
+                                    <template x-for="(line, index) in (projectLogs.get(activeProjectId) || [])"
+                                        :key="index">
+                                        <div x-text="line"></div>
+                                    </template>
+                                    <div x-show="(projectLogs.get(activeProjectId) || []).length === 0"
+                                        class="text-muted-foreground italic">
+                                        No output yet...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add Project Modal -->
+    <div x-show="multiProjectView.addProjectModal" x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0" class="add-project-modal" @keydown.escape="closeAddProjectModal()"
+        data-testid="add-project-modal">
+        <div class="add-project-modal-content" @click.stop="">
+            <h3 class="add-project-modal-title">
+                <i data-lucide="folder-plus" class="w-5 h-5 inline-block mr-2"></i>
+                Add Project
+            </h3>
+
+            <div class="add-project-form-group">
+                <label for="project-path">Project Path <span class="text-destructive">*</span></label>
+                <div class="flex gap-2">
+                    <input type="text" id="project-path" x-model="multiProjectView.addProjectPath"
+                        placeholder="/path/to/your/project" @keydown.enter="submitAddProject()"
+                        data-testid="project-path-input" class="flex-1">
+                    <button x-show="dirBrowser.hasNativePicker" @click="openNativePicker('add')" class="btn-outline"
+                        type="button" title="Browse with system dialog">
+                        <i data-lucide="folder-open" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="openDirBrowser('add')" class="btn-outline" type="button" title="Browse directories"
+                        data-testid="browse-add-btn">
+                        <i data-lucide="folder-tree" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-muted-foreground mt-1">Enter path or use browse button to select a project
+                    directory</p>
+            </div>
+
+            <!-- Directory Browser Panel -->
+            <div x-show="dirBrowser.show && dirBrowser.mode === 'add'" class="dir-browser" x-transition>
+                <div class="dir-browser-header">
+                    <button @click="dirBrowser.parentPath && browsePath(dirBrowser.parentPath)"
+                        :disabled="!dirBrowser.parentPath" class="btn-outline btn-sm" title="Go up">
+                        <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="browsePath(dirBrowser.homePath)" class="btn-outline btn-sm" title="Go home">
+                        <i data-lucide="home" class="w-4 h-4"></i>
+                    </button>
+                    <span class="dir-browser-path" x-text="dirBrowser.currentPath"></span>
+                    <button @click="closeDirBrowser()" class="btn-outline btn-sm ml-auto" title="Close browser">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="dir-browser-list" x-show="!dirBrowser.loading && !dirBrowser.error">
+                    <template x-for="entry in dirBrowser.entries" :key="entry.path">
+                        <div class="dir-browser-item" @click="selectDirEntry(entry)"
+                            :class="{'is-project': entry.is_project}" @dblclick="browsePath(entry.path)">
+                            <i :data-lucide="entry.is_project ? 'folder-check' : 'folder'" class="w-4 h-4"></i>
+                            <span x-text="entry.name"></span>
+                            <span x-show="entry.is_project" class="project-badge">project</span>
+                        </div>
+                    </template>
+                    <div x-show="dirBrowser.entries.length === 0" class="dir-browser-empty">
+                        No directories found
+                    </div>
+                </div>
+                <div x-show="dirBrowser.loading" class="dir-browser-loading">
+                    <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+                    <span>Loading...</span>
+                </div>
+                <div x-show="dirBrowser.error" class="dir-browser-error" x-text="dirBrowser.error"></div>
+            </div>
+
+            <div class="add-project-form-group">
+                <label for="project-name">Display Name (optional)</label>
+                <input type="text" id="project-name" x-model="multiProjectView.addProjectName"
+                    placeholder="My Awesome Project" @keydown.enter="submitAddProject()"
+                    data-testid="project-name-input">
+            </div>
+
+            <div class="add-project-modal-actions">
+                <button @click="closeAddProjectModal()" class="btn-outline" data-testid="cancel-add-btn">
+                    Cancel
+                </button>
+                <button @click="submitAddProject()" class="btn"
+                    :disabled="multiProjectView.loading || !multiProjectView.addProjectPath.trim()"
+                    data-testid="submit-add-btn">
+                    <i x-show="multiProjectView.loading" data-lucide="loader-2" class="w-4 h-4 animate-spin mr-1"></i>
+                    Add Project
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scan Directory Modal -->
+    <div x-show="multiProjectView.scanModal" x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0" class="add-project-modal" @keydown.escape="closeScanModal()"
+        data-testid="scan-directory-modal">
+        <div class="add-project-modal-content" @click.stop="">
+            <h3 class="add-project-modal-title">
+                <i data-lucide="folder-search" class="w-5 h-5 inline-block mr-2"></i>
+                Scan for Projects
+            </h3>
+
+            <div class="add-project-form-group">
+                <label for="scan-directory">Directory to Scan <span class="text-destructive">*</span></label>
+                <div class="flex gap-2">
+                    <input type="text" id="scan-directory" x-model="multiProjectView.scanDirectory"
+                        placeholder="/path/to/projects/folder" @keydown.enter="submitScanDirectory()"
+                        data-testid="scan-directory-input" class="flex-1">
+                    <button x-show="dirBrowser.hasNativePicker" @click="openNativePicker('scan')" class="btn-outline"
+                        type="button" title="Browse with system dialog">
+                        <i data-lucide="folder-open" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="openDirBrowser('scan')" class="btn-outline" type="button" title="Browse directories"
+                        data-testid="browse-scan-btn">
+                        <i data-lucide="folder-tree" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <p class="text-xs text-muted-foreground mt-1">Scans for subdirectories containing <code
+                        class="bg-muted px-1 py-0.5 rounded">.bmad-assist/</code></p>
+            </div>
+
+            <!-- Directory Browser Panel for Scan -->
+            <div x-show="dirBrowser.show && dirBrowser.mode === 'scan'" class="dir-browser" x-transition>
+                <div class="dir-browser-header">
+                    <button @click="dirBrowser.parentPath && browsePath(dirBrowser.parentPath)"
+                        :disabled="!dirBrowser.parentPath" class="btn-outline btn-sm" title="Go up">
+                        <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                    </button>
+                    <button @click="browsePath(dirBrowser.homePath)" class="btn-outline btn-sm" title="Go home">
+                        <i data-lucide="home" class="w-4 h-4"></i>
+                    </button>
+                    <span class="dir-browser-path" x-text="dirBrowser.currentPath"></span>
+                    <button @click="closeDirBrowser()" class="btn-outline btn-sm ml-auto" title="Close browser">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                </div>
+                <div class="dir-browser-list" x-show="!dirBrowser.loading && !dirBrowser.error">
+                    <template x-for="entry in dirBrowser.entries" :key="entry.path">
+                        <div class="dir-browser-item" @click="selectDirEntry(entry)"
+                            :class="{'is-project': entry.is_project}" @dblclick="browsePath(entry.path)">
+                            <i :data-lucide="entry.is_project ? 'folder-check' : 'folder'" class="w-4 h-4"></i>
+                            <span x-text="entry.name"></span>
+                            <span x-show="entry.is_project" class="project-badge">project</span>
+                        </div>
+                    </template>
+                    <div x-show="dirBrowser.entries.length === 0" class="dir-browser-empty">
+                        No directories found
+                    </div>
+                </div>
+                <div x-show="dirBrowser.loading" class="dir-browser-loading">
+                    <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+                    <span>Loading...</span>
+                </div>
+                <div x-show="dirBrowser.error" class="dir-browser-error" x-text="dirBrowser.error"></div>
+            </div>
+
+            <div class="add-project-modal-actions">
+                <button @click="closeScanModal()" class="btn-outline" data-testid="cancel-scan-btn">
+                    Cancel
+                </button>
+                <button @click="submitScanDirectory()" class="btn"
+                    :disabled="multiProjectView.loading || !multiProjectView.scanDirectory.trim()"
+                    data-testid="submit-scan-btn">
+                    <i x-show="multiProjectView.loading" data-lucide="loader-2" class="w-4 h-4 animate-spin mr-1"></i>
+                    Scan Directory
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alpine.js Component -->
+    <script>
+        function multiProjectDashboard() {
+            return {
+                // State
+                projects: new Map(),
+                activeProjectId: null,
+                projectSSEConnections: new Map(),
+                projectLogs: new Map(),
+                loading: false,
+
+                serverInfo: {
+                    runningCount: 0,
+                    maxConcurrent: 2,
+                    queueSize: 0,
+                },
+
+                multiProjectView: {
+                    loading: false,
+                    error: null,
+                    addProjectModal: false,
+                    scanModal: false,
+                    addProjectPath: '',
+                    addProjectName: '',
+                    scanDirectory: '',
+                },
+
+                // Directory browser state
+                dirBrowser: {
+                    show: false,
+                    mode: 'add', // 'add' or 'scan'
+                    currentPath: '',
+                    parentPath: null,
+                    homePath: '',
+                    entries: [],
+                    loading: false,
+                    error: null,
+                    hasNativePicker: 'showDirectoryPicker' in window,
+                },
+
+                toast: {
+                    show: false,
+                    message: '',
+                    type: 'success',
+                    timeout: null
+                },
+
+                // Initialization
+                async initDashboard() {
+                    this.loading = true;
+                    await this.fetchProjects();
+                    this.loading = false;
+
+                    // Poll for updates
+                    setInterval(() => this.fetchProjects(), 5000);
+
+                    // Initialize icons
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                refreshIcons() {
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                showToast(message, type = 'success') {
+                    if (this.toast.timeout) clearTimeout(this.toast.timeout);
+                    this.toast.message = message;
+                    this.toast.type = type;
+                    this.toast.show = true;
+                    this.toast.timeout = setTimeout(() => {
+                        this.toast.show = false;
+                    }, 4000);
+                    this.$nextTick(() => this.refreshIcons());
+                },
+
+                // API Methods
+                async fetchProjects() {
+                    try {
+                        const response = await fetch('/api/projects');
+                        const data = await response.json();
+
+                        this.serverInfo.runningCount = data.running_count || 0;
+                        this.serverInfo.maxConcurrent = data.max_concurrent || 2;
+                        this.serverInfo.queueSize = data.queue_size || 0;
+
+                        const newProjects = new Map();
+                        for (const project of (data.projects || [])) {
+                            newProjects.set(project.uuid, project);
+                        }
+                        this.projects = newProjects;
+
+                        this.$nextTick(() => this.refreshIcons());
+                        return data;
+                    } catch (error) {
+                        console.error('Failed to fetch projects:', error);
+                        return null;
+                    }
+                },
+
+                async addProject(path, name) {
+                    try {
+                        this.multiProjectView.loading = true;
+                        const response = await fetch('/api/projects', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path, name: name || undefined }),
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to add project', 'error');
+                            return null;
+                        }
+
+                        await this.fetchProjects();
+                        this.showToast(`Project "${data.display_name}" added`);
+                        return data;
+                    } catch (error) {
+                        console.error('Failed to add project:', error);
+                        this.showToast('Failed to add project', 'error');
+                        return null;
+                    } finally {
+                        this.multiProjectView.loading = false;
+                    }
+                },
+
+                async scanForProjects(directory) {
+                    try {
+                        this.multiProjectView.loading = true;
+                        const response = await fetch('/api/projects/scan', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ directory }),
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to scan directory', 'error');
+                            return null;
+                        }
+
+                        await this.fetchProjects();
+                        this.showToast(`Found ${data.count} project(s)`);
+                        return data;
+                    } catch (error) {
+                        console.error('Failed to scan directory:', error);
+                        this.showToast('Failed to scan directory', 'error');
+                        return null;
+                    } finally {
+                        this.multiProjectView.loading = false;
+                    }
+                },
+
+                async removeProject(projectId) {
+                    const project = this.projects.get(projectId);
+                    if (!project) return;
+
+                    if (project.state !== 'idle' && project.state !== 'error') {
+                        this.showToast('Stop the project before removing', 'warning');
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch(`/api/projects/${projectId}`, {
+                            method: 'DELETE',
+                        });
+
+                        if (!response.ok) {
+                            const data = await response.json();
+                            this.showToast(data.error || 'Failed to remove project', 'error');
+                            return;
+                        }
+
+                        this.disconnectProjectSSE(projectId);
+
+                        if (this.activeProjectId === projectId) {
+                            this.activeProjectId = null;
+                        }
+
+                        await this.fetchProjects();
+                        this.showToast('Project removed');
+                    } catch (error) {
+                        console.error('Failed to remove project:', error);
+                        this.showToast('Failed to remove project', 'error');
+                    }
+                },
+
+                // Loop Control
+                async startProjectLoop(projectId) {
+                    try {
+                        const response = await fetch(`/api/projects/${projectId}/loop/start`, {
+                            method: 'POST',
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to start loop', 'error');
+                            return;
+                        }
+
+                        this.connectProjectSSE(projectId);
+
+                        if (data.status === 'queued') {
+                            this.showToast(`Queued at position ${data.queue_position}`, 'warning');
+                        } else {
+                            this.showToast('Loop started');
+                        }
+
+                        await this.fetchProjects();
+                    } catch (error) {
+                        console.error('Failed to start project loop:', error);
+                        this.showToast('Failed to start loop', 'error');
+                    }
+                },
+
+                async pauseProjectLoop(projectId) {
+                    try {
+                        const response = await fetch(`/api/projects/${projectId}/loop/pause`, {
+                            method: 'POST',
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to pause loop', 'error');
+                            return;
+                        }
+
+                        this.showToast('Pause requested');
+                        await this.fetchProjects();
+                    } catch (error) {
+                        console.error('Failed to pause project loop:', error);
+                        this.showToast('Failed to pause loop', 'error');
+                    }
+                },
+
+                async resumeProjectLoop(projectId) {
+                    try {
+                        const response = await fetch(`/api/projects/${projectId}/loop/resume`, {
+                            method: 'POST',
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to resume loop', 'error');
+                            return;
+                        }
+
+                        this.showToast('Loop resumed');
+                        await this.fetchProjects();
+                    } catch (error) {
+                        console.error('Failed to resume project loop:', error);
+                        this.showToast('Failed to resume loop', 'error');
+                    }
+                },
+
+                async stopProjectLoop(projectId) {
+                    try {
+                        const response = await fetch(`/api/projects/${projectId}/loop/stop`, {
+                            method: 'POST',
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to stop loop', 'error');
+                            return;
+                        }
+
+                        this.showToast('Loop stopped');
+                        await this.fetchProjects();
+                    } catch (error) {
+                        console.error('Failed to stop project loop:', error);
+                        this.showToast('Failed to stop loop', 'error');
+                    }
+                },
+
+                async stopAllProjects() {
+                    try {
+                        const response = await fetch('/api/projects/control/stop-all', {
+                            method: 'POST',
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.showToast(data.error || 'Failed to stop all', 'error');
+                            return;
+                        }
+
+                        this.showToast(`Stopped ${data.count} project(s)`);
+                        await this.fetchProjects();
+                    } catch (error) {
+                        console.error('Failed to stop all projects:', error);
+                        this.showToast('Failed to stop all', 'error');
+                    }
+                },
+
+                // SSE Management
+                connectProjectSSE(projectId) {
+                    if (this.projectSSEConnections.has(projectId)) return;
+
+                    const eventSource = new EventSource(`/api/projects/${projectId}/sse/output`);
+                    this.projectSSEConnections.set(projectId, eventSource);
+
+                    if (!this.projectLogs.has(projectId)) {
+                        this.projectLogs.set(projectId, []);
+                    }
+
+                    eventSource.addEventListener('log_replay', (event) => {
+                        const data = JSON.parse(event.data);
+                        if (data.logs) {
+                            this.projectLogs.set(projectId, data.logs);
+                        }
+                    });
+
+                    eventSource.addEventListener('output', (event) => {
+                        const data = JSON.parse(event.data);
+                        const logs = this.projectLogs.get(projectId) || [];
+                        logs.push(data.line || data.text || JSON.stringify(data));
+                        if (logs.length > 500) logs.shift();
+                        this.projectLogs.set(projectId, logs);
+                    });
+
+                    eventSource.addEventListener('loop_status', async (event) => {
+                        await this.fetchProjects();
+                    });
+
+                    eventSource.onerror = () => {
+                        const project = this.projects.get(projectId);
+                        if (project && project.state !== 'idle' && project.state !== 'error') {
+                            setTimeout(() => {
+                                this.disconnectProjectSSE(projectId);
+                                this.connectProjectSSE(projectId);
+                            }, 2000);
+                        }
+                    };
+                },
+
+                disconnectProjectSSE(projectId) {
+                    const eventSource = this.projectSSEConnections.get(projectId);
+                    if (eventSource) {
+                        eventSource.close();
+                        this.projectSSEConnections.delete(projectId);
+                    }
+                },
+
+                // UI Helpers
+                selectProject(projectId) {
+                    this.activeProjectId = projectId;
+                    const project = this.projects.get(projectId);
+                    if (project && project.state !== 'idle' && project.state !== 'error') {
+                        this.connectProjectSSE(projectId);
+                    }
+                    this.$nextTick(() => this.refreshIcons());
+                },
+
+                closeProjectDetail() {
+                    this.activeProjectId = null;
+                },
+
+                getProjectsArray() {
+                    return Array.from(this.projects.values());
+                },
+
+                getActiveProject() {
+                    if (!this.activeProjectId) return null;
+                    return this.projects.get(this.activeProjectId) || null;
+                },
+
+                getProjectStateIcon(state) {
+                    const icons = {
+                        idle: 'circle',
+                        starting: 'loader-2',
+                        running: 'play-circle',
+                        pause_requested: 'loader-2',
+                        paused: 'pause-circle',
+                        queued: 'clock',
+                        error: 'x-circle',
+                    };
+                    return icons[state] || icons.idle;
+                },
+
+                getProjectStateText(state) {
+                    const texts = {
+                        idle: 'Idle',
+                        starting: 'Starting',
+                        running: 'Running',
+                        pause_requested: 'Pausing...',
+                        paused: 'Paused',
+                        queued: 'Queued',
+                        error: 'Error',
+                    };
+                    return texts[state] || state;
+                },
+
+                canStartProject(project) {
+                    if (!project) return false;
+                    return project.state === 'idle' || project.state === 'error';
+                },
+
+                canPauseProject(project) {
+                    if (!project) return false;
+                    return project.state === 'running';
+                },
+
+                canResumeProject(project) {
+                    if (!project) return false;
+                    return project.state === 'paused';
+                },
+
+                canStopProject(project) {
+                    if (!project) return false;
+                    return ['running', 'paused', 'pause_requested', 'starting', 'queued'].includes(project.state);
+                },
+
+                formatPhaseDuration(seconds) {
+                    if (seconds === null || seconds === undefined) return '--:--';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+                },
+
+                getPhaseDisplayName(phase) {
+                    const names = {
+                        'create_story': 'Create Story',
+                        'validate_story': 'Validate Story',
+                        'validate_story_synthesis': 'Validate Synthesis',
+                        'dev_story': 'Develop Story',
+                        'code_review': 'Code Review',
+                        'code_review_synthesis': 'Review Synthesis',
+                        'retrospective': 'Retrospective',
+                        'qa_plan_generate': 'QA Plan',
+                        'qa_plan_execute': 'QA Execute',
+                    };
+                    return names[phase] || phase || 'Unknown';
+                },
+
+                // Modals
+                openAddProjectModal() {
+                    this.multiProjectView.addProjectPath = '';
+                    this.multiProjectView.addProjectName = '';
+                    this.multiProjectView.addProjectModal = true;
+                    this.$nextTick(() => {
+                        document.getElementById('project-path')?.focus();
+                        this.refreshIcons();
+                    });
+                },
+
+                closeAddProjectModal() {
+                    this.multiProjectView.addProjectModal = false;
+                },
+
+                async submitAddProject() {
+                    const path = this.multiProjectView.addProjectPath.trim();
+                    const name = this.multiProjectView.addProjectName.trim();
+
+                    if (!path) {
+                        this.showToast('Please enter a project path', 'warning');
+                        return;
+                    }
+
+                    const result = await this.addProject(path, name);
+                    if (result) {
+                        this.closeAddProjectModal();
+                    }
+                },
+
+                openScanModal() {
+                    this.multiProjectView.scanDirectory = '';
+                    this.multiProjectView.scanModal = true;
+                    this.$nextTick(() => {
+                        document.getElementById('scan-directory')?.focus();
+                        this.refreshIcons();
+                    });
+                },
+
+                closeScanModal() {
+                    this.multiProjectView.scanModal = false;
+                },
+
+                async submitScanDirectory() {
+                    const directory = this.multiProjectView.scanDirectory.trim();
+
+                    if (!directory) {
+                        this.showToast('Please enter a directory path', 'warning');
+                        return;
+                    }
+
+                    const result = await this.scanForProjects(directory);
+                    if (result) {
+                        this.closeScanModal();
+                    }
+                },
+
+                // Directory Browser Methods
+                async openDirBrowser(mode) {
+                    this.dirBrowser.mode = mode;
+                    this.dirBrowser.show = true;
+                    this.dirBrowser.error = null;
+
+                    // Start from home if no path set
+                    if (!this.dirBrowser.homePath) {
+                        await this.browsePath();  // Will get home from API
+                    } else {
+                        await this.browsePath(this.dirBrowser.currentPath || this.dirBrowser.homePath);
+                    }
+                },
+
+                closeDirBrowser() {
+                    this.dirBrowser.show = false;
+                },
+
+                async browsePath(path = null) {
+                    this.dirBrowser.loading = true;
+                    this.dirBrowser.error = null;
+
+                    try {
+                        const url = path
+                            ? `/api/filesystem/browse?path=${encodeURIComponent(path)}`
+                            : '/api/filesystem/browse';
+                        const response = await fetch(url);
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            this.dirBrowser.error = data.error || 'Failed to browse directory';
+                            return;
+                        }
+
+                        this.dirBrowser.currentPath = data.path;
+                        this.dirBrowser.parentPath = data.parent;
+                        this.dirBrowser.homePath = data.home;
+                        this.dirBrowser.entries = data.entries || [];
+
+                        this.$nextTick(() => this.refreshIcons());
+                    } catch (error) {
+                        console.error('Failed to browse directory:', error);
+                        this.dirBrowser.error = 'Failed to connect to server';
+                    } finally {
+                        this.dirBrowser.loading = false;
+                    }
+                },
+
+                selectDirEntry(entry) {
+                    // Set the appropriate input field based on mode
+                    if (this.dirBrowser.mode === 'add') {
+                        this.multiProjectView.addProjectPath = entry.path;
+                    } else {
+                        this.multiProjectView.scanDirectory = entry.path;
+                    }
+                    this.refreshIcons();
+                },
+
+                async openNativePicker(mode) {
+                    try {
+                        // Use File System Access API
+                        const dirHandle = await window.showDirectoryPicker({
+                            mode: 'read',
+                            startIn: 'documents'
+                        });
+
+                        // Get the full path - this requires user permission
+                        // Note: We can only get the directory name, not full path
+                        // The full path isn't accessible for security reasons
+                        // So we'll just show a hint and close the browser
+                        this.showToast(`Selected: ${dirHandle.name}`, 'info');
+
+                        // Since we can't get the full path from native picker,
+                        // we show the user they need to enter the full path
+                        // or use the server-side browser
+                        if (mode === 'add') {
+                            // Offer to type path manually
+                            document.getElementById('project-path')?.focus();
+                        } else {
+                            document.getElementById('scan-directory')?.focus();
+                        }
+                    } catch (error) {
+                        if (error.name !== 'AbortError') {
+                            console.error('Native picker error:', error);
+                            this.showToast('Could not open directory picker', 'error');
+                        }
+                    }
+                },
+            };
+        }
+    </script>
+</body>
+
+</html>
