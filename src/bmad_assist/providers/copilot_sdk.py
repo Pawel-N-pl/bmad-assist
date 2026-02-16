@@ -423,3 +423,10 @@ class CopilotSDKProvider(BaseProvider):
 
         """
         return result.stdout.strip()
+input_tokens = self._estimate_tokens(len(prompt))
+        output_tokens = self._estimate_tokens(len(response_text))
+        logger.info(
+            "Copilot SDK completed: duration=%dms, in=~%d tokens, out=~%d tokens",
+            duration_ms,
+            input_tokens,
+            output_tokens
