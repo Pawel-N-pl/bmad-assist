@@ -79,6 +79,7 @@ if TYPE_CHECKING:
     from .claude_sdk import ClaudeSDKProvider as ClaudeSDKProvider
     from .codex import CodexProvider as CodexProvider
     from .copilot import CopilotProvider as CopilotProvider
+    from .copilot_sdk import CopilotSDKProvider as CopilotSDKProvider
     from .cursor_agent import CursorAgentProvider as CursorAgentProvider
     from .gemini import GeminiProvider as GeminiProvider
     from .kimi import KimiProvider as KimiProvider
@@ -94,6 +95,7 @@ __all__ = [
     "ClaudeSubprocessProvider",  # Deprecated: benchmarking only
     "CodexProvider",
     "CopilotProvider",
+    "CopilotSDKProvider",
     "CursorAgentProvider",
     "ExitStatus",
     "GeminiProvider",
@@ -130,6 +132,7 @@ _lazy_imports = {
     "ClaudeProvider": ".claude_sdk",  # Alias
     "CodexProvider": ".codex",
     "CopilotProvider": ".copilot",
+    "CopilotSDKProvider": ".copilot_sdk",
     "CursorAgentProvider": ".cursor_agent",
     "GeminiProvider": ".gemini",
     "KimiProvider": ".kimi",
