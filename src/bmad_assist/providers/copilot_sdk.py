@@ -161,6 +161,7 @@ class CopilotSDKProvider(BaseProvider):
         last_progress_time: float,
         interval: float,
         model: str,
+        input_tokens: int = 0,
     ) -> None:
         """Log periodic progress at INFO level for --verbose feedback.
 
@@ -170,17 +171,19 @@ class CopilotSDKProvider(BaseProvider):
             last_progress_time: Last time progress was logged.
             interval: Minimum seconds between progress logs.
             model: Model name for log message.
+            input_tokens: Input token count to display.
 
         """
         now = time.perf_counter()
         if now - last_progress_time >= interval:
             elapsed = int(now - start_time)
-            tokens = max(1, total_chars // 4)
+            out_tokens = max(1, total_chars // 4)
             logger.info(
-                "GH Copilot CLI SDK streaming (%s): ~%d tokens received (%ds elapsed)",
+                "GH Copilot CLI SDK streaming (%s): %ds, in=~%d, out=~%d",
                 model,
-                tokens,
                 elapsed,
+                input_tokens,
+                out_tokens,
             )
 
     def _resolve_settings(
@@ -386,10 +389,10 @@ class CopilotSDKProvider(BaseProvider):
                                 if len(content) > preview_limit:
                                     preview += "..."
                                 elapsed = int(time.perf_counter() - _event_start)
-                                tokens = self._estimate_tokens(_chars_received)
+                                out_tokens = self._estimate_tokens(_chars_received)
                                 logger.info(
-                                    "GH Copilot CLI SDK [%s] (%ds, ~%d tokens): %s",
-                                    shown_model, elapsed, tokens, preview,
+                                    "GH Copilot CLI SDK [%s] (%ds, in=~%d, out=~%d): %s",
+                                    shown_model, elapsed, input_tokens, out_tokens, preview,
                                 )
                             else:
                                 # --debug mode: colored tags via write_progress
@@ -401,10 +404,10 @@ class CopilotSDKProvider(BaseProvider):
                             if len(content) > preview_limit:
                                 preview += "..."
                             elapsed = int(time.perf_counter() - _event_start)
-                            tokens = self._estimate_tokens(_chars_received)
+                            out_tokens = self._estimate_tokens(_chars_received)
                             logger.info(
-                                "GH Copilot CLI SDK [%s] (%ds, ~%d tokens): %s",
-                                shown_model, elapsed, tokens, preview,
+                                "GH Copilot CLI SDK [%s] (%ds, in=~%d, out=~%d): %s",
+                                shown_model, elapsed, input_tokens, out_tokens, preview,
                             )
 
                 elif type_value == "assistant.message_delta":
@@ -421,21 +424,21 @@ class CopilotSDKProvider(BaseProvider):
                                 # --stream preview: periodic progress at verbose level
                                 self._log_progress_if_due(
                                     total, _event_start, _last_progress_time,
-                                    _progress_interval, shown_model,
+                                    _progress_interval, shown_model, input_tokens,
                                 )
                                 _last_progress_time = time.perf_counter()
                             else:
                                 # --debug: periodic delta progress
                                 self._log_progress_if_due(
                                     total, _event_start, _last_progress_time,
-                                    5.0, shown_model,
+                                    5.0, shown_model, input_tokens,
                                 )
                                 _last_progress_time = time.perf_counter()
                         elif _is_verbose:
                             # --verbose (no --stream): periodic progress with token count
                             self._log_progress_if_due(
                                 total, _event_start, _last_progress_time,
-                                _progress_interval, shown_model,
+                                _progress_interval, shown_model, input_tokens,
                             )
                             _last_progress_time = time.perf_counter()
 
