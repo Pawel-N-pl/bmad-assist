@@ -104,6 +104,11 @@ class CopilotSDKProvider(BaseProvider):
         """
         return True
 
+    @staticmethod
+    def _estimate_tokens(chars: int) -> int:
+        """Estimate token count from character count (~4 chars/token)."""
+        return max(1, chars // 4)
+
     def _resolve_settings(
         self,
         settings_file: Path | None,
@@ -159,9 +164,11 @@ class CopilotSDKProvider(BaseProvider):
             ) from e
 
         shown_model = display_model or model
+        input_tokens = self._estimate_tokens(len(prompt))
         logger.info(
-            "SDK init: model=%s, prompt=%d chars, cwd=%s",
+            "Copilot SDK invoking: model=%s, input=~%d tokens (%d chars), cwd=%s",
             shown_model,
+            input_tokens,
             len(prompt),
             cwd,
         )
