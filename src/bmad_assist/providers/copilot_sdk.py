@@ -28,6 +28,7 @@ Example:
 import asyncio
 import logging
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -417,9 +418,9 @@ class CopilotSDKProvider(BaseProvider):
                         total = _chars_received + _delta_chars
                         if should_print_progress():
                             if is_full_stream():
-                                # Full streaming (--full-stream or --stream full)
-                                tag = format_tag("STREAM", color_index)
-                                write_progress(f"{tag} {delta}")
+                                # Full streaming: write delta inline without newlines
+                                sys.stdout.write(delta)
+                                sys.stdout.flush()
                             elif is_verbose_stream():
                                 # --stream preview: periodic progress at verbose level
                                 self._log_progress_if_due(
@@ -443,6 +444,10 @@ class CopilotSDKProvider(BaseProvider):
                             _last_progress_time = time.perf_counter()
 
                 elif type_value == "session.idle":
+                    # End streaming with newline so next output starts fresh
+                    if is_full_stream() and should_print_progress():
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                     done.set()
 
             session.on(on_event)
