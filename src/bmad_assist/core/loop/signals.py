@@ -8,6 +8,7 @@ Updated: Hard kill on Ctrl+C - no graceful shutdown, immediate exit.
 import contextlib
 import os
 import signal
+import sys
 import threading
 from collections.abc import Callable
 from types import FrameType
@@ -147,10 +148,13 @@ def _handle_sigint(signum: int, frame: FrameType | None) -> None:
 
     # Kill child processes in separate sessions (start_new_session=True)
     kill_all_child_pgids()
-    # Kill our own process group
+    # Kill our own process (group on POSIX, single process on Windows)
     pid = os.getpid()
-    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError, AttributeError):
+        if sys.platform == "win32":
+            os.kill(pid, signal.SIGTERM)
+        else:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
     # Hard exit - no cleanup, no atexit handlers
     os._exit(130)  # 128 + SIGINT(2) = 130
 
@@ -169,9 +173,13 @@ def _handle_sigterm(signum: int, frame: FrameType | None) -> None:
     from bmad_assist.providers.base import kill_all_child_pgids
 
     kill_all_child_pgids()
+    # Kill our own process (group on POSIX, single process on Windows)
     pid = os.getpid()
-    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError, AttributeError):
+        if sys.platform == "win32":
+            os.kill(pid, signal.SIGTERM)
+        else:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
     os._exit(143)  # 128 + SIGTERM(15) = 143
 
 

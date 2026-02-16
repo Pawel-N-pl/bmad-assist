@@ -139,6 +139,23 @@ class ClaudeSubprocessProvider(BaseProvider):
         if process.poll() is not None:
             return  # Already exited
 
+        if IS_WINDOWS:
+            # Windows: use process.terminate() / kill() directly
+            logger.info("Terminating process %d", process.pid)
+            try:
+                process.terminate()
+                process.wait(timeout=3)
+                logger.debug("Process terminated gracefully")
+                return
+            except TimeoutExpired:
+                logger.warning("Process did not terminate, escalating to kill")
+                with contextlib.suppress(ProcessLookupError, OSError):
+                    process.kill()
+            except (ProcessLookupError, OSError):
+                return  # Process already gone
+            return
+
+        # POSIX: use process groups for clean termination
         try:
             pgid = os.getpgid(process.pid)
         except (ProcessLookupError, OSError):
