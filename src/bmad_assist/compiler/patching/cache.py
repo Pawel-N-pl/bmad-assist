@@ -281,7 +281,8 @@ class TemplateCache:
         temp_path = cache_path.with_suffix(".tmp")
         try:
             temp_path.write_text(content, encoding="utf-8")
-            os.rename(temp_path, cache_path)
+            # Use os.replace() for Windows compatibility (overwrites existing files)
+            os.replace(temp_path, cache_path)
         except PermissionError as e:
             # Clean up temp file if it exists (use missing_ok to avoid race condition)
             with contextlib.suppress(PermissionError):
@@ -305,7 +306,8 @@ class TemplateCache:
         try:
             with temp_meta_path.open("w") as f:
                 yaml.dump(meta_dict, f, default_flow_style=False)
-            os.rename(temp_meta_path, meta_path)
+            # Use os.replace() for Windows compatibility (overwrites existing files)
+            os.replace(temp_meta_path, meta_path)
         except Exception:
             # Clean up temp file if it exists
             if temp_meta_path.exists():
