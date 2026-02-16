@@ -25,7 +25,7 @@ One LLM (Master) writes all code. The others only validate and review - they nev
 
 ## Features
 
-- **Multi-LLM Orchestration** - Claude Code, Gemini CLI, Codex, OpenCode, Amp, Cursor Agent, GitHub Copilot, Kimi CLI working in parallel
+- **Multi-LLM Orchestration** - Claude Code, Gemini CLI, Codex, OpenCode, Amp, Cursor Agent, GitHub Copilot (CLI & SDK), Kimi CLI working in parallel
 - **A/B Testing** - Compare workflow configs, prompts, or model fleets side-by-side with git worktree isolation and LLM-powered analysis reports
 - **TEA Enterprise** - Test Architect with 8 workflows: framework setup, CI scaffolding, test design, ATDD, automation, NFR assessment, traceability, test review
 - **Bundled Workflows** - BMAD workflows included and ready to use out of the box
@@ -35,6 +35,7 @@ One LLM (Master) writes all code. The others only validate and review - they nev
 
 ### Under the Hood
 
+- **Streaming Progress** - Configurable real-time token progress for GH Copilot SDK provider (`--stream preview`, `--stream full`)
 - **Workflow Compiler** - Builds single comprehensive prompts with resolved variables and embedded context - minimizes tool usage and LLM turns
 - **AST-aware Truncation** - Intelligent file truncation based on code structure (classes, functions) to fit token budgets
 - **Evidence Score System** - Mathematical validation scoring with anti-bias checks for reliable quality assessment
@@ -88,6 +89,8 @@ bmad-assist run -g                        # Auto-commit after create/dev/synthes
 bmad-assist run -n                        # Non-interactive (no prompts, fail if config missing)
 bmad-assist run --skip-story-prompts      # Skip prompts between stories (still prompt at epic boundaries)
 bmad-assist run -v                        # Verbose - show INFO-level logs (phase progress, providers)
+bmad-assist run --stream preview          # Show periodic token progress (in/out tokens, elapsed time)
+bmad-assist run --stream full             # Full streaming output (all LLM response chunks)
 bmad-assist run --debug --full-stream     # Debug JSONL logging + full untruncated LLM output
 
 # Typical production run (-n implies --skip-story-prompts)
@@ -116,11 +119,16 @@ See [docs/configuration.md](docs/configuration.md) for full reference.
 ```yaml
 providers:
   master:
-    provider: claude-subprocess
-    model: opus
+    provider: copilot-sdk          # Native SDK (faster, recommended)
+    model: claude-sonnet-4.5
   multi:
     - provider: gemini
       model: gemini-2.5-flash
+
+# Streaming progress (optional)
+stream:
+  mode: preview                    # off, preview, or full
+  preview_chars: 200               # chars to show per message in preview mode
 
 timeouts:
   default: 600
