@@ -1,0 +1,246 @@
+<workflow>
+  <critical>Communicate all responses in {communication_language} and generate all documents in {document_output_language}</critical>
+  <critical>You are the MASTER SYNTHESIS agent for CODE REVIEW findings.</critical>
+  <critical>You have WRITE PERMISSION to modify SOURCE CODE files and story Dev Agent Record section.</critical>
+  <critical>DO NOT modify story context (AC, Dev Notes content) - only Dev Agent Record (task checkboxes, completion notes, file list).</critical>
+  <critical>All context (project_context.md, story file, anonymized reviews) is EMBEDDED below - do NOT attempt to read files.</critical>
+
+  <step n="1" goal="Analyze reviewer findings">
+    <action>Read all anonymized reviewer outputs (Reviewer A, B, C, D, etc.)</action>
+    <action>For each issue raised:
+      - Cross-reference with embedded project_context.md and story file
+      - Cross-reference with source code snippets provided in reviews
+      - Determine if issue is valid or false positive
+      - Note reviewer consensus (if 3+ reviewers agree, high confidence issue)
+    </action>
+    <action>Issues with low reviewer agreement (1-2 reviewers) require extra scrutiny</action>
+    <action>Group related findings that address the same underlying problem</action>
+  </step>
+
+  <step n="2" goal="Verify issues and identify false positives">
+    <action>For each issue, verify against embedded code context:
+      - Does the issue actually exist in the current code?
+      - Is the suggested fix appropriate for the codebase patterns?
+      - Would the fix introduce new issues or regressions?
+    </action>
+    <action>Document false positives with clear reasoning:
+      - Why the reviewer was wrong
+      - What evidence contradicts the finding
+      - Reference specific code or project_context.md patterns
+    </action>
+  </step>
+
+  <step n="3" goal="Prioritize by severity">
+    <action>For verified issues, assign severity:
+      - Critical: Security vulnerabilities, data corruption, crashes
+      - High: Bugs that break functionality, performance issues
+      - Medium: Code quality issues, missing error handling
+      - Low: Style issues, minor improvements, documentation
+    </action>
+    <action>Order fixes by severity - Critical first, then High, Medium, Low</action>
+    <action>For disputed issues (reviewers disagree), note for manual resolution</action>
+  </step>
+
+  <step n="4" goal="Apply fixes to source code">
+    <critical>This is SOURCE CODE modification, not story file modification</critical>
+    <critical>Use Edit tool for all code changes - preserve surrounding code</critical>
+    <critical>After applying each fix group, run: pytest -q --tb=line --no-header</critical>
+    <critical>NEVER proceed to next fix if tests are broken - either revert or adjust</critical>
+
+    <action>For each verified issue (starting with Critical):
+      1. Identify the source file(s) from reviewer findings
+      2. Apply fix using Edit tool - change ONLY the identified issue
+      3. Preserve code style, indentation, and surrounding context
+      4. Log the change for synthesis report
+    </action>
+
+    <action>After each logical fix group (related changes):
+      - Run: pytest -q --tb=line --no-header
+      - If tests pass, continue to next fix
+      - If tests fail:
+        a. Analyze which fix caused the failure
+        b. Either revert the problematic fix OR adjust implementation
+        c. Run tests again to confirm green state
+        d. Log partial fix failure in synthesis report
+    </action>
+
+    <action>Atomic commit guidance (for user reference):
+      - Commit message format: fix(component): brief description (synthesis-{story_id})
+      - Group fixes by severity and affected component
+      - Never commit unrelated changes together
+      - User may batch or split commits as preferred
+    </action>
+  </step>
+
+  <step n="5" goal="Refactor if needed">
+    <critical>Only refactor code directly related to applied fixes</critical>
+    <critical>Maximum scope: files already modified in Step 4</critical>
+
+    <action>Review applied fixes for duplication patterns:
+      - Same fix applied 2+ times across files = candidate for refactor
+      - Only if duplication is in files already modified
+    </action>
+
+    <action>If refactoring:
+      - Extract common logic to shared function/module
+      - Update all call sites in modified files
+      - Run tests after refactoring: pytest -q --tb=line --no-header
+      - Log refactoring in synthesis report
+    </action>
+
+    <action>Do NOT refactor:
+      - Unrelated code that "could be improved"
+      - Files not touched in Step 4
+      - Patterns that work but are just "not ideal"
+    </action>
+
+    <action>If broader refactoring needed:
+      - Note it in synthesis report as "Suggested future improvement"
+      - Do not apply - leave for dedicated refactoring story
+    </action>
+  </step>
+
+  <step n="6" goal="Generate synthesis report with METRICS_JSON">
+    <critical>When updating story file, use atomic write pattern (temp file + rename).</critical>
+    <action>Update story file Dev Agent Record section ONLY:
+      - Mark completed tasks with [x] if fixes address them
+      - Append to "Completion Notes List" subsection summarizing changes applied
+      - Update file list with all modified files
+    </action>
+
+    <critical>Your synthesis report MUST be wrapped in HTML comment markers for extraction:</critical>
+    <action>Produce structured output in this exact format (including the markers):</action>
+    <output-format>
+&lt;!-- CODE_REVIEW_SYNTHESIS_START --&gt;
+## Synthesis Summary
+[Brief overview: X issues verified, Y false positives dismissed, Z fixes applied to source files]
+
+## Validations Quality
+[For each reviewer: ID (A, B, C...), score (1-10), brief assessment]
+[Note: Reviewers are anonymized - do not attempt to identify providers]
+
+## Issues Verified (by severity)
+
+### Critical
+[Issues that required immediate fixes - list with evidence and fixes applied]
+[Format: "- **Issue**: Description | **Source**: Reviewer(s) | **File**: path | **Fix**: What was changed"]
+[If none: "No critical issues identified."]
+
+### High
+[Bugs and significant problems - same format]
+
+### Medium
+[Code quality issues - same format]
+
+### Low
+[Minor improvements - same format, note any deferred items]
+
+## Issues Dismissed
+[False positives with reasoning for each dismissal]
+[Format: "- **Claimed Issue**: Description | **Raised by**: Reviewer(s) | **Dismissal Reason**: Why this is incorrect"]
+[If none: "No false positives identified."]
+
+## Changes Applied
+[Complete list of modifications made to source files]
+[Format for each change:
+  **File**: [path/to/file.py]
+  **Change**: [Brief description]
+  **Before**:
+  ```
+  [2-3 lines of original code]
+  ```
+  **After**:
+  ```
+  [2-3 lines of updated code]
+  ```
+]
+[If no changes: "No source code changes required."]
+
+## Files Modified
+[Simple list of all files that were modified]
+- path/to/file1.py
+- path/to/file2.py
+[If none: "No files modified."]
+
+## Suggested Future Improvements
+[Broader refactorings or improvements identified in Step 5 but not applied]
+[Format: "- **Scope**: Description | **Rationale**: Why deferred | **Effort**: Estimated complexity"]
+[If none: "No future improvements identified."]
+
+## Test Results
+[Final test run output summary]
+- Tests passed: X
+- Tests failed: 0 (required for completion)
+&lt;!-- CODE_REVIEW_SYNTHESIS_END --&gt;
+    </output-format>
+
+    <action>After the synthesis report (outside the markers), output structured metrics for benchmarking:</action>
+    <!-- CRITICAL: This METRICS_JSON schema is also defined in validate-create-story-synthesis/instructions.xml.
+         ANY changes must be synchronized across BOTH workflows or benchmarking breaks. -->
+    <critical>Include EXACTLY this JSON structure between markers - all fields are REQUIRED.
+         Replace placeholders with actual computed values (floats for ratios, integers for counts, boolean for follows_template):</critical>
+    <output-format><![CDATA[
+<!-- METRICS_JSON_START -->
+{
+  "quality": {
+    "actionable_ratio": 0.0,
+    "specificity_score": 0.0,
+    "evidence_quality": 0.0,
+    "follows_template": true,
+    "internal_consistency": 1.0
+  },
+  "consensus": {
+    "agreed_findings": 0,
+    "unique_findings": 0,
+    "disputed_findings": 0,
+    "missed_findings": 0,
+    "agreement_score": 1.0,
+    "false_positive_count": 0
+  }
+}
+<!-- METRICS_JSON_END -->
+
+Field definitions (compute actual values):
+- actionable_ratio: (findings with specific fix suggestion) / total_findings, or 1.0 if no findings
+- specificity_score: (findings with location + evidence) / total_findings, or 1.0 if no findings
+- evidence_quality: average per finding of (has_source_citation*0.5 + has_code_snippet*0.3 + has_reasoning*0.2), or 1.0 if no findings
+- follows_template: true if output matches expected synthesis format with all required headings, else false
+- internal_consistency: 1 - (contradictions_count / total_findings), clamped to [0,1], or 1.0 if no findings
+- agreed_findings: count of issues where 3+ reviewers flagged same problem
+- unique_findings: count of issues flagged by exactly 1 reviewer
+- disputed_findings: count of issues where reviewers disagreed
+- agreement_score: agreed_findings / (agreed + unique + disputed), or 1.0 if denominator is 0
+- false_positive_count: count of findings dismissed as false positives
+]]></output-format>
+  </step>
+
+  <edge-cases>
+    <case name="no-issues-found">
+      <action>Set quality.actionable_ratio = 1.0, quality.specificity_score = 1.0</action>
+      <action>Set consensus.agreed_findings = 0, consensus.agreement_score = 1.0</action>
+      <action>Generate report with "No issues requiring fixes" in each severity section</action>
+    </case>
+
+    <case name="conflicting-fixes">
+      <action>Document conflict in synthesis report</action>
+      <action>Apply fix with highest consensus (3+ reviewers agree)</action>
+      <action>If no consensus, mark as "disputed" and skip application</action>
+      <action>Developer can manually resolve disputed fixes later</action>
+    </case>
+
+    <case name="partial-fix-failure">
+      <action>If fix #N fails (tests break), log failure reason</action>
+      <action>Revert fix #N or adjust until tests pass</action>
+      <action>Report #N as "attempted but required adjustment" if modified</action>
+      <action>Report #N as "reverted - requires manual intervention" if reverted</action>
+      <action>Continue with remaining independent fixes</action>
+    </case>
+
+    <case name="high-consensus-false-positive">
+      <action>If 3+ reviewers agree on issue but synthesis determines it's false positive:</action>
+      <action>Document in Issues Dismissed with extra detail explaining why multiple reviewers were wrong</action>
+      <action>Reference specific project_context.md rules or architectural patterns that justify dismissal</action>
+      <action>Consider if project_context.md needs clarification to prevent future reviewer confusion</action>
+    </case>
+  </edge-cases>
+</workflow>

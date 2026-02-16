@@ -1,0 +1,63 @@
+name: validate-story
+description: "Quality competition validator - systematically review and improve story context created by create-story workflow"
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+planning_artifacts: "{config_source}:planning_artifacts"
+implementation_artifacts: "{config_source}:implementation_artifacts"
+output_folder: "{implementation_artifacts}"
+story_dir: "{implementation_artifacts}"
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/4-implementation/validate-story"
+template: "{installed_path}/template.md"
+instructions: "{installed_path}/instructions.xml"
+
+# Variables and inputs
+variables:
+  story_file: "" # Path to story file to validate - will be elicited if not provided
+  epics_file: "{planning_artifacts}/epics.md"
+  architecture_file: "{planning_artifacts}/architecture.md"
+  ux_file: "{planning_artifacts}/ux.md"
+  prd_file: "{planning_artifacts}/PRD.md"
+  # Extracted from story file during validation
+  epic_num: ""
+  story_num: ""
+  story_key: ""
+  story_title: ""
+
+# Project context
+project_context: "**/project-context.md"
+
+# Output file for validation report
+default_output_file: "{implementation_artifacts}/story-validations/validation-report-{{story_key}}-{{date}}.md"
+
+# Smart input file references - same as create-story for re-analysis
+input_file_patterns:
+  prd:
+    description: "PRD for requirements verification"
+    whole: "{planning_artifacts}/*prd*.md"
+    sharded: "{planning_artifacts}/*prd*/*.md"
+    load_strategy: "SELECTIVE_LOAD"
+  architecture:
+    description: "Architecture for technical requirements verification"
+    whole: "{planning_artifacts}/*architecture*.md"
+    sharded: "{planning_artifacts}/*architecture*/*.md"
+    load_strategy: "SELECTIVE_LOAD"
+  ux:
+    description: "UX design for user experience verification"
+    whole: "{planning_artifacts}/*ux*.md"
+    sharded: "{planning_artifacts}/*ux*/*.md"
+    load_strategy: "SELECTIVE_LOAD"
+  epics:
+    description: "Enhanced epics+stories file for story verification"
+    whole: "{planning_artifacts}/*epic*.md"
+    sharded: "{planning_artifacts}/*epic*/*.md"
+    load_strategy: "SELECTIVE_LOAD"
+
+standalone: true

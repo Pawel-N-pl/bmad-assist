@@ -1,0 +1,533 @@
+<workflow>
+  <critical>The workflow execution engine is governed by: {project-root}/_bmad/core/tasks/workflow.xml</critical>
+  <critical>You MUST have already loaded and processed: {installed_path}/workflow.yaml</critical>
+  <critical>Communicate all responses in {communication_language} and generate all documents in {document_output_language}</critical>
+
+  <critical>🔥 CRITICAL MISSION: You are an independent quality validator in a FRESH CONTEXT competing against the original create-story LLM!</critical>
+  <critical>Your purpose is to thoroughly review a story file and systematically identify any mistakes, omissions, or disasters that the original LLM missed</critical>
+  <critical>🚨 COMMON LLM MISTAKES TO PREVENT: reinventing wheels, wrong libraries, wrong file locations, breaking regressions, ignoring UX, vague implementations, lying about completion, not learning from past work</critical>
+  <critical>🔬 UTILIZE SUBPROCESSES AND SUBAGENTS: Use research subagents or parallel processing if available to thoroughly analyze different artifacts simultaneously</critical>
+
+  <step n="1" goal="Load and understand the target story">
+    <check if="{{story_file}} is provided by user">
+      <action>Use user-provided story file path</action>
+      <action>GOTO substep 1b</action>
+    </check>
+
+    <action>Ask user for story file to validate</action>
+    <ask>Which story file should I validate? Provide path or story key (e.g., "1-2-user-auth"):</ask>
+
+    <check if="user provides story key pattern (e.g., 1-2-*)">
+      <action>Search {story_dir} for matching story file</action>
+      <action>If multiple matches, ask user to choose</action>
+    </check>
+
+    <check if="user provides full path">
+      <action>Use provided path directly</action>
+    </check>
+
+    <substep n="1b" title="Load story and extract metadata">
+      <action>Load the COMPLETE story file</action>
+      <action>Extract metadata from story file:
+        - epic_num: from story header (e.g., "Story 1.2" → epic_num=1)
+        - story_num: from story header (e.g., "Story 1.2" → story_num=2)
+        - story_key: filename without extension (e.g., "1-2-user-authentication")
+        - story_title: from story header after colon
+        - current_status: from Status field
+      </action>
+      <action>Store extracted values in workflow variables</action>
+    </substep>
+
+    <substep n="1c" title="Resolve workflow variables">
+      <action>Resolve all paths: story_dir, output_folder, epics_file, architecture_file, etc.</action>
+      <action>Verify story file exists and is readable</action>
+      <action>Note current story content for gap analysis</action>
+    </substep>
+
+    <o>📋 **Target Story Loaded:**
+      - Story ID: {{epic_num}}.{{story_num}}
+      - Story Key: {{story_key}}
+      - Title: {{story_title}}
+      - Current Status: {{current_status}}
+    </o>
+  </step>
+
+  <step n="2" goal="Exhaustive source document re-analysis">
+    <critical>🔥 CRITICAL: Treat this like YOU are creating the story from scratch to PREVENT DISASTERS!</critical>
+    <critical>Discover everything the original LLM missed that could cause developer mistakes!</critical>
+
+    <substep n="2a" title="Epics and Stories Analysis">
+      <action>Invoke discover_inputs protocol for epics pattern</action>
+      <invoke-protocol name="discover_inputs" />
+
+      <action>Load {epics_file} (or sharded equivalents)</action>
+      <action>Extract COMPLETE Epic {{epic_num}} context:
+        - Epic objectives and business value
+        - ALL stories in this epic (for cross-story context)
+        - Our specific story's requirements and acceptance criteria
+        - Technical requirements and constraints
+        - Cross-story dependencies and prerequisites
+        - BDD scenarios if present
+      </action>
+      <action>Compare extracted requirements against current story file</action>
+      <action>Note any missing or incomplete requirements</action>
+    </substep>
+
+    <substep n="2b" title="Architecture Deep-Dive">
+      <action>Load {architecture_file} (single or sharded)</action>
+      <action>Systematically scan for ANYTHING relevant to this story:
+        - Technical stack with versions (languages, frameworks, libraries)
+        - Code structure and organization patterns
+        - API design patterns and contracts
+        - Database schemas and relationships
+        - Security requirements and patterns
+        - Performance requirements and optimization strategies
+        - Testing standards and frameworks
+        - Deployment and environment patterns
+        - Integration patterns and external services
+      </action>
+      <action>Compare architecture requirements against current story file</action>
+      <action>Note any missing architectural guidance</action>
+    </substep>
+
+    <substep n="2c" title="Previous Story Intelligence">
+      <check if="{{story_num}} > 1">
+        <action>Calculate previous story path: {{epic_num}}-{{story_num - 1}}-*.md</action>
+        <action>Search {story_dir} for previous story file</action>
+        <check if="previous story file exists">
+          <action>Load previous story file</action>
+          <action>Extract actionable intelligence:
+            - Dev notes and learnings
+            - Review feedback and corrections needed
+            - Files created/modified and their patterns
+            - Testing approaches that worked/didn't work
+            - Problems encountered and solutions found
+            - Code patterns and conventions established
+          </action>
+          <action>Note any previous story learnings missing from current story</action>
+        </check>
+      </check>
+      <check if="{{story_num}} == 1">
+        <action>This is first story in epic - check for learnings from previous epic if exists</action>
+      </check>
+    </substep>
+
+    <substep n="2d" title="Git History Analysis">
+      <check if="git repository available">
+        <action>Get last 5-10 commit titles to understand recent work patterns</action>
+        <action>Analyze recent commits for relevance to current story:
+          - Files created/modified in previous work
+          - Code patterns and conventions used
+          - Library dependencies added/changed
+          - Architecture decisions implemented
+          - Testing approaches used
+        </action>
+        <action>Note any git insights missing from current story</action>
+      </check>
+    </substep>
+
+    <substep n="2e" title="Latest Technical Research">
+      <action>Identify any libraries/frameworks mentioned in story and architecture</action>
+      <action>Research latest versions and critical information:
+        - Breaking changes or security updates
+        - Performance improvements or deprecations
+        - Best practices for current versions
+        - API changes that affect implementation
+      </action>
+      <action>Note any outdated or missing technical information</action>
+    </substep>
+
+    <o>📊 **Source Document Re-Analysis Complete**
+      - Epics analyzed: {{epics_analyzed_count}}
+      - Architecture sections reviewed: {{arch_sections_count}}
+      - Previous story learnings: {{previous_learnings_available}}
+      - Git insights gathered: {{git_insights_available}}
+      - Technical research completed: {{tech_research_count}}
+    </o>
+  </step>
+
+  <step n="3" goal="Story Quality Gate - INVEST validation">
+    <critical>🎯 RUTHLESS STORY VALIDATION: Check story quality with surgical precision!</critical>
+    <critical>This assessment determines if the story is fundamentally sound before deeper analysis</critical>
+
+    <substep n="3a" title="INVEST Criteria Validation">
+      <action>Evaluate each INVEST criterion with severity score (1-10, where 10 is critical violation):</action>
+
+      <action>**I - Independent:** Check if story can be developed independently
+        - Does it have hidden dependencies on other stories?
+        - Can it be implemented without waiting for other work?
+        - Are there circular dependencies?
+        Score severity of any violations found
+      </action>
+
+      <action>**N - Negotiable:** Check if story allows implementation flexibility
+        - Is it overly prescriptive about HOW vs WHAT?
+        - Does it leave room for technical decisions?
+        - Are requirements stated as outcomes, not solutions?
+        Score severity of any violations found
+      </action>
+
+      <action>**V - Valuable:** Check if story delivers clear business value
+        - Is the benefit clearly stated and meaningful?
+        - Does it contribute to epic/product goals?
+        - Would stakeholder recognize the value?
+        Score severity of any violations found
+      </action>
+
+      <action>**E - Estimable:** Check if story can be accurately estimated
+        - Are requirements clear enough to estimate?
+        - Is scope well-defined without ambiguity?
+        - Are there unknown technical risks that prevent estimation?
+        Score severity of any violations found
+      </action>
+
+      <action>**S - Small:** Check if story is appropriately sized
+        - Can it be completed in a single sprint?
+        - Is it too large and should be split?
+        - Is it too small to be meaningful?
+        Score severity of any violations found
+      </action>
+
+      <action>**T - Testable:** Check if story has testable acceptance criteria
+        - Are acceptance criteria specific and measurable?
+        - Can each criterion be verified objectively?
+        - Are edge cases and error scenarios covered?
+        Score severity of any violations found
+      </action>
+
+      <action>Store INVEST results: {{invest_results}} with individual scores</action>
+    </substep>
+
+    <substep n="3b" title="Acceptance Criteria Deep Analysis">
+      <action>Hunt for acceptance criteria issues:
+        - Ambiguous criteria: Vague language like "should work well", "fast", "user-friendly"
+        - Untestable criteria: Cannot be objectively verified
+        - Missing criteria: Expected behaviors not covered
+        - Conflicting criteria: Criteria that contradict each other
+        - Incomplete scenarios: Missing edge cases, error handling, boundary conditions
+      </action>
+      <action>Document each issue with specific quote and recommendation</action>
+      <action>Store as {{acceptance_criteria_issues}}</action>
+    </substep>
+
+    <substep n="3c" title="Hidden Dependencies Discovery">
+      <action>Uncover hidden dependencies and future sprint-killers:
+        - Undocumented technical dependencies (libraries, services, APIs)
+        - Cross-team dependencies not mentioned
+        - Infrastructure dependencies (databases, queues, caches)
+        - Data dependencies (migrations, seeds, external data)
+        - Sequential dependencies on other stories
+        - External blockers (third-party services, approvals)
+      </action>
+      <action>Document each hidden dependency with impact assessment</action>
+      <action>Store as {{hidden_dependencies}}</action>
+    </substep>
+
+    <substep n="3d" title="Estimation Reality-Check">
+      <action>Reality-check the story estimate against complexity:
+        - Compare stated/implied effort vs actual scope
+        - Check for underestimated technical complexity
+        - Identify scope creep risks
+        - Assess if unknown unknowns are accounted for
+        - Compare with similar stories from previous work
+      </action>
+      <action>Provide estimation assessment: realistic / underestimated / overestimated / unestimable</action>
+      <action>Store as {{estimation_assessment}}</action>
+    </substep>
+
+    <substep n="3e" title="Technical Alignment Verification">
+      <action>Verify alignment with {architecture_file} patterns:
+        - Does story follow established architectural patterns?
+        - Are correct technologies/frameworks specified?
+        - Does it respect defined boundaries and layers?
+        - Are naming conventions and file structures aligned?
+        - Does it integrate correctly with existing components?
+      </action>
+      <action>Document any misalignments or conflicts</action>
+      <action>Store as {{technical_alignment_issues}}</action>
+    </substep>
+
+    <o>🎯 **Story Quality Gate Results:**
+      - INVEST Violations: {{invest_violation_count}}
+      - Acceptance Criteria Issues: {{ac_issues_count}}
+      - Hidden Dependencies: {{hidden_deps_count}}
+      - Estimation: {{estimation_assessment}}
+      - Technical Alignment: {{alignment_status}}
+
+      ℹ️ Continuing with full analysis...
+    </o>
+  </step>
+
+  <step n="4" goal="Disaster prevention gap analysis">
+    <critical>🚨 CRITICAL: Identify every mistake the original LLM missed that could cause DISASTERS!</critical>
+
+    <substep n="4a" title="Reinvention Prevention Gaps">
+      <action>Analyze for wheel reinvention risks:
+        - Areas where developer might create duplicate functionality
+        - Code reuse opportunities not identified
+        - Existing solutions not mentioned that developer should extend
+        - Patterns from previous stories not referenced
+      </action>
+      <action>Document each reinvention risk found</action>
+    </substep>
+
+    <substep n="4b" title="Technical Specification Disasters">
+      <action>Analyze for technical specification gaps:
+        - Wrong libraries/frameworks: Missing version requirements
+        - API contract violations: Missing endpoint specifications
+        - Database schema conflicts: Missing requirements that could corrupt data
+        - Security vulnerabilities: Missing security requirements
+        - Performance disasters: Missing requirements that could cause failures
+      </action>
+      <action>Document each technical specification gap</action>
+    </substep>
+
+    <substep n="4c" title="File Structure Disasters">
+      <action>Analyze for file structure issues:
+        - Wrong file locations: Missing organization requirements
+        - Coding standard violations: Missing conventions
+        - Integration pattern breaks: Missing data flow requirements
+        - Deployment failures: Missing environment requirements
+      </action>
+      <action>Document each file structure issue</action>
+    </substep>
+
+    <substep n="4d" title="Regression Disasters">
+      <action>Analyze for regression risks:
+        - Breaking changes: Missing requirements that could break existing functionality
+        - Test failures: Missing test requirements
+        - UX violations: Missing user experience requirements
+        - Learning failures: Missing previous story context
+      </action>
+      <action>Document each regression risk</action>
+    </substep>
+
+    <substep n="4e" title="Implementation Disasters">
+      <action>Analyze for implementation issues:
+        - Vague implementations: Missing details that could lead to incorrect work
+        - Completion lies: Missing acceptance criteria that could allow fake implementations
+        - Scope creep: Missing boundaries that could cause unnecessary work
+        - Quality failures: Missing quality requirements
+      </action>
+      <action>Document each implementation issue</action>
+    </substep>
+  </step>
+
+  <step n="5" goal="LLM-Dev-Agent optimization analysis">
+    <critical>CRITICAL: Optimize story context for LLM developer agent consumption</critical>
+
+    <action>Analyze current story for LLM optimization issues:
+      - Verbosity problems: Excessive detail that wastes tokens without adding value
+      - Ambiguity issues: Vague instructions that could lead to multiple interpretations
+      - Context overload: Too much information not directly relevant to implementation
+      - Missing critical signals: Key requirements buried in verbose text
+      - Poor structure: Information not organized for efficient LLM processing
+    </action>
+
+    <action>Apply LLM Optimization Principles:
+      - Clarity over verbosity: Be precise and direct, eliminate fluff
+      - Actionable instructions: Every sentence should guide implementation
+      - Scannable structure: Clear headings, bullet points, and emphasis
+      - Token efficiency: Pack maximum information into minimum text
+      - Unambiguous language: Clear requirements with no room for interpretation
+    </action>
+
+    <action>Document each LLM optimization opportunity</action>
+  </step>
+
+  <step n="6" goal="Categorize and prioritize improvements">
+    <action>Categorize all identified issues into:
+      - critical_issues: Must fix - essential requirements, security, blocking issues
+      - enhancements: Should add - helpful guidance, better specifications
+      - optimizations: Nice to have - performance hints, development tips
+      - llm_optimizations: Token efficiency and clarity improvements
+    </action>
+
+    <action>Count issues in each category:
+      - {{critical_count}} critical issues
+      - {{enhancement_count}} enhancements
+      - {{optimization_count}} optimizations
+      - {{llm_opt_count}} LLM optimizations
+    </action>
+
+    <action>Assign numbers to each issue for user selection</action>
+
+    <substep n="6b" title="Calculate Evidence Score">
+      <critical>🔥 CRITICAL: You MUST calculate and output the Evidence Score for synthesis!</critical>
+
+      <action>Map each finding to Evidence Score severity:
+        - **🔴 CRITICAL** (+3 points): Security vulnerabilities, data corruption risks, blocking issues, missing essential requirements
+        - **🟠 IMPORTANT** (+1 point): Missing guidance, unclear specifications, integration risks
+        - **🟡 MINOR** (+0.3 points): Typos, style issues, minor clarifications
+      </action>
+
+      <action>Count CLEAN PASS categories - areas with NO issues found:
+        - Each clean category: -0.5 points
+        - Categories to check: INVEST criteria (6), Acceptance Criteria, Dependencies, Technical Alignment, Implementation
+      </action>
+
+      <action>Calculate Evidence Score:
+        {{evidence_score}} = SUM(finding_scores) + (clean_pass_count × -0.5)
+
+        Example: 2 CRITICAL (+6) + 1 IMPORTANT (+1) + 4 CLEAN PASSES (-2) = 5.0
+      </action>
+
+      <action>Determine Evidence Verdict:
+        - **EXCELLENT** (score ≤ -3): Many clean passes, minimal issues
+        - **PASS** (score &lt; 3): Acceptable quality, minor issues only
+        - **MAJOR REWORK** (3 ≤ score &lt; 7): Significant issues require attention
+        - **REJECT** (score ≥ 7): Critical problems, needs complete rewrite
+      </action>
+
+      <action>Store for template output:
+        - {{evidence_findings}}: List of findings with severity_icon, severity, description, source, score
+        - {{clean_pass_count}}: Number of clean categories
+        - {{evidence_score}}: Calculated total score
+        - {{evidence_verdict}}: EXCELLENT/PASS/MAJOR REWORK/REJECT
+      </action>
+    </substep>
+  </step>
+
+  <step n="7" goal="Initialize validation report">
+    <action>Initialize report from template: {default_output_file}</action>
+    <template-output file="{default_output_file}">report_header</template-output>
+  </step>
+
+  <step n="8" goal="Present validation results and improvement suggestions">
+    <template-output file="{default_output_file}">executive_summary</template-output>
+
+    <template-output file="{default_output_file}">evidence_score_summary</template-output>
+
+    <template-output file="{default_output_file}">story_quality_gate</template-output>
+
+    <template-output file="{default_output_file}">critical_issues_section</template-output>
+
+    <template-output file="{default_output_file}">enhancements_section</template-output>
+
+    <template-output file="{default_output_file}">optimizations_section</template-output>
+
+    <template-output file="{default_output_file}">llm_optimizations_section</template-output>
+
+    <ask>**IMPROVEMENT OPTIONS:**
+
+Which improvements would you like me to apply to the story?
+
+**Select from the numbered list above, or choose:**
+- **all** - Apply all suggested improvements
+- **critical** - Apply only critical issues
+- **enhancements** - Apply critical + enhancements
+- **select [numbers]** - Choose specific numbers (e.g., "select 1,3,5,8")
+- **none** - Keep story as-is (report only)
+- **details [number]** - Show more details about specific suggestion
+
+Your choice:</ask>
+
+    <check if="user chooses 'none'">
+      <action>Skip to step 10 (finalize report only)</action>
+      <goto step="10" />
+    </check>
+
+    <check if="user chooses 'details'">
+      <action>Show detailed explanation for requested issue number</action>
+      <action>Return to this ask prompt</action>
+    </check>
+
+    <action>Parse user selection and mark issues for application</action>
+  </step>
+
+  <step n="9" goal="Apply selected improvements to story">
+    <critical>Apply changes naturally - story should read as if created perfectly the first time</critical>
+    <critical>DO NOT reference the review process, original LLM, or that changes were "added"</critical>
+
+    <action>Load the story file: {{story_file}}</action>
+
+    <check if="critical issues selected">
+      <action>Apply each selected critical fix to story content</action>
+      <action>Integrate naturally into existing sections</action>
+    </check>
+
+    <check if="enhancements selected">
+      <action>Apply each selected enhancement to story content</action>
+      <action>Add new sections only if necessary</action>
+    </check>
+
+    <check if="optimizations selected">
+      <action>Apply each selected optimization to story content</action>
+    </check>
+
+    <check if="LLM optimizations selected">
+      <action>Rewrite verbose sections for token efficiency</action>
+      <action>Improve structure and clarity</action>
+      <action>Make instructions more actionable and direct</action>
+    </check>
+
+    <action>Save updated story file</action>
+    <action>Count total changes applied: {{changes_applied_count}}</action>
+
+    <template-output file="{default_output_file}">changes_applied_section</template-output>
+  </step>
+
+  <step n="10" goal="Finalize report and present results">
+    <template-output file="{default_output_file}">competition_results</template-output>
+
+    <action>Save validation report to {default_output_file}</action>
+
+    <o>**✅ STORY VALIDATION COMPLETE, {user_name}!**
+
+**Validation Report:** {default_output_file}
+**Story File:** {{story_file}}
+
+**Evidence Score:** {{evidence_score}} → **{{evidence_verdict}}**
+
+**Issues Found:**
+- Critical: {{critical_count}}
+- Enhancements: {{enhancement_count}}
+- Optimizations: {{optimization_count}}
+- LLM optimizations: {{llm_opt_count}}
+- Changes applied: {{changes_applied_count}}
+    </o>
+
+    <check if="changes were applied">
+      <o>**📋 Next Steps:**
+1. ✅ Review the updated story file: `{{story_file}}`
+2. Verify applied changes meet your requirements
+3. Run `dev-story` when ready for implementation
+4. Run `code-review` after implementation complete
+      </o>
+    </check>
+
+    <check if="no changes were applied">
+      <o>**📋 Next Steps:**
+1. Review this validation report for potential improvements
+2. Manually apply any desired changes to the story file
+3. Run `dev-story` when ready for implementation
+4. Run `code-review` after implementation complete
+      </o>
+    </check>
+
+    <ask>Would you like to:
+- **review** - Open the updated story file for review
+- **dev** - Proceed directly to dev-story workflow
+- **done** - End validation workflow
+
+Your choice:</ask>
+
+    <check if="user chooses 'review'">
+      <action>Display the updated story file content</action>
+      <action>Return to this ask prompt</action>
+    </check>
+
+    <check if="user chooses 'dev'">
+      <o>Starting dev-story workflow...</o>
+      <invoke-workflow path="{project-root}/_bmad/bmm/workflows/4-implementation/dev-story/workflow.yaml">
+        <input name="story_file" value="{{story_file}}" />
+      </invoke-workflow>
+    </check>
+
+    <check if="user chooses 'done'">
+      <o>**The developer now has everything needed for flawless implementation! 🚀**</o>
+      <action>HALT</action>
+    </check>
+  </step>
+
+</workflow>

@@ -1,0 +1,120 @@
+# QA Plan Execute Workflow
+# Execute E2E tests from generated test plans (Category A/B)
+name: qa-plan-execute
+description: "Execute E2E tests from generated test plans (Category A/B)"
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+output_folder: "{config_source}:output_folder"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/4-implementation/qa-plan-execute"
+instructions: "{installed_path}/instructions.md"
+result_template: "{installed_path}/result-template.yaml"
+summary_template: "{installed_path}/summary-template.md"
+
+# Variables and inputs
+variables:
+  # Required - which epic to test
+  epic_num: null
+
+  # QA artifacts location
+  qa_artifacts: "{output_folder}/qa-artifacts"
+
+  # Input - test plan file
+  test_plan_file: "{qa_artifacts}/test-plans/epic-{epic_num}-e2e-plan.md"
+
+  # Execution options (defaults set via invocation or config)
+  category: null          # A | B | all (default: A via invocation)
+  test_id: null           # specific test to run (e.g., QA-17.5 or E17-A01)
+  dry_run: false          # parse and report without executing
+  verbose: false          # detailed output
+  rerun_failed: false     # re-run only failed tests from last run
+  timeout_seconds: 60     # default timeout per test
+  fail_fast: false        # stop on first failure
+
+  # Batch execution (for large test sets)
+  batch_size: 10          # tests per batch (recommended: 10)
+  batch_mode: null        # null=ask, "all"=single run, "batch"=force batching
+
+  # Playwright options
+  playwright_enabled: false
+  playwright_headless: true
+  playwright_screenshot_on_fail: true
+
+  # Output control
+  generate_bug_reports: true
+
+  # Automation mode (set by bmad-assist compiler)
+  non_interactive: false
+  auto_continue_on_fail: false
+
+# Previous run (for rerun-failed)
+input_file_patterns:
+  test_plan:
+    description: "E2E test plan for the epic"
+    pattern: "{qa_artifacts}/test-plans/epic-{epic_num}-e2e-plan.md"
+    required: false  # Instructions handle missing file interactively
+  previous_run:
+    description: "Previous run results (for rerun-failed)"
+    pattern: "{qa_artifacts}/test-results/epic-{epic_num}-run-*.yaml"
+    required: false
+    load_strategy: "LATEST"
+
+# Output files
+output:
+  results: "{qa_artifacts}/test-results/epic-{epic_num}-run-{timestamp}.yaml"
+  summary: "{qa_artifacts}/test-results/epic-{epic_num}-run-{timestamp}-summary.md"
+  bugs_dir: "{qa_artifacts}/bugs/"
+
+# Manual invocation
+invocation:
+  command: "/qa-plan-execute"
+  args: ["epic_num"]
+  options:
+    - name: "--category"
+      description: "Test category to run (A, B, or all)"
+      default: "A"
+    - name: "--test"
+      description: "Specific test ID to run"
+    - name: "--dry-run"
+      description: "Parse and report without executing"
+    - name: "--verbose"
+      description: "Detailed execution output"
+    - name: "--rerun-failed"
+      description: "Re-run only failed tests from previous run"
+    - name: "--fail-fast"
+      description: "Stop on first test failure"
+    - name: "--batch-size"
+      description: "Tests per batch for incremental execution (default: 10)"
+      default: "10"
+    - name: "--batch"
+      description: "Force batch mode (incremental execution with saves)"
+    - name: "--no-batch"
+      description: "Force single run mode (all tests at once)"
+
+# Required tools
+required_tools:
+  - read_file
+  - write_file
+  - bash
+  - glob
+
+tags:
+  - qa
+  - e2e
+  - test-execution
+  - cli
+  - automation
+
+execution_hints:
+  interactive: true   # Default to interactive mode for standalone
+  autonomous: false   # Wait for user confirmation on failures
+  iterative: true
+
+standalone: true

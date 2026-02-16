@@ -1,0 +1,105 @@
+# QA Plan Generate Workflow
+# Generate E2E test plans for completed epics
+name: qa-plan-generate
+description: "Generate comprehensive E2E test plans for completed epics with categories A/B/C"
+author: "BMad"
+
+# Critical variables from config
+config_source: "{project-root}/_bmad/bmm/config.yaml"
+output_folder: "{config_source}:output_folder"
+user_name: "{config_source}:user_name"
+communication_language: "{config_source}:communication_language"
+document_output_language: "{config_source}:document_output_language"
+date: system-generated
+
+# Workflow components
+installed_path: "{project-root}/_bmad/bmm/workflows/4-implementation/qa-plan-generate"
+instructions: "{installed_path}/instructions.md"
+template: "{installed_path}/template.md"
+
+# Variables and inputs
+variables:
+  # Required - which epic to generate plan for
+  epic_num: null
+
+  # QA artifacts location
+  qa_artifacts: "{output_folder}/qa-artifacts"
+
+  # Output file
+  output_file: "{qa_artifacts}/test-plans/epic-{epic_num}-e2e-plan.md"
+
+  # Optional - trace file from testarch-trace
+  trace_file: "{qa_artifacts}/traceability/epic-{epic_num}-trace.md"
+
+  # UX elements documentation (CRITICAL for Category B tests)
+  ux_elements_paths:
+    - "{project-root}/docs/modules/dashboard/ux-elements.md"
+    - "{project-root}/docs/modules/experiments/ux-elements.md"
+    - "{project-root}/docs/ux-elements.md"
+    - "{project-root}/docs/epics/epic-{epic_num}-ux.md"
+
+  # Generation options
+  force: false  # Regenerate even if plan exists
+
+# Input file patterns
+input_file_patterns:
+  epic:
+    description: "Epic definition file"
+    pattern: "{project-root}/docs/epics/epic-{epic_num}*.md"
+    required: false
+    load_strategy: "FIRST"
+  stories:
+    description: "Story files for this epic"
+    pattern: "{output_folder}/implementation-artifacts/stories/{epic_num}-*.md"
+    required: false
+    load_strategy: "ALL"
+    limit: 10
+  trace:
+    description: "Traceability file (optional)"
+    pattern: "{trace_file}"
+    required: false
+  ux_elements:
+    description: "UI elements documentation (for Category B tests)"
+    pattern: "{project-root}/docs/modules/*/ux-elements.md"
+    required: false
+    load_strategy: "ALL"
+  prd:
+    description: "Product Requirements Document"
+    pattern: "{project-root}/docs/prd.md"
+    required: false
+  architecture:
+    description: "Architecture document"
+    pattern: "{project-root}/docs/architecture.md"
+    required: false
+
+# Output files
+output:
+  qa_plan: "{output_file}"
+
+# Manual invocation
+invocation:
+  command: "/qa-plan-generate"
+  args: ["epic_num"]
+  options:
+    - name: "--force"
+      description: "Regenerate even if plan exists"
+
+# Required tools
+required_tools:
+  - read_file
+  - write_file
+  - glob
+  - list_files
+
+tags:
+  - qa
+  - e2e
+  - test-planning
+  - automation
+
+execution_hints:
+  interactive: false
+  autonomous: true
+  iterative: false
+
+standalone: true
