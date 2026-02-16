@@ -49,6 +49,7 @@ from bmad_assist.providers.base import (
     ExitStatus,
     ProviderResult,
     format_tag,
+    get_popen_kwargs_for_new_session,
     is_full_stream,
     should_print_progress,
     validate_settings_file,
@@ -353,6 +354,9 @@ class CodexProvider(BaseProvider):
         start_time = time.perf_counter()
 
         try:
+            # Get platform-specific kwargs for process isolation
+            popen_kwargs = get_popen_kwargs_for_new_session()
+
             process = Popen(
                 command,
                 stdout=PIPE,
@@ -361,7 +365,7 @@ class CodexProvider(BaseProvider):
                 encoding="utf-8",
                 errors="replace",
                 cwd=cwd,  # Use target project directory, not bmad-assist cwd
-                start_new_session=True,  # Own process group for safe termination
+                **popen_kwargs,
             )
 
             def process_json_stream(

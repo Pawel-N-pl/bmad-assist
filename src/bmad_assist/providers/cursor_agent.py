@@ -52,6 +52,7 @@ from bmad_assist.providers.base import (
     ProviderResult,
     calculate_retry_delay,
     format_tag,
+    get_popen_kwargs_for_new_session,
     is_full_stream,
     is_transient_error,
     should_print_progress,
@@ -259,6 +260,9 @@ class CursorAgentProvider(BaseProvider):
                     if cwd is not None:
                         env["PWD"] = str(cwd)
 
+                    # Get platform-specific kwargs for process isolation
+                    popen_kwargs = get_popen_kwargs_for_new_session()
+
                     process = Popen(
                         command,
                         stdin=PIPE,
@@ -269,7 +273,7 @@ class CursorAgentProvider(BaseProvider):
                         errors="replace",
                         cwd=cwd,
                         env=env,
-                        start_new_session=True,  # Own process group for safe termination
+                        **popen_kwargs,
                     )
 
                     if process.stdin:

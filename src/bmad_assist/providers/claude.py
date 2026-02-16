@@ -34,15 +34,19 @@ from bmad_assist.core.exceptions import (
     ProviderTimeoutError,
 )
 from bmad_assist.providers.base import (
+    IS_WINDOWS,
     BaseProvider,
     ExitStatus,
     ProviderResult,
     extract_tool_details,
     format_tag,
+    get_popen_kwargs_for_new_session,
     is_full_stream,
     register_child_pgid,
+    register_child_process,
     should_print_progress,
     unregister_child_pgid,
+    unregister_child_process,
     validate_settings_file,
     write_progress,
 )
@@ -432,6 +436,9 @@ class ClaudeSubprocessProvider(BaseProvider):
         child_pgid: int | None = None
 
         try:
+            # Get platform-specific kwargs for process isolation
+            popen_kwargs = get_popen_kwargs_for_new_session()
+
             process = Popen(
                 command,
                 stdin=PIPE,
@@ -442,19 +449,23 @@ class ClaudeSubprocessProvider(BaseProvider):
                 errors="replace",
                 cwd=cwd,
                 env=env,
-                start_new_session=True,  # Enable process group for clean termination
+                **popen_kwargs,
             )
 
             # Store process for cancel() method
             with self._process_lock:
                 self._current_process = process
 
-            # Register child pgid for signal handler cleanup (Ctrl+C)
-            try:
-                child_pgid = os.getpgid(process.pid)
-                register_child_pgid(child_pgid)
-            except (ProcessLookupError, OSError):
-                pass
+            # Register child process for signal handler cleanup (Ctrl+C)
+            # Platform-specific: Windows tracks process objects, POSIX tracks pgids
+            if IS_WINDOWS:
+                register_child_process(process)
+            else:
+                try:
+                    child_pgid = os.getpgid(process.pid)
+                    register_child_pgid(child_pgid)
+                except (ProcessLookupError, OSError):
+                    pass
 
             # Write prompt to stdin and close it
             if process.stdin:
@@ -709,7 +720,10 @@ class ClaudeSubprocessProvider(BaseProvider):
 
                     # Close debug logger and clear process before raising
                     debug_json_logger.close()
-                    if child_pgid is not None:
+                    # Unregister from signal handler (platform-specific)
+                    if IS_WINDOWS:
+                        unregister_child_process(process)
+                    elif child_pgid is not None:
                         unregister_child_pgid(child_pgid)
                     with self._process_lock:
                         self._current_process = None
@@ -730,8 +744,10 @@ class ClaudeSubprocessProvider(BaseProvider):
             stdout_thread.join(timeout=10)
             stderr_thread.join(timeout=10)
 
-            # Clear current process and unregister from signal handler
-            if child_pgid is not None:
+            # Clear current process and unregister from signal handler (platform-specific)
+            if IS_WINDOWS:
+                unregister_child_process(process)
+            elif child_pgid is not None:
                 unregister_child_pgid(child_pgid)
             with self._process_lock:
                 self._current_process = None
@@ -758,8 +774,8 @@ class ClaudeSubprocessProvider(BaseProvider):
 
         except FileNotFoundError as e:
             logger.error("Claude CLI not found in PATH")
-            if child_pgid is not None:
-                unregister_child_pgid(child_pgid)
+            # Note: FileNotFoundError from Popen means process was never created,
+            # so nothing was registered with the signal handler
             with self._process_lock:
                 self._current_process = None
             debug_json_logger.close()

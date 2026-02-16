@@ -51,6 +51,7 @@ from bmad_assist.providers.base import (
     ProviderResult,
     extract_tool_details,
     format_tag,
+    get_popen_kwargs_for_new_session,
     is_full_stream,
     resolve_settings_file,
     should_print_progress,
@@ -588,6 +589,9 @@ class KimiProvider(BaseProvider):
                 env = os.environ.copy()
 
                 # Use Popen directly with cwd parameter (NO shell=True for security)
+                # Get platform-specific kwargs for process isolation
+                popen_kwargs = get_popen_kwargs_for_new_session()
+
                 process = Popen(
                     command,
                     stdin=PIPE,
@@ -598,7 +602,7 @@ class KimiProvider(BaseProvider):
                     errors="replace",
                     cwd=cwd,
                     env=env,
-                    start_new_session=True,  # Own process group for safe termination
+                    **popen_kwargs,
                 )
 
                 # Write prompt to stdin and close it
