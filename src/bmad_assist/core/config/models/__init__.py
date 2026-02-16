@@ -11,6 +11,7 @@ from bmad_assist.core.config.models.features import (
     PlaywrightConfig,
     PlaywrightServerConfig,
     QAConfig,
+    StreamConfig,
     TimeoutsConfig,
 )
 from bmad_assist.core.config.models.loop import (
@@ -89,6 +90,7 @@ __all__ = [
     "PlaywrightServerConfig",
     "PlaywrightConfig",
     "QAConfig",
+    "StreamConfig",
     # loop.py
     "LoopConfig",
     "SprintConfig",

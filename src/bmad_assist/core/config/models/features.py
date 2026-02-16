@@ -1,9 +1,43 @@
-"""Feature configuration models (Compiler, Timeouts, Benchmarking, QA)."""
+"""Feature configuration models (Compiler, Timeouts, Benchmarking, QA, Stream)."""
+
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from bmad_assist.core.config.models.source_context import SourceContextConfig
 from bmad_assist.core.config.models.strategic_context import StrategicContextConfig
+
+
+class StreamConfig(BaseModel):
+    """LLM stream output configuration.
+
+    Controls how much LLM streaming output is shown during runs.
+    Can be overridden by CLI flags (--stream, --stream-chars).
+
+    Attributes:
+        mode: Stream mode - 'off' (default), 'preview' (truncated), or 'full' (all output).
+        preview_chars: Characters to show in preview mode (min 10).
+
+    Example YAML:
+        stream:
+          mode: preview
+          preview_chars: 200
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mode: Literal["off", "preview", "full"] = Field(
+        default="off",
+        description="Stream mode: 'off' = no streaming, "
+        "'preview' = truncated previews, 'full' = all output",
+    )
+    preview_chars: int = Field(
+        default=150,
+        ge=10,
+        description="Characters to show in stream preview mode (min 10)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
 
 
 class CompilerConfig(BaseModel):

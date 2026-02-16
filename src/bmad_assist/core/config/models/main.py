@@ -10,6 +10,7 @@ from bmad_assist.core.config.models.features import (
     BenchmarkingConfig,
     CompilerConfig,
     QAConfig,
+    StreamConfig,
     TimeoutsConfig,
 )
 from bmad_assist.core.config.models.loop import LoopConfig, SprintConfig, WarningsConfig
@@ -85,6 +86,10 @@ class Config(BaseModel):
     timeouts: TimeoutsConfig | None = Field(
         default=None,
         description="Per-phase timeout configuration (optional, overrides timeout)",
+    )
+    stream: StreamConfig = Field(
+        default_factory=StreamConfig,
+        description="LLM stream output configuration (mode, preview_chars)",
     )
     bmad_paths: BmadPathsConfig = Field(default_factory=BmadPathsConfig)
     paths: ProjectPathsConfig = Field(default_factory=ProjectPathsConfig)
