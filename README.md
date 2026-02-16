@@ -55,7 +55,7 @@ pip install -e .
 
 **Requirements:** Python 3.11+ and at least one LLM CLI tool ([Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [Codex](https://github.com/openai/codex)).
 
-> **Platform:** Linux and macOS only. Windows is not supported — the subprocess management layer depends on POSIX APIs (`os.killpg`, `signal.SIGKILL`, process groups, `start_new_session`) throughout the codebase. On Windows, use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install).
+> **Platform:** Linux, macOS, and Windows. Process management automatically adapts to each platform — POSIX systems use process groups (`os.killpg`), Windows uses `taskkill` for process tree termination.
 
 ## Quick Start
 
