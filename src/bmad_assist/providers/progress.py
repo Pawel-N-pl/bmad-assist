@@ -2,20 +2,19 @@
 
 This module provides a unified progress display for multiple LLM providers
 running in parallel. Each provider registers itself and updates its state,
-while a single background task renders all active providers on one line
-with colored backgrounds.
+while a single background task renders all active providers with one line
+per agent, using the full terminal width.
 
-Example output (wide terminal):
-    ⠋ claude-sonnet-4.5: 5s, in≈1000, out≈200   ⠹ GPT-5.2: 3s...
-
-Example output (narrow terminal - compact mode):
-    ⠋ sonnet:5s,200   ⠹ 5.2:3s,0
+Example output:
+    ⠋ CC sonnet: 12s, in≈21857, out≈47
+    ⠹ GH claude-sonnet-4.5: 8s...
+    ⠸ GH GPT-5.3-Codex: 6s, in≈500, out≈120
 
 Features:
 - Thread-safe registration/update via threading.Lock
 - Per-agent spinner animation (phase offset by index)
-- Auto-compact mode when line exceeds terminal width
-- ANSI background colors for visual separation
+- One line per agent with colored left-edge indicator
+- ANSI cursor control to overwrite previous render
 - Clear-to-EOL to prevent ghost characters
 - Shared render task management across providers
 
@@ -64,10 +63,13 @@ BG_COLORS = (
 RESET = "\033[0m"
 CLEAR_EOL = "\033[K"  # Clear from cursor to end of line
 
+CURSOR_UP = "\033[A"  # Move cursor up one line
+
 # Shared state
 _active_agents: dict[str, dict] = {}  # agent_id -> state dict
 _agents_lock = threading.Lock()
 _spinner_tick = 0
+_last_render_lines = 0  # Number of lines rendered in last draw
 _render_task: asyncio.Task | None = None  # Single shared render task
 
 
@@ -127,16 +129,34 @@ def unregister_agent(agent_id: str) -> None:
 
 
 def clear_progress_line() -> None:
-    """Clear the current progress line and move cursor to start.
+    """Clear all rendered progress lines and move cursor back.
 
-    Call this after all agents are done to remove the spinner display.
+    Handles multi-line spinner output by moving cursor up and clearing
+    each line that was previously rendered.
     """
-    # Overwrite with spaces and return to start
-    try:
-        term_width = shutil.get_terminal_size().columns
-    except Exception:
-        term_width = 120
-    sys.stdout.write("\r" + " " * (term_width - 1) + "\r")
+    global _last_render_lines
+    if _last_render_lines <= 0:
+        # Fallback: just clear current line
+        sys.stdout.write("\r" + CLEAR_EOL)
+        sys.stdout.flush()
+        return
+    # Move up to the first rendered line and clear each
+    lines_to_clear = _last_render_lines
+    _last_render_lines = 0
+    # Move up (lines - 1) times since cursor is on the last rendered line
+    output = ""
+    for _ in range(lines_to_clear - 1):
+        output += CURSOR_UP
+    output += "\r"
+    for i in range(lines_to_clear):
+        output += CLEAR_EOL
+        if i < lines_to_clear - 1:
+            output += "\n"
+    # Move back up to start position
+    for _ in range(lines_to_clear - 1):
+        output += CURSOR_UP
+    output += "\r"
+    sys.stdout.write(output)
     sys.stdout.flush()
 
 
@@ -213,27 +233,32 @@ async def run_spinner(done_event: asyncio.Event) -> None:
 
 
 def render_all_agents() -> str:
-    """Render all active agents into a single status line, truncated to terminal width.
+    """Render all active agents, one per line with colored left-edge indicator.
+
+    Each agent gets its own line with a colored block prefix for visual
+    separation. Uses ANSI cursor control to overwrite previous render.
 
     Returns:
-        Status line starting with \\r for carriage return, or empty string if
-        no agents are active.
+        Multi-line status string, or empty string if no agents are active.
 
     """
-    global _spinner_tick
+    global _spinner_tick, _last_render_lines
     _spinner_tick += 1
 
     with _agents_lock:
         if not _active_agents:
             return ""
 
-        # Get terminal width for truncation
-        try:
-            term_width = shutil.get_terminal_size().columns
-        except Exception:
-            term_width = 120  # Fallback
+        n_agents = len(_active_agents)
 
-        parts = []
+        # Move cursor up to overwrite previous render
+        output = ""
+        if _last_render_lines > 0:
+            for _ in range(_last_render_lines - 1):
+                output += CURSOR_UP
+            output += "\r"
+
+        lines = []
         for idx, (agent_id, state) in enumerate(_active_agents.items()):
             bg = BG_COLORS[idx % len(BG_COLORS)]
             # Each agent gets its own spinner phase (offset by index)
@@ -245,40 +270,19 @@ def render_all_agents() -> str:
             label = f"{tag} {model}" if tag else model
 
             if state["status"] == "waiting":
-                text = f" {spinner} {label}: {elapsed}s... "
+                info = f"{spinner} {label}: {elapsed}s..."
             else:
                 in_tok = state["in_tokens"]
                 out_tok = state["out_tokens"]
-                text = f" {spinner} {label}: {elapsed}s, in≈{in_tok}, out≈{out_tok} "
+                info = f"{spinner} {label}: {elapsed}s, in≈{in_tok}, out≈{out_tok}"
 
-            parts.append(f"{bg}{text}{RESET}")
+            # Colored block prefix + text + clear to end of line
+            lines.append(f"{bg}  {RESET} {info}{CLEAR_EOL}")
 
-        line = "\r" + " ".join(parts)
+        output += "\n".join(lines)
+        _last_render_lines = n_agents
 
-        # Calculate visible length (exclude ANSI escape codes)
-        visible_len = sum(len(p) - len(BG_COLORS[0]) - len(RESET) for p in parts) + len(parts) - 1
-
-        # If too wide, use compact format
-        if visible_len > term_width - 5:
-            parts = []
-            for idx, (agent_id, state) in enumerate(_active_agents.items()):
-                bg = BG_COLORS[idx % len(BG_COLORS)]
-                spinner = SPINNER[(_spinner_tick + idx * 2) % len(SPINNER)]
-                elapsed = int(time.perf_counter() - state["start_time"])
-                # Shorter model name (last part only)
-                model = state["model"]
-                if "-" in model:
-                    model = model.split("-")[-1]
-                else:
-                    model = model[:8]
-                tag = state.get("provider_tag", "")
-                label = f"{tag} {model}" if tag else model
-                out_tok = state["out_tokens"]
-                text = f" {spinner} {label}:{elapsed}s,{out_tok} "
-                parts.append(f"{bg}{text}{RESET}")
-            line = "\r" + " ".join(parts)
-
-        return line + CLEAR_EOL
+        return output
 
 
 class _SpinnerClearFilter(logging.Filter):

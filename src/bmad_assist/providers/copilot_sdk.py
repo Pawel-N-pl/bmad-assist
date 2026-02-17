@@ -648,6 +648,13 @@ class CopilotSDKProvider(BaseProvider):
         except ProviderError:
             clear_progress_line()
             raise
+        except TimeoutError as e:
+            # future.result() raises bare TimeoutError — convert to retryable
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            clear_progress_line()
+            raise ProviderTimeoutError(
+                f"Copilot SDK timeout after {duration_ms}ms"
+            ) from e
         except Exception as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             clear_progress_line()
