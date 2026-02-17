@@ -39,6 +39,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import sys
 import threading
@@ -70,13 +71,16 @@ _spinner_tick = 0
 _render_task: asyncio.Task | None = None  # Single shared render task
 
 
-def register_agent(agent_id: str, model: str, start_time: float) -> int:
+def register_agent(
+    agent_id: str, model: str, start_time: float, provider_tag: str = ""
+) -> int:
     """Register an agent and return its color index.
 
     Args:
         agent_id: Unique identifier for this agent instance.
         model: Model name to display (e.g., "claude-sonnet-4.5").
         start_time: Start time from time.perf_counter().
+        provider_tag: Short provider identifier (e.g., "CC", "GH").
 
     Returns:
         Color index assigned to this agent (0-5).
@@ -90,6 +94,7 @@ def register_agent(agent_id: str, model: str, start_time: float) -> int:
             "in_tokens": 0,
             "out_tokens": 0,
             "status": "waiting",
+            "provider_tag": provider_tag,
         }
         return color_idx
 
@@ -236,12 +241,15 @@ def render_all_agents() -> str:
             elapsed = int(time.perf_counter() - state["start_time"])
             model = state["model"]
 
+            tag = state.get("provider_tag", "")
+            label = f"{tag} {model}" if tag else model
+
             if state["status"] == "waiting":
-                text = f" {spinner} {model}: {elapsed}s... "
+                text = f" {spinner} {label}: {elapsed}s... "
             else:
                 in_tok = state["in_tokens"]
                 out_tok = state["out_tokens"]
-                text = f" {spinner} {model}: {elapsed}s, in≈{in_tok}, out≈{out_tok} "
+                text = f" {spinner} {label}: {elapsed}s, in≈{in_tok}, out≈{out_tok} "
 
             parts.append(f"{bg}{text}{RESET}")
 
@@ -263,9 +271,38 @@ def render_all_agents() -> str:
                     model = model.split("-")[-1]
                 else:
                     model = model[:8]
+                tag = state.get("provider_tag", "")
+                label = f"{tag} {model}" if tag else model
                 out_tok = state["out_tokens"]
-                text = f" {spinner} {model}:{elapsed}s,{out_tok} "
+                text = f" {spinner} {label}:{elapsed}s,{out_tok} "
                 parts.append(f"{bg}{text}{RESET}")
             line = "\r" + " ".join(parts)
 
         return line + CLEAR_EOL
+
+
+class _SpinnerClearFilter(logging.Filter):
+    """Logging filter that clears the spinner progress line before log output.
+
+    When active agents are registered (spinner is rendering), any log message
+    would interleave with the spinner on stdout. This filter clears the spinner
+    line before each log message so it appears on its own clean line.
+    The spinner redraws on its next tick.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if _active_agents:  # Quick check without lock for performance
+            clear_progress_line()
+        return True
+
+
+def install_log_intercept() -> None:
+    """Install spinner-aware filter on all root logger handlers.
+
+    Call this after logging is configured (e.g., after basicConfig).
+    When the progress spinner is active, log messages will automatically
+    clear the spinner line before printing.
+    """
+    filt = _SpinnerClearFilter()
+    for handler in logging.root.handlers:
+        handler.addFilter(filt)

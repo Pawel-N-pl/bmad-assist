@@ -436,7 +436,9 @@ class ClaudeSDKProvider(BaseProvider):
 
             # Register for parallel progress display (--stream preview mode)
             if is_verbose_stream() and should_print_progress():
-                agent_color_idx = register_agent(agent_id, shown_model, event_start)
+                agent_color_idx = register_agent(
+                    agent_id, shown_model, event_start, provider_tag="CC"
+                )
                 # Start spinner if we're the first agent
                 agents_lock = get_agents_lock()
                 with agents_lock:

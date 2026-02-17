@@ -395,7 +395,9 @@ class CopilotSDKProvider(BaseProvider):
 
             # Register for parallel progress display
             if is_verbose_stream() and should_print_progress():
-                agent_color_idx = register_agent(agent_id, shown_model, _event_start)
+                agent_color_idx = register_agent(
+                    agent_id, shown_model, _event_start, provider_tag="GH"
+                )
 
             def on_event(event: object) -> None:
                 nonlocal _chars_received, _delta_chars, _last_progress_time
