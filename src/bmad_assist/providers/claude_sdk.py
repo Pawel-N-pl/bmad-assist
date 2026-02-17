@@ -29,8 +29,10 @@ import contextlib
 import logging
 import os
 import shutil
+import sys
 import threading
 import time
+import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -55,9 +57,21 @@ from bmad_assist.providers.base import (
     extract_tool_details,
     format_tag,
     is_full_stream,
+    is_verbose_stream,
     should_print_progress,
     validate_settings_file,
     write_progress,
+)
+from bmad_assist.providers.progress import (
+    get_active_count,
+    get_agents_lock,
+    get_render_task,
+    print_completion,
+    register_agent,
+    run_spinner,
+    set_render_task,
+    unregister_agent,
+    update_agent,
 )
 
 logger = logging.getLogger(__name__)
@@ -397,78 +411,126 @@ class ClaudeSDKProvider(BaseProvider):
             # Re-raise any exception from connect
             connect_task.result()
 
-            async for message in client.receive_messages():
-                # Check if we should exit outer loop
-                if terminated_early:
-                    break
+            # Progress tracking for parallel agent display
+            agent_id = str(uuid.uuid4())
+            agent_color_idx = -1
+            event_start = time.perf_counter()
+            done_event = asyncio.Event()
+            spinner = None
+            total_chars = 0
 
-                # Extract content from AssistantMessage only
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            text = block.text
-                            response_parts.append(text)
+            # Register for parallel progress display (--stream preview mode)
+            if is_verbose_stream() and should_print_progress():
+                agent_color_idx = register_agent(agent_id, shown_model, event_start)
+                # Start spinner if we're the first agent
+                agents_lock = get_agents_lock()
+                with agents_lock:
+                    render_task = get_render_task()
+                    if render_task is None or render_task.done():
+                        spinner = asyncio.create_task(run_spinner(done_event))
+                        set_render_task(spinner)
 
-                            # Check for early termination markers/phrases
-                            text_lower = text.lower()
-                            should_terminate = False
+            try:
+                async for message in client.receive_messages():
+                    # Check if we should exit outer loop
+                    if terminated_early:
+                        break
 
-                            # Check end markers
-                            for marker in end_markers:
-                                if marker in text:
-                                    logger.info("Early termination: detected end marker %s", marker)
-                                    should_terminate = True
-                                    break
+                    # Extract content from AssistantMessage only
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                text = block.text
+                                response_parts.append(text)
+                                total_chars += len(text)
 
-                            # Check completion phrases
-                            if not should_terminate:
-                                for phrase in completion_phrases:
-                                    if phrase in text_lower:
-                                        logger.info(
-                                            "Early termination: detected completion phrase '%s'",
-                                            phrase,
-                                        )
+                                # Update agent state for preview spinner
+                                if agent_color_idx >= 0:
+                                    # Rough token estimate: ~4 chars per token
+                                    out_tokens = total_chars // 4
+                                    in_tokens = len(prompt) // 4
+                                    update_agent(agent_id, in_tokens=in_tokens, out_tokens=out_tokens, status="streaming")
+
+                                # Check for early termination markers/phrases
+                                text_lower = text.lower()
+                                should_terminate = False
+
+                                # Check end markers
+                                for marker in end_markers:
+                                    if marker in text:
+                                        logger.info("Early termination: detected end marker %s", marker)
                                         should_terminate = True
                                         break
 
-                            # Show progress for assistant messages
-                            if should_print_progress():
-                                tag = format_tag("ASSISTANT", color_index)
-                                if is_full_stream():
-                                    write_progress(f"{tag} {text}")
-                                else:
-                                    preview = text[:100].replace("\n", " ")
-                                    if len(text) > 100:
-                                        preview += "..."
-                                    write_progress(f"{tag} {preview}")
+                                # Check completion phrases
+                                if not should_terminate:
+                                    for phrase in completion_phrases:
+                                        if phrase in text_lower:
+                                            logger.info(
+                                                "Early termination: detected completion phrase '%s'",
+                                                phrase,
+                                            )
+                                            should_terminate = True
+                                            break
 
-                            # Terminate stream if marker/phrase detected
-                            if should_terminate:
-                                if should_print_progress():
-                                    tag = format_tag("TERM", color_index)
-                                    write_progress(f"{tag} Stream terminated early (SDK)")
-                                # Set flag to exit outer loop cleanly
-                                terminated_early = True
-                                break  # Exit inner loop
-
-                        elif isinstance(block, ToolUseBlock):
-                            # Log tool use
-                            tool_name = block.name
-                            tool_input = block.input
-                            if should_print_progress():
-                                tag = format_tag(f"TOOL {tool_name}", color_index)
-                                if is_full_stream():
-                                    import json as _json
-
-                                    write_progress(f"{tag} {_json.dumps(tool_input, indent=2)}")
-                                else:
-                                    details = extract_tool_details(tool_name, tool_input, cwd)
-                                    if details:
-                                        write_progress(f"{tag} {details}")
+                                # Show progress for assistant messages (full/debug modes only)
+                                if should_print_progress() and not is_verbose_stream():
+                                    tag = format_tag("ASSISTANT", color_index)
+                                    if is_full_stream():
+                                        write_progress(f"{tag} {text}")
                                     else:
-                                        write_progress(f"{tag}")
-                # ResultMessage is metadata only (cost/usage) - skip
-                # Other message types (SystemMessage, UserMessage) - skip
+                                        preview = text[:100].replace("\n", " ")
+                                        if len(text) > 100:
+                                            preview += "..."
+                                        write_progress(f"{tag} {preview}")
+
+                                # Terminate stream if marker/phrase detected
+                                if should_terminate:
+                                    if should_print_progress() and not is_verbose_stream():
+                                        tag = format_tag("TERM", color_index)
+                                        write_progress(f"{tag} Stream terminated early (SDK)")
+                                    # Set flag to exit outer loop cleanly
+                                    terminated_early = True
+                                    break  # Exit inner loop
+
+                            elif isinstance(block, ToolUseBlock):
+                                # Log tool use
+                                tool_name = block.name
+                                tool_input = block.input
+                                if should_print_progress() and not is_verbose_stream():
+                                    tag = format_tag(f"TOOL {tool_name}", color_index)
+                                    if is_full_stream():
+                                        import json as _json
+
+                                        write_progress(f"{tag} {_json.dumps(tool_input, indent=2)}")
+                                    else:
+                                        details = extract_tool_details(tool_name, tool_input, cwd)
+                                        if details:
+                                            write_progress(f"{tag} {details}")
+                                        else:
+                                            write_progress(f"{tag}")
+                    # ResultMessage is metadata only (cost/usage) - skip
+                    # Other message types (SystemMessage, UserMessage) - skip
+            finally:
+                # Stop spinner and unregister agent
+                done_event.set()
+                if spinner:
+                    agents_lock = get_agents_lock()
+                    with agents_lock:
+                        if get_active_count() <= 1:
+                            spinner.cancel()
+                            try:
+                                await spinner
+                            except asyncio.CancelledError:
+                                pass
+                            set_render_task(None)
+                if agent_color_idx >= 0:
+                    # Print completion message before unregistering
+                    if is_verbose_stream() and should_print_progress():
+                        elapsed = int(time.perf_counter() - event_start)
+                        out_tokens = total_chars // 4
+                        print_completion(agent_id, shown_model, elapsed, out_tokens)
+                    unregister_agent(agent_id)
 
         except (CLINotFoundError, ProcessError):
             # Re-raise SDK errors for handling in invoke()

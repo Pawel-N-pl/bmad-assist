@@ -28,9 +28,11 @@ Example:
 import asyncio
 import logging
 import os
+import shutil
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from bmad_assist.core.exceptions import (
@@ -47,6 +49,17 @@ from bmad_assist.providers.base import (
     should_print_progress,
     validate_settings_file,
     write_progress,
+)
+from bmad_assist.providers.progress import (
+    get_active_count,
+    get_agents_lock,
+    get_render_task,
+    print_completion,
+    register_agent,
+    run_spinner,
+    set_render_task,
+    unregister_agent,
+    update_agent,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,7 +80,7 @@ DEFAULT_TIMEOUT: int = 300
 
 _shared_client: object | None = None  # CopilotClient instance (lazily imported)
 _shared_client_cwd: str | None = None  # cwd used when creating the shared client
-_client_lock = threading.Lock()
+_client_lock: asyncio.Lock | None = None  # Lazy-init asyncio.Lock for async-safe access
 _atexit_registered = False
 
 # Persistent event loop — the CopilotClient's asyncio transport is bound to
@@ -222,7 +235,7 @@ class CopilotSDKProvider(BaseProvider):
             ProviderError: If SDK is not installed.
 
         """
-        global _shared_client, _shared_client_cwd
+        global _shared_client, _shared_client_cwd, _client_lock
 
         try:
             from copilot import CopilotClient
@@ -234,7 +247,11 @@ class CopilotSDKProvider(BaseProvider):
 
         cwd_str = str(cwd) if cwd else os.getcwd()
 
-        with _client_lock:
+        # Lazy-init asyncio.Lock (must be created within event loop context)
+        if _client_lock is None:
+            _client_lock = asyncio.Lock()
+
+        async with _client_lock:
             # Reuse existing client if cwd matches and client is healthy
             if (
                 _shared_client is not None
@@ -247,10 +264,11 @@ class CopilotSDKProvider(BaseProvider):
             # Clean up stale client
             if _shared_client is not None:
                 old_state = _shared_client.get_state()
-                logger.info(
-                    "Replacing CopilotClient (state=%s, old_cwd=%s, new_cwd=%s)",
-                    old_state, _shared_client_cwd, cwd_str,
-                )
+                if not is_verbose_stream():
+                    logger.info(
+                        "Replacing CopilotClient (state=%s, old_cwd=%s, new_cwd=%s)",
+                        old_state, _shared_client_cwd, cwd_str,
+                    )
                 try:
                     await asyncio.wait_for(_shared_client.force_stop(), timeout=3)
                 except Exception:
@@ -258,38 +276,40 @@ class CopilotSDKProvider(BaseProvider):
                 _shared_client = None
                 _shared_client_cwd = None
 
-        # Create new client outside the lock (start() is async + slow)
-        cli_path = os.environ.get("COPILOT_CLI_PATH")
+            # Create new client inside the lock to prevent race conditions
+            # when multiple parallel agents all try to create at once
+            cli_path = os.environ.get("COPILOT_CLI_PATH")
 
-        client_opts: dict[str, object] = {
-            "log_level": "warning",
-            "auto_start": True,
-            "auto_restart": True,  # Auto-restart if CLI crashes
-        }
-        if cli_path:
-            client_opts["cli_path"] = cli_path
-            logger.info("SDK using override CLI: %s", cli_path)
-        client_opts["cwd"] = cwd_str
+            client_opts: dict[str, object] = {
+                "log_level": "warning",
+                "auto_start": True,
+                "auto_restart": True,  # Auto-restart if CLI crashes
+            }
+            if cli_path:
+                client_opts["cli_path"] = cli_path
+                if not is_verbose_stream():
+                    logger.info("SDK using override CLI: %s", cli_path)
+            client_opts["cwd"] = cwd_str
 
-        start_time = time.perf_counter()
-        client = CopilotClient(client_opts)
-        await asyncio.wait_for(client.start(), timeout=30)
-        start_ms = int((time.perf_counter() - start_time) * 1000)
-        logger.info("CopilotClient started in %dms (cwd=%s)", start_ms, cwd_str)
+            start_time = time.perf_counter()
+            client = CopilotClient(client_opts)
+            await asyncio.wait_for(client.start(), timeout=30)
+            start_ms = int((time.perf_counter() - start_time) * 1000)
+            if not is_verbose_stream():
+                logger.info("CopilotClient started in %dms (cwd=%s)", start_ms, cwd_str)
 
-        # Store for reuse (under lock)
-        with _client_lock:
+            # Store for reuse
             _shared_client = client
             _shared_client_cwd = cwd_str
 
-        # Register atexit cleanup (once)
-        global _atexit_registered
-        if not _atexit_registered:
-            import atexit
-            atexit.register(shutdown_shared_client)
-            _atexit_registered = True
+            # Register atexit cleanup (once)
+            global _atexit_registered
+            if not _atexit_registered:
+                import atexit
+                atexit.register(shutdown_shared_client)
+                _atexit_registered = True
 
-        return client
+            return client
 
     async def _invoke_async(
         self,
@@ -329,16 +349,22 @@ class CopilotSDKProvider(BaseProvider):
         """
         shown_model = display_model or model
         input_tokens = self._estimate_tokens(len(prompt))
-        logger.info(
-            "Copilot SDK invoking: model=%s, input=~%d tokens (%d chars), cwd=%s",
-            shown_model,
-            input_tokens,
-            len(prompt),
-            cwd,
-        )
+        # Skip INFO log in preview mode - spinner shows progress
+        if not is_verbose_stream():
+            logger.info(
+                "Copilot SDK invoking: model=%s, input=~%d tokens (%d chars), cwd=%s",
+                shown_model,
+                input_tokens,
+                len(prompt),
+                cwd,
+            )
 
         client = await self._get_or_create_client(cwd)
         response_parts: list[str] = []
+
+        # Generate unique ID for parallel agent tracking
+        agent_id = str(uuid.uuid4())[:8]
+        agent_color_idx = -1  # Set when registered
 
         session = None
         try:
@@ -365,6 +391,10 @@ class CopilotSDKProvider(BaseProvider):
             _event_start = time.perf_counter()
             _is_verbose = logger.isEnabledFor(logging.INFO)
 
+            # Register for parallel progress display
+            if is_verbose_stream() and should_print_progress():
+                agent_color_idx = register_agent(agent_id, shown_model, _event_start)
+
             def on_event(event: object) -> None:
                 nonlocal _chars_received, _delta_chars, _last_progress_time
                 event_type = getattr(event, "type", None)
@@ -385,16 +415,8 @@ class CopilotSDKProvider(BaseProvider):
                                 # Full streaming (--full-stream or --stream full)
                                 write_progress(f"{tag} {content.rstrip()}")
                             elif is_verbose_stream():
-                                # --stream preview: use logger.info with configurable preview
-                                preview = content[:preview_limit].replace("\n", " ")
-                                if len(content) > preview_limit:
-                                    preview += "..."
-                                elapsed = int(time.perf_counter() - _event_start)
-                                out_tokens = self._estimate_tokens(_chars_received)
-                                logger.info(
-                                    "GH Copilot CLI SDK [%s] (%ds, in=~%d, out=~%d): %s",
-                                    shown_model, elapsed, input_tokens, out_tokens, preview,
-                                )
+                                # --stream preview: spinner task handles display, skip logging
+                                pass
                             else:
                                 # --debug mode: colored tags via write_progress
                                 preview = content[:preview_limit] + "..." if len(content) > preview_limit else content
@@ -418,16 +440,13 @@ class CopilotSDKProvider(BaseProvider):
                         total = _chars_received + _delta_chars
                         if should_print_progress():
                             if is_full_stream():
-                                # Full streaming: write delta inline without newlines
+                                # Full streaming: write delta text inline
                                 sys.stdout.write(delta)
                                 sys.stdout.flush()
                             elif is_verbose_stream():
-                                # --stream preview: periodic progress at verbose level
-                                self._log_progress_if_due(
-                                    total, _event_start, _last_progress_time,
-                                    _progress_interval, shown_model, input_tokens,
-                                )
-                                _last_progress_time = time.perf_counter()
+                                # --stream preview: update agent state for shared render
+                                out_tokens = self._estimate_tokens(total)
+                                update_agent(agent_id, in_tokens=input_tokens, out_tokens=out_tokens, status="streaming")
                             else:
                                 # --debug: periodic delta progress
                                 self._log_progress_if_due(
@@ -444,20 +463,33 @@ class CopilotSDKProvider(BaseProvider):
                             _last_progress_time = time.perf_counter()
 
                 elif type_value == "session.idle":
-                    # End streaming with newline so next output starts fresh
-                    if is_full_stream() and should_print_progress():
+                    # End streaming with newline for full stream mode only
+                    # (verbose_stream gets newline from print_completion in finally)
+                    if should_print_progress() and is_full_stream():
                         sys.stdout.write("\n")
                         sys.stdout.flush()
                     done.set()
 
             session.on(on_event)
 
-            if should_print_progress():
+            if should_print_progress() and not is_verbose_stream():
+                # Show START message for full/debug modes (preview uses spinner only)
                 tag = format_tag("START", color_index)
-                mode = "full" if is_full_stream() else "preview" if is_verbose_stream() else "debug"
+                mode = "full" if is_full_stream() else "debug"
                 write_progress(f"{tag} Invoking GH Copilot CLI SDK (model={shown_model}, stream={mode})...")
-            elif _is_verbose:
+            elif _is_verbose and not is_verbose_stream():
                 logger.info("Invoking GH Copilot CLI SDK (model=%s, timeout=%ds)...", shown_model, timeout)
+
+            # Start spinner if in preview mode - only one render task needed
+            spinner = None
+            if is_verbose_stream() and should_print_progress():
+                agents_lock = get_agents_lock()
+                with agents_lock:
+                    # First agent starts the shared render task
+                    render_task = get_render_task()
+                    if render_task is None or render_task.done():
+                        spinner = asyncio.create_task(run_spinner(done))
+                        set_render_task(spinner)
 
             await session.send({"prompt": prompt})
 
@@ -465,6 +497,8 @@ class CopilotSDKProvider(BaseProvider):
             try:
                 await asyncio.wait_for(done.wait(), timeout=timeout)
             except asyncio.TimeoutError:
+                if spinner:
+                    spinner.cancel()
                 raise ProviderTimeoutError(
                     f"Copilot SDK timeout after {timeout}s",
                     partial_result=ProviderResult(
@@ -476,8 +510,28 @@ class CopilotSDKProvider(BaseProvider):
                         command=("copilot-sdk",),
                     ),
                 ) from None
+            
+            # Clean up spinner task only if we started it and all agents done
+            if spinner:
+                agents_lock = get_agents_lock()
+                with agents_lock:
+                    # Only cancel if we're the last active agent
+                    if get_active_count() <= 1:
+                        spinner.cancel()
+                        try:
+                            await spinner
+                        except asyncio.CancelledError:
+                            pass
+                        set_render_task(None)
 
         finally:
+            # Print completion and unregister from parallel display
+            if agent_color_idx >= 0:
+                if is_verbose_stream() and should_print_progress():
+                    elapsed = int(time.perf_counter() - _event_start)
+                    out_tokens = self._estimate_tokens(_chars_received + _delta_chars)
+                    print_completion(agent_id, shown_model, elapsed, out_tokens)
+                unregister_agent(agent_id)
             # Always destroy the session, but keep the client alive for reuse
             if session is not None:
                 try:
@@ -598,12 +652,14 @@ class CopilotSDKProvider(BaseProvider):
 
         input_tokens = self._estimate_tokens(len(prompt))
         output_tokens = self._estimate_tokens(len(response_text))
-        logger.info(
-            "Copilot SDK completed: duration=%dms, in=~%d tokens, out=~%d tokens",
-            duration_ms,
-            input_tokens,
-            output_tokens,
-        )
+        # Skip completion log in preview mode - spinner already shows it
+        if not is_verbose_stream():
+            logger.info(
+                "Copilot SDK completed: duration=%dms, in=~%d tokens, out=~%d tokens",
+                duration_ms,
+                input_tokens,
+                output_tokens,
+            )
 
         return ProviderResult(
             stdout=response_text,
