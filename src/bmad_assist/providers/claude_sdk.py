@@ -455,7 +455,7 @@ class ClaudeSDKProvider(BaseProvider):
                                     # Rough token estimate: ~4 chars per token
                                     out_tokens = total_chars // 4
                                     in_tokens = len(prompt) // 4
-                                    update_agent(agent_id, in_tokens=in_tokens, out_tokens=out_tokens, status="streaming")
+                                    update_agent(agent_id, in_tokens=in_tokens, out_tokens=out_tokens, status="streaming", last_text=text)
 
                                 # Check for early termination markers/phrases
                                 text_lower = text.lower()

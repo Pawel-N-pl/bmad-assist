@@ -39,6 +39,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import sys
 import threading
 import time
@@ -60,6 +62,7 @@ BG_COLORS = (
     "\033[41m",   # Red
 )
 RESET = "\033[0m"
+DIM = "\033[2m"  # Dim/faint text for text preview lines
 CLEAR_EOL = "\033[K"  # Clear from cursor to end of line
 
 CURSOR_UP = "\033[A"  # Move cursor up one line
@@ -71,6 +74,7 @@ _spinner_tick = 0
 _last_render_lines = 0  # Number of lines rendered in last draw
 _spinner_stop = threading.Event()  # Signals spinner thread to stop
 _spinner_thread: threading.Thread | None = None  # Background spinner thread
+_show_text_preview: bool = False  # Show latest streamed text per agent
 
 
 def register_agent(
@@ -97,6 +101,7 @@ def register_agent(
             "out_tokens": 0,
             "status": "waiting",
             "provider_tag": provider_tag,
+            "last_text": "",  # Latest streamed text snippet for preview
         }
         return color_idx
 
@@ -217,6 +222,26 @@ def get_agents_lock() -> threading.Lock:
     return _agents_lock
 
 
+def set_text_preview(enabled: bool) -> None:
+    """Enable or disable text preview in the spinner display.
+
+    When enabled, each agent's spinner line includes a second line showing
+    a truncated preview of the latest streamed text, fitting within the
+    terminal width.
+
+    Args:
+        enabled: True to show text previews, False for stats only.
+
+    """
+    global _show_text_preview
+    _show_text_preview = enabled
+
+
+def is_text_preview() -> bool:
+    """Check if text preview mode is enabled."""
+    return _show_text_preview
+
+
 def ensure_spinner_running() -> None:
     """Start the shared spinner thread if not already running.
 
@@ -291,6 +316,9 @@ def _render_all_agents_unlocked() -> str:
     Each agent gets its own line with a colored block prefix for visual
     separation. Uses ANSI cursor control to overwrite previous render.
 
+    When text preview is enabled, each agent gets an additional line
+    showing the latest streamed text, truncated to the terminal width.
+
     Returns:
         Multi-line status string, or empty string if no agents are active.
 
@@ -300,6 +328,12 @@ def _render_all_agents_unlocked() -> str:
 
     if not _active_agents:
         return ""
+
+    # Get terminal width for text preview truncation
+    try:
+        term_width = shutil.get_terminal_size().columns
+    except Exception:
+        term_width = 80
 
     n_agents = len(_active_agents)
 
@@ -331,8 +365,30 @@ def _render_all_agents_unlocked() -> str:
         # Colored block prefix + text + clear to end of line
         lines.append(f"{bg}  {RESET} {info}{CLEAR_EOL}")
 
+        # Text preview line (optional, enabled via set_text_preview)
+        if _show_text_preview:
+            last_text = state.get("last_text", "")
+            if last_text:
+                # Prefix: 5 chars for "   > " indent under the colored block
+                prefix = f"   {DIM}> "
+                suffix = RESET + CLEAR_EOL
+                # Available width for text: terminal width minus prefix/suffix overhead
+                # prefix visible chars = 5 ("   > "), suffix has no visible chars
+                max_text = term_width - 6
+                if max_text < 20:
+                    max_text = 20
+                # Sanitize: replace newlines, collapse whitespace
+                preview = last_text.replace("\n", " ").replace("\r", "")
+                if len(preview) > max_text:
+                    preview = "…" + preview[-(max_text - 1):]
+                lines.append(f"{prefix}{preview}{suffix}")
+            else:
+                # Empty text line placeholder so line count stays consistent
+                lines.append(f"   {DIM}> waiting...{RESET}{CLEAR_EOL}")
+
+    total_lines = len(lines)
     output += "\n".join(lines)
-    _last_render_lines = n_agents
+    _last_render_lines = total_lines
 
     return output
 

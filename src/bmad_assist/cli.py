@@ -289,7 +289,8 @@ def run(
     stream: str | None = typer.Option(
         None,
         "--stream",
-        help="Enable LLM streaming at --verbose level: 'preview' (truncated) or 'full' (all output). "
+        help="Enable LLM streaming at --verbose level: 'preview' (spinner only), "
+        "'text' (spinner + per-agent text preview), or 'full' (all output). "
         "Also accepts a number (e.g. '300') to set preview character limit.",
     ),
     stream_chars: int | None = typer.Option(
@@ -367,9 +368,10 @@ def run(
     # Stream output configuration
     from bmad_assist.providers.base import set_stream_mode
 
-    # Parse --stream flag: 'preview', 'full', or a number for preview chars
+    # Parse --stream flag: 'preview', 'text', 'full', or a number for preview chars
     stream_verbose = False
     stream_full_from_flag = False
+    stream_text_preview = False
     preview_chars_from_flag: int | None = stream_chars
 
     if stream is not None:
@@ -377,13 +379,16 @@ def run(
         if stream_lower == "full":
             stream_verbose = True
             stream_full_from_flag = True
+        elif stream_lower == "text":
+            stream_verbose = True
+            stream_text_preview = True
         elif stream_lower == "preview":
             stream_verbose = True
         elif stream_lower.isdigit():
             stream_verbose = True
             preview_chars_from_flag = int(stream_lower)
         else:
-            _warning(f"Unknown --stream value '{stream}', expected 'preview', 'full', or a number")
+            _warning(f"Unknown --stream value '{stream}', expected 'preview', 'text', 'full', or a number")
 
     if full_stream and not debug_jsonl and not stream_verbose:
         _warning("--full-stream has no effect without --debug or --stream")
@@ -395,8 +400,18 @@ def run(
         preview_chars=preview_chars_from_flag,
     )
 
+    # Enable text preview in spinner if --stream text
+    if stream_text_preview:
+        from bmad_assist.providers.progress import set_text_preview
+        set_text_preview(True)
+
     if stream_verbose:
-        mode = "full" if (full_stream or stream_full_from_flag) else "preview"
+        if stream_text_preview:
+            mode = "text"
+        elif full_stream or stream_full_from_flag:
+            mode = "full"
+        else:
+            mode = "preview"
         console.print(f"[dim]Stream: {mode} mode enabled[/dim]")
 
     # Set non-interactive mode if -n flag is passed

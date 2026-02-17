@@ -389,6 +389,8 @@ class CopilotSDKProvider(BaseProvider):
             _progress_interval = 10.0  # Log progress every 10 seconds
             _event_start = time.perf_counter()
             _is_verbose = logger.isEnabledFor(logging.INFO)
+            _last_text_buffer: list[str] = []  # Accumulate recent delta text for preview
+            _last_text_len = 0  # Track buffer total length for trimming
 
             # Register for parallel progress display
             if is_verbose_stream() and should_print_progress():
@@ -439,6 +441,13 @@ class CopilotSDKProvider(BaseProvider):
                     if delta:
                         _delta_chars += len(delta)
                         total = _chars_received + _delta_chars
+                        # Accumulate last text for preview display
+                        _last_text_buffer.append(delta)
+                        _last_text_len += len(delta)
+                        # Trim buffer when it exceeds 1000 chars to avoid unbounded growth
+                        while _last_text_len > 1000 and len(_last_text_buffer) > 1:
+                            removed = _last_text_buffer.pop(0)
+                            _last_text_len -= len(removed)
                         if should_print_progress():
                             if is_full_stream():
                                 # Full streaming: write delta text inline
@@ -447,7 +456,8 @@ class CopilotSDKProvider(BaseProvider):
                             elif is_verbose_stream():
                                 # --stream preview: update agent state for shared render
                                 out_tokens = self._estimate_tokens(total)
-                                update_agent(agent_id, in_tokens=input_tokens, out_tokens=out_tokens, status="streaming")
+                                last_text = "".join(_last_text_buffer)
+                                update_agent(agent_id, in_tokens=input_tokens, out_tokens=out_tokens, status="streaming", last_text=last_text)
                             else:
                                 # --debug: periodic delta progress
                                 self._log_progress_if_due(
