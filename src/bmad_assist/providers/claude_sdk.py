@@ -520,11 +520,7 @@ class ClaudeSDKProvider(BaseProvider):
             finally:
                 # Unregister agent and stop spinner if last
                 if agent_color_idx >= 0:
-                    # Print completion message before unregistering
-                    if is_verbose_stream() and should_print_progress():
-                        elapsed = int(time.perf_counter() - event_start)
-                        out_tokens = total_chars // 4
-                        print_completion(agent_id, shown_model, elapsed, out_tokens)
+                    clear_progress_line()
                     unregister_agent(agent_id)
                     stop_spinner_if_last()
 

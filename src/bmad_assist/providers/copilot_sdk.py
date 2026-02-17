@@ -504,12 +504,9 @@ class CopilotSDKProvider(BaseProvider):
                 ) from None
 
         finally:
-            # Print completion and unregister from parallel display
+            # Unregister agent and stop spinner if last
             if agent_color_idx >= 0:
-                if is_verbose_stream() and should_print_progress():
-                    elapsed = int(time.perf_counter() - _event_start)
-                    out_tokens = self._estimate_tokens(_chars_received + _delta_chars)
-                    print_completion(agent_id, shown_model, elapsed, out_tokens)
+                clear_progress_line()
                 unregister_agent(agent_id)
                 stop_spinner_if_last()
             # Always destroy the session, but keep the client alive for reuse
