@@ -73,14 +73,11 @@ from bmad_assist.providers.base import (
 )
 from bmad_assist.providers.progress import (
     clear_progress_line,
-    get_active_count,
-    get_agents_lock,
-    get_render_task,
+    ensure_spinner_running,
     print_completion,
     print_error,
     register_agent,
-    run_spinner,
-    set_render_task,
+    stop_spinner_if_last,
     unregister_agent,
     update_agent,
 )
@@ -430,8 +427,6 @@ class ClaudeSDKProvider(BaseProvider):
             agent_id = str(uuid.uuid4())
             agent_color_idx = -1
             event_start = time.perf_counter()
-            done_event = asyncio.Event()
-            spinner = None
             total_chars = 0
 
             # Register for parallel progress display (--stream preview mode)
@@ -439,13 +434,7 @@ class ClaudeSDKProvider(BaseProvider):
                 agent_color_idx = register_agent(
                     agent_id, shown_model, event_start, provider_tag="CC"
                 )
-                # Start spinner if we're the first agent
-                agents_lock = get_agents_lock()
-                with agents_lock:
-                    render_task = get_render_task()
-                    if render_task is None or render_task.done():
-                        spinner = asyncio.create_task(run_spinner(done_event))
-                        set_render_task(spinner)
+                ensure_spinner_running()
 
             try:
                 async for message in client.receive_messages():
@@ -529,18 +518,7 @@ class ClaudeSDKProvider(BaseProvider):
                     # ResultMessage is metadata only (cost/usage) - skip
                     # Other message types (SystemMessage, UserMessage) - skip
             finally:
-                # Stop spinner and unregister agent
-                done_event.set()
-                if spinner:
-                    agents_lock = get_agents_lock()
-                    with agents_lock:
-                        if get_active_count() <= 1:
-                            spinner.cancel()
-                            try:
-                                await spinner
-                            except asyncio.CancelledError:
-                                pass
-                            set_render_task(None)
+                # Unregister agent and stop spinner if last
                 if agent_color_idx >= 0:
                     # Print completion message before unregistering
                     if is_verbose_stream() and should_print_progress():
@@ -548,6 +526,7 @@ class ClaudeSDKProvider(BaseProvider):
                         out_tokens = total_chars // 4
                         print_completion(agent_id, shown_model, elapsed, out_tokens)
                     unregister_agent(agent_id)
+                    await stop_spinner_if_last()
 
         except (CLINotFoundError, ProcessError):
             # Re-raise SDK errors for handling in invoke()

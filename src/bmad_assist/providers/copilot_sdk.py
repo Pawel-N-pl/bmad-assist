@@ -52,14 +52,11 @@ from bmad_assist.providers.base import (
 )
 from bmad_assist.providers.progress import (
     clear_progress_line,
-    get_active_count,
-    get_agents_lock,
-    get_render_task,
+    ensure_spinner_running,
     print_completion,
     print_error,
     register_agent,
-    run_spinner,
-    set_render_task,
+    stop_spinner_if_last,
     unregister_agent,
     update_agent,
 )
@@ -484,16 +481,9 @@ class CopilotSDKProvider(BaseProvider):
             elif _is_verbose and not is_verbose_stream():
                 logger.info("Invoking GH Copilot CLI SDK (model=%s, timeout=%ds)...", shown_model, timeout)
 
-            # Start spinner if in preview mode - only one render task needed
-            spinner = None
+            # Start spinner if in preview mode
             if is_verbose_stream() and should_print_progress():
-                agents_lock = get_agents_lock()
-                with agents_lock:
-                    # First agent starts the shared render task
-                    render_task = get_render_task()
-                    if render_task is None or render_task.done():
-                        spinner = asyncio.create_task(run_spinner(done))
-                        set_render_task(spinner)
+                ensure_spinner_running()
 
             await session.send({"prompt": prompt})
 
@@ -501,8 +491,6 @@ class CopilotSDKProvider(BaseProvider):
             try:
                 await asyncio.wait_for(done.wait(), timeout=timeout)
             except asyncio.TimeoutError:
-                if spinner:
-                    spinner.cancel()
                 raise ProviderTimeoutError(
                     f"Copilot SDK timeout after {timeout}s",
                     partial_result=ProviderResult(
@@ -514,19 +502,6 @@ class CopilotSDKProvider(BaseProvider):
                         command=("copilot-sdk",),
                     ),
                 ) from None
-            
-            # Clean up spinner task only if we started it and all agents done
-            if spinner:
-                agents_lock = get_agents_lock()
-                with agents_lock:
-                    # Only cancel if we're the last active agent
-                    if get_active_count() <= 1:
-                        spinner.cancel()
-                        try:
-                            await spinner
-                        except asyncio.CancelledError:
-                            pass
-                        set_render_task(None)
 
         finally:
             # Print completion and unregister from parallel display
@@ -536,6 +511,7 @@ class CopilotSDKProvider(BaseProvider):
                     out_tokens = self._estimate_tokens(_chars_received + _delta_chars)
                     print_completion(agent_id, shown_model, elapsed, out_tokens)
                 unregister_agent(agent_id)
+                await stop_spinner_if_last()
             # Always destroy the session, but keep the client alive for reuse
             if session is not None:
                 try:

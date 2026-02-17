@@ -20,12 +20,13 @@ Features:
 
 Usage:
     from bmad_assist.providers.progress import (
-        register_agent, update_agent, unregister_agent, render_all_agents,
-        get_render_task, set_render_task, get_agents_lock
+        register_agent, update_agent, unregister_agent,
+        ensure_spinner_running, stop_spinner_if_last,
     )
 
     # Register when starting
     color_idx = register_agent("abc123", "claude-sonnet", start_time)
+    ensure_spinner_running()  # starts shared spinner if not running
 
     # Update during streaming
     update_agent("abc123", in_tokens=100, out_tokens=50, status="streaming")
@@ -71,6 +72,7 @@ _agents_lock = threading.Lock()
 _spinner_tick = 0
 _last_render_lines = 0  # Number of lines rendered in last draw
 _render_task: asyncio.Task | None = None  # Single shared render task
+_spinner_done: asyncio.Event | None = None  # Shared done event for spinner
 
 
 def register_agent(
@@ -212,15 +214,48 @@ def set_render_task(task: asyncio.Task | None) -> None:
     _render_task = task
 
 
-async def run_spinner(done_event: asyncio.Event) -> None:
-    """Run the shared spinner render loop until done_event is set.
+def ensure_spinner_running() -> None:
+    """Start the shared spinner task if not already running.
 
-    This function should be called as an asyncio task. It renders all
-    active agents every 333ms (3 updates per second).
+    Safe to call from multiple agents — only the first call creates the
+    task.  The spinner runs until stop_spinner_if_last() is called by the
+    last active agent.
+    """
+    global _render_task, _spinner_done
+    with _agents_lock:
+        if _render_task is not None and not _render_task.done():
+            return  # Already running
+        _spinner_done = asyncio.Event()
+        _render_task = asyncio.create_task(_run_spinner(_spinner_done))
 
-    Args:
-        done_event: asyncio.Event that signals when to stop rendering.
 
+async def stop_spinner_if_last() -> None:
+    """Stop the shared spinner if this is the last active agent.
+
+    Should be called AFTER unregister_agent() so that get_active_count()
+    reflects the removal.  If other agents are still running, this is a
+    no-op and the spinner keeps going.
+    """
+    global _render_task, _spinner_done
+    with _agents_lock:
+        if get_active_count() > 0:
+            return  # Other agents still running
+        if _spinner_done is not None:
+            _spinner_done.set()
+        if _render_task is not None:
+            _render_task.cancel()
+            try:
+                await _render_task
+            except asyncio.CancelledError:
+                pass
+            _render_task = None
+            _spinner_done = None
+
+
+async def _run_spinner(done_event: asyncio.Event) -> None:
+    """Internal spinner render loop.
+
+    Renders all active agents every 333ms until done_event is set.
     """
     while not done_event.is_set():
         await asyncio.sleep(0.333)
