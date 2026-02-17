@@ -72,7 +72,6 @@ from bmad_assist.providers.base import (
     write_progress,
 )
 from bmad_assist.providers.progress import (
-    clear_progress_line,
     ensure_spinner_running,
     print_completion,
     print_error,
@@ -808,7 +807,6 @@ class ClaudeSDKProvider(BaseProvider):
             )
         except TimeoutError as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
-            clear_progress_line()
             logger.warning(
                 "SDK timeout: model=%s, timeout=%ds, duration_ms=%d",
                 shown_model,
@@ -817,14 +815,12 @@ class ClaudeSDKProvider(BaseProvider):
             )
             raise ProviderTimeoutError(f"SDK timeout after {effective_timeout}s") from e
         except CLINotFoundError as e:
-            clear_progress_line()
             logger.error("Claude Code not found")
             raise ProviderError("Claude Code not found. Is 'claude' installed and in PATH?") from e
         except ProcessError as e:
             # Extract exit code and stderr from ProcessError
             exit_code = e.exit_code if e.exit_code is not None else 1
             stderr = e.stderr or ""
-            clear_progress_line()
             logger.error(
                 "Claude SDK process error: exit_code=%s, stderr=%s",
                 exit_code,
@@ -835,7 +831,6 @@ class ClaudeSDKProvider(BaseProvider):
             ) from e
         except ProviderError:
             # Re-raise ProviderError (e.g., "No response received")
-            clear_progress_line()
             raise
         except Exception as e:
             # Check if this is a timeout-related error that should be retryable
@@ -848,7 +843,6 @@ class ClaudeSDKProvider(BaseProvider):
                     stderr_tail = "; ".join(
                         line.rstrip() for line in self._last_stderr_lines[-10:]
                     )
-                clear_progress_line()
                 logger.warning(
                     "SDK initialization timeout: model=%s, duration_ms=%d, error=%s, "
                     "stderr_lines=%d, stderr_tail=%s",
@@ -861,9 +855,21 @@ class ClaudeSDKProvider(BaseProvider):
                 raise ProviderTimeoutError(f"SDK timeout: {e}") from e
             # Catch any unexpected exception and wrap in ProviderError
             # NO FALLBACK - error propagates immediately
-            clear_progress_line()
-            logger.error("Unexpected SDK error: %s", e)
-            raise ProviderError(f"Unexpected SDK error: {e}") from e
+            # Include captured stderr for diagnostics
+            stderr_info = ""
+            if hasattr(self, "_last_stderr_lines") and self._last_stderr_lines:
+                stderr_info = "; ".join(
+                    line.rstrip() for line in self._last_stderr_lines[-10:]
+                )
+            logger.error(
+                "Unexpected SDK error: %s, stderr_tail=%s",
+                e,
+                stderr_info[:500] if stderr_info else "(none captured)",
+            )
+            error_msg = f"Unexpected SDK error: {e}"
+            if stderr_info:
+                error_msg += f" | stderr: {stderr_info[:300]}"
+            raise ProviderError(error_msg) from e
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
 
