@@ -629,10 +629,13 @@ async def _shutdown_shared_client() -> None:
     """
     global _shared_client, _shared_client_cwd
 
-    with _client_lock:
-        client = _shared_client
-        _shared_client = None
-        _shared_client_cwd = None
+    # Grab and clear the reference atomically.  We don't use
+    # _client_lock here because it's an asyncio.Lock (requires
+    # 'async with' on a running loop) and this may be called from
+    # an atexit handler where no loop is running.
+    client = _shared_client
+    _shared_client = None
+    _shared_client_cwd = None
 
     if client is not None:
         try:
@@ -665,14 +668,13 @@ def shutdown_shared_client() -> None:
             future.result(timeout=10)
         except Exception:
             # Last resort: force-kill the subprocess
-            with _client_lock:
-                if _shared_client is not None:
-                    try:
-                        _shared_client._process.kill()
-                    except Exception:
-                        pass
-                    _shared_client = None
-                    _shared_client_cwd = None
+            if _shared_client is not None:
+                try:
+                    _shared_client._process.kill()
+                except Exception:
+                    pass
+                _shared_client = None
+                _shared_client_cwd = None
         # Stop the loop
         loop.call_soon_threadsafe(loop.stop)
     else:
@@ -680,11 +682,10 @@ def shutdown_shared_client() -> None:
         try:
             asyncio.run(_shutdown_shared_client())
         except Exception:
-            with _client_lock:
-                if _shared_client is not None:
-                    try:
-                        _shared_client._process.kill()
-                    except Exception:
-                        pass
-                    _shared_client = None
-                    _shared_client_cwd = None
+            if _shared_client is not None:
+                try:
+                    _shared_client._process.kill()
+                except Exception:
+                    pass
+                _shared_client = None
+                _shared_client_cwd = None
