@@ -399,7 +399,7 @@ class CopilotSDKProvider(BaseProvider):
                 )
 
             def on_event(event: object) -> None:
-                nonlocal _chars_received, _delta_chars, _last_progress_time
+                nonlocal _chars_received, _delta_chars, _last_progress_time, _last_text_len
                 event_type = getattr(event, "type", None)
                 if event_type is None:
                     return
