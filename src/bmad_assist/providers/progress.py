@@ -151,6 +151,20 @@ def print_completion(agent_id: str, model: str, elapsed_secs: int, out_tokens: i
     sys.stdout.flush()
 
 
+def print_error(model: str, message: str) -> None:
+    """Print an error message for an agent, clearing the spinner first.
+
+    Args:
+        model: Model name that errored.
+        message: Short error description.
+
+    """
+    clear_progress_line()
+    # Red cross for error
+    sys.stdout.write(f"\033[31m✗\033[0m {model}: {message}\n")
+    sys.stdout.flush()
+
+
 def get_active_count() -> int:
     """Return number of currently active agents."""
     with _agents_lock:

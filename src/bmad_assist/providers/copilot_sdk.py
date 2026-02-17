@@ -51,10 +51,12 @@ from bmad_assist.providers.base import (
     write_progress,
 )
 from bmad_assist.providers.progress import (
+    clear_progress_line,
     get_active_count,
     get_agents_lock,
     get_render_task,
     print_completion,
+    print_error,
     register_agent,
     run_spinner,
     set_render_task,
@@ -639,11 +641,14 @@ class CopilotSDKProvider(BaseProvider):
             response_text = future.result(timeout=effective_timeout + 30)
 
         except ProviderTimeoutError:
+            clear_progress_line()
             raise
         except ProviderError:
+            clear_progress_line()
             raise
         except Exception as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
+            clear_progress_line()
             raise ProviderError(
                 f"Copilot SDK error after {duration_ms}ms: {e}"
             ) from e

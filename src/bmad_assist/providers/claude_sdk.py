@@ -33,9 +33,18 @@ import sys
 import threading
 import time
 import uuid
+import warnings
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+
+# Suppress noisy Windows transport warnings on cleanup
+# (_ProactorBasePipeTransport.__del__ raises ValueError on closed pipes)
+warnings.filterwarnings(
+    "ignore",
+    message="unclosed transport",
+    category=ResourceWarning,
+)
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -63,10 +72,12 @@ from bmad_assist.providers.base import (
     write_progress,
 )
 from bmad_assist.providers.progress import (
+    clear_progress_line,
     get_active_count,
     get_agents_lock,
     get_render_task,
     print_completion,
+    print_error,
     register_agent,
     run_spinner,
     set_render_task,
@@ -361,7 +372,8 @@ class ClaudeSDKProvider(BaseProvider):
         # take 10-30s. We use asyncio.wait() (not wait_for) to avoid cancelling
         # the coroutine — asyncio.wait_for cancellation breaks anyio's cancel
         # scopes ("exit cancel scope in different task" error).
-        init_timeout = 5  # seconds — normal init takes ~2s, if stuck won't unstick
+        # 30s to handle parallel invocations where Node.js cold starts compete.
+        init_timeout = int(os.environ.get("BMAD_SDK_INIT_TIMEOUT", "30"))
 
         client = ClaudeSDKClient(options=options)
         try:
@@ -392,6 +404,9 @@ class ClaudeSDKProvider(BaseProvider):
                     stderr_tail = "; ".join(
                         line.rstrip() for line in self._last_stderr_lines[-5:]
                     )
+                # Clear spinner before logging so error output isn't interleaved
+                if is_verbose_stream() and should_print_progress():
+                    print_error(shown_model, f"init timeout ({init_timeout}s)")
                 logger.warning(
                     "SDK init timeout after %ds: model=%s, cli=%s, "
                     "stderr_lines=%d, stderr_tail=%s",
@@ -813,6 +828,7 @@ class ClaudeSDKProvider(BaseProvider):
             )
         except TimeoutError as e:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
+            clear_progress_line()
             logger.warning(
                 "SDK timeout: model=%s, timeout=%ds, duration_ms=%d",
                 shown_model,
@@ -821,12 +837,14 @@ class ClaudeSDKProvider(BaseProvider):
             )
             raise ProviderTimeoutError(f"SDK timeout after {effective_timeout}s") from e
         except CLINotFoundError as e:
+            clear_progress_line()
             logger.error("Claude Code not found")
             raise ProviderError("Claude Code not found. Is 'claude' installed and in PATH?") from e
         except ProcessError as e:
             # Extract exit code and stderr from ProcessError
             exit_code = e.exit_code if e.exit_code is not None else 1
             stderr = e.stderr or ""
+            clear_progress_line()
             logger.error(
                 "Claude SDK process error: exit_code=%s, stderr=%s",
                 exit_code,
@@ -837,6 +855,7 @@ class ClaudeSDKProvider(BaseProvider):
             ) from e
         except ProviderError:
             # Re-raise ProviderError (e.g., "No response received")
+            clear_progress_line()
             raise
         except Exception as e:
             # Check if this is a timeout-related error that should be retryable
@@ -849,6 +868,7 @@ class ClaudeSDKProvider(BaseProvider):
                     stderr_tail = "; ".join(
                         line.rstrip() for line in self._last_stderr_lines[-10:]
                     )
+                clear_progress_line()
                 logger.warning(
                     "SDK initialization timeout: model=%s, duration_ms=%d, error=%s, "
                     "stderr_lines=%d, stderr_tail=%s",
@@ -861,6 +881,7 @@ class ClaudeSDKProvider(BaseProvider):
                 raise ProviderTimeoutError(f"SDK timeout: {e}") from e
             # Catch any unexpected exception and wrap in ProviderError
             # NO FALLBACK - error propagates immediately
+            clear_progress_line()
             logger.error("Unexpected SDK error: %s", e)
             raise ProviderError(f"Unexpected SDK error: {e}") from e
 
