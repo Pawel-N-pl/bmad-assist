@@ -133,31 +133,12 @@ def clear_progress_line() -> None:
 
     Handles multi-line spinner output by moving cursor up and clearing
     each line that was previously rendered.
+
+    Thread-safe: acquires _agents_lock to coordinate with the spinner
+    thread's stdout writes and _last_render_lines access.
     """
-    global _last_render_lines
-    if _last_render_lines <= 0:
-        # Fallback: just clear current line
-        sys.stdout.write("\r" + CLEAR_EOL)
-        sys.stdout.flush()
-        return
-    # Move up to the first rendered line and clear each
-    lines_to_clear = _last_render_lines
-    _last_render_lines = 0
-    # Move up (lines - 1) times since cursor is on the last rendered line
-    output = ""
-    for _ in range(lines_to_clear - 1):
-        output += CURSOR_UP
-    output += "\r"
-    for i in range(lines_to_clear):
-        output += CLEAR_EOL
-        if i < lines_to_clear - 1:
-            output += "\n"
-    # Move back up to start position
-    for _ in range(lines_to_clear - 1):
-        output += CURSOR_UP
-    output += "\r"
-    sys.stdout.write(output)
-    sys.stdout.flush()
+    with _agents_lock:
+        _clear_progress_unlocked()
 
 
 def print_completion(agent_id: str, model: str, elapsed_secs: int, out_tokens: int) -> None:
@@ -170,10 +151,10 @@ def print_completion(agent_id: str, model: str, elapsed_secs: int, out_tokens: i
         out_tokens: Estimated output tokens.
 
     """
-    clear_progress_line()
-    # Green checkmark for completion
-    sys.stdout.write(f"\033[32m✓\033[0m {model}: {elapsed_secs}s, ~{out_tokens} tokens\n")
-    sys.stdout.flush()
+    with _agents_lock:
+        _clear_progress_unlocked()
+        sys.stdout.write(f"\033[32m✓\033[0m {model}: {elapsed_secs}s, ~{out_tokens} tokens\n")
+        sys.stdout.flush()
 
 
 def print_error(model: str, message: str) -> None:
@@ -184,10 +165,45 @@ def print_error(model: str, message: str) -> None:
         message: Short error description.
 
     """
-    clear_progress_line()
-    # Red cross for error
-    sys.stdout.write(f"\033[31m✗\033[0m {model}: {message}\n")
+    with _agents_lock:
+        _clear_progress_unlocked()
+        sys.stdout.write(f"\033[31m✗\033[0m {model}: {message}\n")
+        sys.stdout.flush()
+
+
+def _clear_progress_unlocked() -> None:
+    """Clear all rendered progress lines (caller MUST hold _agents_lock)."""
+    global _last_render_lines
+    if _last_render_lines <= 0:
+        sys.stdout.write("\r" + CLEAR_EOL)
+        sys.stdout.flush()
+        return
+    lines_to_clear = _last_render_lines
+    _last_render_lines = 0
+    output = ""
+    for _ in range(lines_to_clear - 1):
+        output += CURSOR_UP
+    output += "\r"
+    for i in range(lines_to_clear):
+        output += CLEAR_EOL
+        if i < lines_to_clear - 1:
+            output += "\n"
+    for _ in range(lines_to_clear - 1):
+        output += CURSOR_UP
+    output += "\r"
+    sys.stdout.write(output)
     sys.stdout.flush()
+
+
+def render_all_agents() -> str:
+    """Render all active agents (public wrapper, acquires lock).
+
+    Returns:
+        Multi-line status string, or empty string if no agents are active.
+
+    """
+    with _agents_lock:
+        return _render_all_agents_unlocked()
 
 
 def get_active_count() -> int:
@@ -228,6 +244,9 @@ def stop_spinner_if_last() -> None:
     reflects the removal.  If other agents are still running, this is a
     no-op and the spinner keeps going.
 
+    Clears the final spinner render after stopping the thread so no
+    ghost lines remain on screen.
+
     This is a synchronous call (no await needed).
     """
     global _spinner_thread
@@ -239,10 +258,16 @@ def stop_spinner_if_last() -> None:
     if _spinner_thread is not None:
         _spinner_thread.join(timeout=2)
         _spinner_thread = None
+    # Clear final render (lock released, safe to re-acquire in clear_progress_line)
+    clear_progress_line()
 
 
 def _spinner_loop(stop_event: threading.Event) -> None:
     """Background thread that renders all active agents every 333ms.
+
+    Holds _agents_lock while building AND writing render output to stdout.
+    This prevents interleaving with clear_progress_line() and log filter
+    clear operations, which also acquire the lock before writing.
 
     Args:
         stop_event: threading.Event that signals when to stop rendering.
@@ -252,14 +277,16 @@ def _spinner_loop(stop_event: threading.Event) -> None:
         stop_event.wait(timeout=0.333)
         if stop_event.is_set():
             break
-        status = render_all_agents()
-        if status:
-            sys.stdout.write(status)
-            sys.stdout.flush()
+        # Lock covers both render and stdout write to prevent interleaving
+        with _agents_lock:
+            status = _render_all_agents_unlocked()
+            if status:
+                sys.stdout.write(status)
+                sys.stdout.flush()
 
 
-def render_all_agents() -> str:
-    """Render all active agents, one per line with colored left-edge indicator.
+def _render_all_agents_unlocked() -> str:
+    """Render all active agents (caller MUST hold _agents_lock).
 
     Each agent gets its own line with a colored block prefix for visual
     separation. Uses ANSI cursor control to overwrite previous render.
@@ -271,44 +298,43 @@ def render_all_agents() -> str:
     global _spinner_tick, _last_render_lines
     _spinner_tick += 1
 
-    with _agents_lock:
-        if not _active_agents:
-            return ""
+    if not _active_agents:
+        return ""
 
-        n_agents = len(_active_agents)
+    n_agents = len(_active_agents)
 
-        # Move cursor up to overwrite previous render
-        output = ""
-        if _last_render_lines > 0:
-            for _ in range(_last_render_lines - 1):
-                output += CURSOR_UP
-            output += "\r"
+    # Move cursor up to overwrite previous render
+    output = ""
+    if _last_render_lines > 0:
+        for _ in range(_last_render_lines - 1):
+            output += CURSOR_UP
+        output += "\r"
 
-        lines = []
-        for idx, (agent_id, state) in enumerate(_active_agents.items()):
-            bg = BG_COLORS[idx % len(BG_COLORS)]
-            # Each agent gets its own spinner phase (offset by index)
-            spinner = SPINNER[(_spinner_tick + idx * 2) % len(SPINNER)]
-            elapsed = int(time.perf_counter() - state["start_time"])
-            model = state["model"]
+    lines = []
+    for idx, (agent_id, state) in enumerate(_active_agents.items()):
+        bg = BG_COLORS[idx % len(BG_COLORS)]
+        # Each agent gets its own spinner phase (offset by index)
+        spinner = SPINNER[(_spinner_tick + idx * 2) % len(SPINNER)]
+        elapsed = int(time.perf_counter() - state["start_time"])
+        model = state["model"]
 
-            tag = state.get("provider_tag", "")
-            label = f"{tag} {model}" if tag else model
+        tag = state.get("provider_tag", "")
+        label = f"{tag} {model}" if tag else model
 
-            if state["status"] == "waiting":
-                info = f"{spinner} {label}: {elapsed}s..."
-            else:
-                in_tok = state["in_tokens"]
-                out_tok = state["out_tokens"]
-                info = f"{spinner} {label}: {elapsed}s, in≈{in_tok}, out≈{out_tok}"
+        if state["status"] == "waiting":
+            info = f"{spinner} {label}: {elapsed}s..."
+        else:
+            in_tok = state["in_tokens"]
+            out_tok = state["out_tokens"]
+            info = f"{spinner} {label}: {elapsed}s, in≈{in_tok}, out≈{out_tok}"
 
-            # Colored block prefix + text + clear to end of line
-            lines.append(f"{bg}  {RESET} {info}{CLEAR_EOL}")
+        # Colored block prefix + text + clear to end of line
+        lines.append(f"{bg}  {RESET} {info}{CLEAR_EOL}")
 
-        output += "\n".join(lines)
-        _last_render_lines = n_agents
+    output += "\n".join(lines)
+    _last_render_lines = n_agents
 
-        return output
+    return output
 
 
 class _SpinnerClearFilter(logging.Filter):

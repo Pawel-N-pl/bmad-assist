@@ -504,9 +504,12 @@ class CopilotSDKProvider(BaseProvider):
                 ) from None
 
         finally:
-            # Unregister agent and stop spinner if last
+            # Unregister agent and stop spinner if last.
+            # Don't call clear_progress_line() here — stop_spinner_if_last()
+            # clears the final render after stopping the spinner thread.
+            # For intermediate agents, the spinner naturally renders fewer
+            # lines on its next tick, overwriting the old render.
             if agent_color_idx >= 0:
-                clear_progress_line()
                 unregister_agent(agent_id)
                 stop_spinner_if_last()
             # Always destroy the session, but keep the client alive for reuse
@@ -622,13 +625,20 @@ class CopilotSDKProvider(BaseProvider):
             clear_progress_line()
             raise
         except TimeoutError as e:
-            # future.result() raises bare TimeoutError — convert to retryable
+            # future.result() raises bare TimeoutError — convert to retryable.
+            # Cancel the coroutine on the persistent loop so the agent is
+            # unregistered (finally block runs) and doesn't linger as a
+            # phantom spinner entry during retry.
+            future.cancel()
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             clear_progress_line()
             raise ProviderTimeoutError(
                 f"Copilot SDK timeout after {duration_ms}ms"
             ) from e
         except Exception as e:
+            # Cancel coroutine to clean up any registered spinner agent
+            if "future" in dir():
+                future.cancel()
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             clear_progress_line()
             raise ProviderError(

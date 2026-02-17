@@ -518,9 +518,12 @@ class ClaudeSDKProvider(BaseProvider):
                     # ResultMessage is metadata only (cost/usage) - skip
                     # Other message types (SystemMessage, UserMessage) - skip
             finally:
-                # Unregister agent and stop spinner if last
+                # Unregister agent and stop spinner if last.
+                # Don't call clear_progress_line() here — stop_spinner_if_last()
+                # clears the final render after stopping the spinner thread.
+                # For intermediate agents, the spinner naturally renders fewer
+                # lines on its next tick, overwriting the old render.
                 if agent_color_idx >= 0:
-                    clear_progress_line()
                     unregister_agent(agent_id)
                     stop_spinner_if_last()
 
