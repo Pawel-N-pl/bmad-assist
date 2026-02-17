@@ -511,7 +511,7 @@ class CopilotSDKProvider(BaseProvider):
                     out_tokens = self._estimate_tokens(_chars_received + _delta_chars)
                     print_completion(agent_id, shown_model, elapsed, out_tokens)
                 unregister_agent(agent_id)
-                await stop_spinner_if_last()
+                stop_spinner_if_last()
             # Always destroy the session, but keep the client alive for reuse
             if session is not None:
                 try:

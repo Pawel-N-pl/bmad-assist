@@ -526,7 +526,7 @@ class ClaudeSDKProvider(BaseProvider):
                         out_tokens = total_chars // 4
                         print_completion(agent_id, shown_model, elapsed, out_tokens)
                     unregister_agent(agent_id)
-                    await stop_spinner_if_last()
+                    stop_spinner_if_last()
 
         except (CLINotFoundError, ProcessError):
             # Re-raise SDK errors for handling in invoke()

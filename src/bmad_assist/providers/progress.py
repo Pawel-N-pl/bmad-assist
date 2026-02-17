@@ -38,9 +38,7 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import shutil
 import sys
 import threading
 import time
@@ -71,8 +69,8 @@ _active_agents: dict[str, dict] = {}  # agent_id -> state dict
 _agents_lock = threading.Lock()
 _spinner_tick = 0
 _last_render_lines = 0  # Number of lines rendered in last draw
-_render_task: asyncio.Task | None = None  # Single shared render task
-_spinner_done: asyncio.Event | None = None  # Shared done event for spinner
+_spinner_stop = threading.Event()  # Signals spinner thread to stop
+_spinner_thread: threading.Thread | None = None  # Background spinner thread
 
 
 def register_agent(
@@ -203,63 +201,56 @@ def get_agents_lock() -> threading.Lock:
     return _agents_lock
 
 
-def get_render_task() -> asyncio.Task | None:
-    """Return the current render task, if any."""
-    return _render_task
-
-
-def set_render_task(task: asyncio.Task | None) -> None:
-    """Set the shared render task."""
-    global _render_task
-    _render_task = task
-
-
 def ensure_spinner_running() -> None:
-    """Start the shared spinner task if not already running.
+    """Start the shared spinner thread if not already running.
 
-    Safe to call from multiple agents — only the first call creates the
-    task.  The spinner runs until stop_spinner_if_last() is called by the
-    last active agent.
+    Safe to call from multiple agents in different threads — only the
+    first call creates the thread.  The spinner runs until
+    stop_spinner_if_last() is called by the last active agent.
+
+    Uses a daemon thread so it won't prevent process exit.
     """
-    global _render_task, _spinner_done
+    global _spinner_thread, _spinner_stop
     with _agents_lock:
-        if _render_task is not None and not _render_task.done():
+        if _spinner_thread is not None and _spinner_thread.is_alive():
             return  # Already running
-        _spinner_done = asyncio.Event()
-        _render_task = asyncio.create_task(_run_spinner(_spinner_done))
+        _spinner_stop = threading.Event()
+        _spinner_thread = threading.Thread(
+            target=_spinner_loop, args=(_spinner_stop,), daemon=True
+        )
+        _spinner_thread.start()
 
 
-async def stop_spinner_if_last() -> None:
+def stop_spinner_if_last() -> None:
     """Stop the shared spinner if this is the last active agent.
 
     Should be called AFTER unregister_agent() so that get_active_count()
     reflects the removal.  If other agents are still running, this is a
     no-op and the spinner keeps going.
+
+    This is a synchronous call (no await needed).
     """
-    global _render_task, _spinner_done
+    global _spinner_thread
     with _agents_lock:
-        if get_active_count() > 0:
+        if len(_active_agents) > 0:
             return  # Other agents still running
-        if _spinner_done is not None:
-            _spinner_done.set()
-        if _render_task is not None:
-            _render_task.cancel()
-            try:
-                await _render_task
-            except asyncio.CancelledError:
-                pass
-            _render_task = None
-            _spinner_done = None
+    # No lock needed for stop/join — only one thread can be "last"
+    _spinner_stop.set()
+    if _spinner_thread is not None:
+        _spinner_thread.join(timeout=2)
+        _spinner_thread = None
 
 
-async def _run_spinner(done_event: asyncio.Event) -> None:
-    """Internal spinner render loop.
+def _spinner_loop(stop_event: threading.Event) -> None:
+    """Background thread that renders all active agents every 333ms.
 
-    Renders all active agents every 333ms until done_event is set.
+    Args:
+        stop_event: threading.Event that signals when to stop rendering.
+
     """
-    while not done_event.is_set():
-        await asyncio.sleep(0.333)
-        if done_event.is_set():
+    while not stop_event.is_set():
+        stop_event.wait(timeout=0.333)
+        if stop_event.is_set():
             break
         status = render_all_agents()
         if status:
