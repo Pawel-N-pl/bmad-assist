@@ -43,6 +43,7 @@ from bmad_assist.providers.base import (
     ProviderResult,
     extract_tool_details,
     format_tag,
+    get_popen_kwargs_for_new_session,
     is_full_stream,
     should_print_progress,
     validate_settings_file,
@@ -416,6 +417,9 @@ class GeminiProvider(BaseProvider):
 
                 # Use Popen directly with cwd parameter (NO shell=True for security)
                 # Popen's cwd parameter sets the working directory for the subprocess
+                # Get platform-specific kwargs for process isolation
+                popen_kwargs = get_popen_kwargs_for_new_session()
+
                 process = Popen(
                     command,
                     stdin=PIPE,
@@ -426,7 +430,7 @@ class GeminiProvider(BaseProvider):
                     errors="replace",
                     cwd=cwd,  # Popen handles chdir internally
                     env=env,
-                    start_new_session=True,  # Own process group for safe termination
+                    **popen_kwargs,
                 )
 
                 # Write prompt to stdin and close it

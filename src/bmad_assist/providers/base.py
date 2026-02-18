@@ -43,46 +43,100 @@ import contextlib
 import logging
 import os
 import signal
+import subprocess
+import sys
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from subprocess import Popen
 
 logger = logging.getLogger(__name__)
 
+# Platform detection for cross-platform subprocess management
+IS_WINDOWS = sys.platform == "win32"
+
 # =============================================================================
-# Child Process Group Tracking (for signal handler cleanup)
+# Child Process Tracking (for signal handler cleanup) - Cross-platform
 # =============================================================================
 
-# Tracks process group IDs of child processes started with start_new_session=True.
-# These are in separate sessions and won't be killed by os.killpg(our_pgid).
-# The signal handler iterates this set to kill orphans on Ctrl+C.
-_child_pgids: set[int] = set()
-_child_pgids_lock = threading.Lock()
+# On POSIX: Tracks process group IDs of child processes started with start_new_session=True.
+#           These are in separate sessions and won't be killed by os.killpg(our_pgid).
+# On Windows: Tracks Popen objects directly since Windows doesn't have process groups.
+#             Uses process.terminate()/kill() for cleanup.
+_child_pgids: set[int] = set()  # POSIX: process group IDs
+_child_processes: set["Popen[str]"] = set()  # Windows: Popen objects
+_child_lock = threading.Lock()
 
 
 def register_child_pgid(pgid: int) -> None:
-    """Register a child process group for signal handler cleanup."""
-    with _child_pgids_lock:
+    """Register a child process group for signal handler cleanup (POSIX only)."""
+    with _child_lock:
         _child_pgids.add(pgid)
 
 
 def unregister_child_pgid(pgid: int) -> None:
-    """Unregister a child process group after it exits."""
-    with _child_pgids_lock:
+    """Unregister a child process group after it exits (POSIX only)."""
+    with _child_lock:
         _child_pgids.discard(pgid)
 
 
-def kill_all_child_pgids() -> None:
-    """Kill all tracked child process groups. Called from signal handler."""
-    with _child_pgids_lock:
-        pgids = list(_child_pgids)
-    for pgid in pgids:
-        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
-            os.killpg(pgid, signal.SIGKILL)
+def register_child_process(process: "Popen[str]") -> None:
+    """Register a child process for signal handler cleanup (Windows)."""
+    with _child_lock:
+        _child_processes.add(process)
+
+
+def unregister_child_process(process: "Popen[str]") -> None:
+    """Unregister a child process after it exits (Windows)."""
+    with _child_lock:
+        _child_processes.discard(process)
+
+
+def kill_all_child_processes() -> None:
+    """Kill all tracked child processes. Called from signal handler.
+
+    Cross-platform implementation:
+    - POSIX: Uses os.killpg() with SIGKILL for process groups
+    - Windows: Uses process.kill() on tracked Popen objects
+    """
+    if IS_WINDOWS:
+        with _child_lock:
+            processes = list(_child_processes)
+        for proc in processes:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                proc.kill()
+    else:
+        with _child_lock:
+            pgids = list(_child_pgids)
+        for pgid in pgids:
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.killpg(pgid, signal.SIGKILL)
+
+
+# Legacy alias for backwards compatibility
+kill_all_child_pgids = kill_all_child_processes
+
+
+def get_popen_kwargs_for_new_session() -> dict[str, Any]:
+    """Get platform-specific Popen kwargs for creating a new process session.
+
+    Returns kwargs dict to be passed to Popen() for proper process isolation:
+    - POSIX: start_new_session=True (creates new process group)
+    - Windows: creationflags=CREATE_NEW_PROCESS_GROUP
+
+    Example:
+        >>> popen_kwargs = get_popen_kwargs_for_new_session()
+        >>> process = Popen(cmd, **popen_kwargs)
+    """
+    if IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 # =============================================================================

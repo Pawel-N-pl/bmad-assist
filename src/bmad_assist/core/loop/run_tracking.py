@@ -317,14 +317,16 @@ def save_run_log(run_log: RunLog, project_path: Path, as_csv: bool = False) -> P
     with open(temp_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
-    os.rename(temp_path, yaml_path)
+    # Use os.replace() instead of os.rename() for Windows compatibility
+    # os.replace() is atomic and overwrites existing files on all platforms
+    os.replace(temp_path, yaml_path)
 
-    # F4 FIX: Write CSV with atomic write (temp file + rename)
+    # F4 FIX: Write CSV with atomic write (temp file + replace)
     if as_csv:
         csv_path = runs_dir / f"{filename}.csv"
         csv_temp_path = csv_path.with_suffix(".csv.tmp")
         _write_csv(run_log, csv_temp_path)
-        os.rename(csv_temp_path, csv_path)
+        os.replace(csv_temp_path, csv_path)
         logger.debug("Saved run log CSV: %s", csv_path)
 
     logger.debug("Saved run log: %s", yaml_path)

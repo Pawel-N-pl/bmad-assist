@@ -544,14 +544,16 @@ def ensure_template_compiled(
                     local_cache_path.parent.mkdir(parents=True, exist_ok=True)
                     tmp_tpl = local_cache_path.with_suffix(".tmp")
                     tmp_tpl.write_text(tpl_content, encoding="utf-8")
-                    os.rename(tmp_tpl, local_cache_path)
+                    # Use os.replace() for Windows compatibility
+                    os.replace(tmp_tpl, local_cache_path)
                     # Also write meta atomically
                     meta_path = local_cache_path.with_suffix(
                         local_cache_path.suffix + ".meta.yaml"
                     )
                     tmp_meta = meta_path.with_suffix(".tmp")
                     tmp_meta.write_text(meta_content, encoding="utf-8")
-                    os.rename(tmp_meta, meta_path)
+                    # Use os.replace() for Windows compatibility
+                    os.replace(tmp_meta, meta_path)
                     logger.info("Using bundled cache for %s (copied to %s)", workflow, local_cache_path)
                     return local_cache_path
                 else:

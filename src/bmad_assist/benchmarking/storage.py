@@ -13,13 +13,19 @@ Public API:
     RecordSummary: Record metadata dataclass
 """
 
-import fcntl
 import logging
 import os
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+# fcntl is Unix-only, provide Windows fallback
+if sys.platform != 'win32':
+    import fcntl
+else:
+    fcntl = None  # type: ignore[assignment]
 
 import yaml
 from pydantic import ValidationError
@@ -209,7 +215,9 @@ def _update_index(
     # Use 'a+' mode to allow both reading and writing, create if doesn't exist
     with open(index_path, "a+", encoding="utf-8") as f:
         # Acquire exclusive lock on file descriptor (blocking)
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        # fcntl is Unix-only, skip locking on Windows
+        if fcntl is not None:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
 
         try:
             # Read existing content
@@ -258,7 +266,9 @@ def _update_index(
 
         finally:
             # Lock is automatically released when file is closed
-            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            # fcntl is Unix-only, skip unlocking on Windows
+            if fcntl is not None:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def save_evaluation_record(
