@@ -189,11 +189,16 @@ class OverrideDomainDetector:
         """
         self._override_domains = override_domains
 
-    def detect(self, artifact_text: str) -> DomainDetectionResult:
+    def detect(
+        self,
+        artifact_text: str,
+        language_hint: str | None = None,
+    ) -> DomainDetectionResult:
         """Return predefined domains without LLM call.
 
         Args:
             artifact_text: Text to analyze (ignored).
+            language_hint: Optional language hint (ignored).
 
         Returns:
             DomainDetectionResult with override domains.

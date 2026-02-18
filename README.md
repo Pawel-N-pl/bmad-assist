@@ -121,6 +121,11 @@ providers:
   multi:
     - provider: gemini
       model: gemini-2.5-flash
+    - provider: codex
+      model: gpt-5.3-codex
+      reasoning_effort: high
+    - provider: opencode-sdk
+      model: opencode/glm-5-free
 
 timeouts:
   default: 600

@@ -608,6 +608,25 @@ class DeepVerifyEngine:
                 "csv",
                 "xml",
             ],
+            ArtifactDomain.PRD: [
+                "story",
+                "epic",
+                "user story",
+                "acceptance criteria",
+                "stakeholder",
+                "feature",
+                "requirement",
+                "product",
+            ],
+            ArtifactDomain.DOCUMENTATION: [
+                "documentation",
+                "api doc",
+                "readme",
+                "guide",
+                "tutorial",
+                "reference",
+                "specification",
+            ],
         }
 
         for domain, words in keywords.items():

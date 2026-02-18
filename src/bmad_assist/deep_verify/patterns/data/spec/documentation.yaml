@@ -1,0 +1,65 @@
+patterns:
+  - id: "DOC-001"
+    domain: "documentation"
+    severity: "critical"
+    signals:
+      - "endpoint:"
+      - "route:"
+      - "/api/"
+    description: "Documented Endpoint Mismatch - documented endpoints must match actual implementation"
+    remediation: "Verify documented endpoints against actual code"
+
+  - id: "DOC-002"
+    domain: "documentation"
+    severity: "critical"
+    signals:
+      - "request body"
+      - "response format"
+      - "schema:"
+      - "required fields"
+    description: "Schema Drift - documented schemas must match actual API behavior"
+    remediation: "Verify documented schemas match actual request/response formats"
+
+  - id: "DOC-003"
+    domain: "documentation"
+    severity: "error"
+    signals:
+      - "error codes"
+      - "status codes"
+      - "400"
+      - "500"
+      - "error handling"
+    description: "Incomplete Error Documentation - undocumented errors leave consumers unprepared"
+    remediation: "Document all possible error conditions"
+
+  - id: "DOC-004"
+    domain: "documentation"
+    severity: "error"
+    signals:
+      - "example:"
+      - "code sample"
+      - "usage:"
+      - "```"
+    description: "Non-Functional Code Examples - code examples should be executable"
+    remediation: "Verify code examples actually work"
+
+  - id: "DOC-005"
+    domain: "documentation"
+    severity: "critical"
+    signals:
+      - "will return"
+      - "throws exception"
+      - "triggers event"
+    description: "Behavior Mismatch - documented behavior must match actual implementation"
+    remediation: "Verify documented behaviors match actual code"
+
+  - id: "DOC-006"
+    domain: "documentation"
+    severity: "error"
+    signals:
+      - "since version"
+      - "deprecated in"
+      - "added in"
+      - "removed in"
+    description: "Version-Feature Inconsistency - feature availability must match version claims"
+    remediation: "Verify version-feature associations are consistent"

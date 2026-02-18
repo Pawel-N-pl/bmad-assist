@@ -141,37 +141,36 @@ class TestCodeReviewEvidenceScorePersistence:
         # Error message indicates version 2 required
         assert "version 2" in str(exc_info.value).lower()
 
-    def test_v2_cache_missing_evidence_score_raises_format_error(
+    def test_v2_cache_missing_evidence_score_returns_none(
         self, tmp_path: Path
     ) -> None:
-        """load_reviews_for_synthesis raises CacheFormatError when v2 cache missing evidence_score."""
+        """load_reviews_for_synthesis returns None evidence_score when v2 cache is missing it."""
         from bmad_assist.core.paths import init_paths
-        from bmad_assist.validation.evidence_score import CacheFormatError
 
         init_paths(tmp_path)
 
         # Manually create a v2 cache file missing the evidence_score key
         cache_dir = tmp_path / ".bmad-assist" / "cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        session_id = "test-v2-malformed-session"
+        session_id = "test-v2-no-evidence-session"
         cache_file = cache_dir / f"code-reviews-{session_id}.json"
 
-        malformed_v2_data = {
-            "cache_version": 2,  # Claims to be v2
+        v2_data_no_evidence = {
+            "cache_version": 2,
             "session_id": session_id,
             "timestamp": "2026-01-22T10:00:00Z",
             "reviews": [
-                {"validator_id": "Reviewer A", "content": "Test", "original_ref": "ref-001"}
+                {"reviewer_id": "Reviewer A", "content": "Test", "original_ref": "ref-001"}
             ],
             "failed_reviewers": [],
-            # Missing evidence_score key - this is the error condition
+            # Missing evidence_score key - gracefully handled
         }
-        cache_file.write_text(json.dumps(malformed_v2_data))
+        cache_file.write_text(json.dumps(v2_data_no_evidence))
 
-        with pytest.raises(CacheFormatError) as exc_info:
-            load_reviews_for_synthesis(session_id, tmp_path)
+        reviews, failed, evidence_score = load_reviews_for_synthesis(session_id, tmp_path)
 
-        assert "evidence_score" in str(exc_info.value).lower()
+        assert len(reviews) == 1
+        assert evidence_score is None
 
 
 class TestCodeReviewCacheWithFailedReviewers:

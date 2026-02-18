@@ -55,14 +55,14 @@ class PatternMatchMethod(BaseVerificationMethod):
     def __init__(
         self,
         patterns: list[Pattern] | None = None,
-        threshold: float = 0.6,
+        threshold: float = 0.25,
     ) -> None:
         """Initialize the Pattern Match Method.
 
         Args:
             patterns: Optional list of patterns to use. If None, loads default
                 patterns from the pattern library.
-            threshold: Minimum confidence threshold for matches (default 0.6).
+            threshold: Minimum confidence threshold for matches (default 0.25).
                 Must be between 0.0 and 1.0.
 
         Raises:

@@ -45,7 +45,8 @@ providers:
 | `claude-subprocess` | `claude --model <model>` | Claude Code CLI |
 | `gemini` | `gemini -m <model>` | Gemini CLI |
 | `codex` | `codex --model <model>` | OpenAI Codex |
-| `opencode` | `opencode chat` | OpenCode CLI |
+| `opencode` | `opencode chat` | OpenCode CLI (subprocess) |
+| `opencode-sdk` | `opencode serve` | OpenCode SDK with persistent server, SSE streaming |
 | `amp` | `amp` | Sourcegraph Amp (smart mode only) |
 | `cursor-agent` | `cursor-agent` | Cursor IDE agent |
 | `copilot` | `copilot` | GitHub Copilot |

@@ -207,6 +207,7 @@ def compile_patch(
     phase_name = workflow.replace("-", "_")
 
     # Try to get phase-specific config first, fallback to global master
+    from bmad_assist.core.config.loaders import get_phase_timeout
     from bmad_assist.core.config.models.providers import get_phase_provider_config
 
     phase_config = get_phase_provider_config(config, phase_name)
@@ -263,6 +264,9 @@ def compile_patch(
             )
             retry_instructions.insert(0, retry_hint)
 
+        # Get phase timeout (respects user's timeouts config, falls back to global default)
+        phase_timeout = get_phase_timeout(config, phase_name)
+
         # Create and run session
         session = PatchSession(
             workflow_content=workflow_content,
@@ -271,6 +275,7 @@ def compile_patch(
             model=master_model,
             display_model=master_display_model,
             settings_file=master_settings,
+            timeout=phase_timeout,
         )
 
         try:

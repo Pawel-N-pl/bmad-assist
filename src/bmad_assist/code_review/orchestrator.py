@@ -1426,10 +1426,9 @@ def load_reviews_for_synthesis(
     Raises:
         CodeReviewError: If file not found or invalid.
         CacheVersionError: If cache version is v1 (requires re-run).
-        CacheFormatError: If v2 cache is missing required keys.
 
     """
-    from bmad_assist.validation.evidence_score import CacheFormatError, CacheVersionError
+    from bmad_assist.validation.evidence_score import CacheVersionError
 
     cache_dir = project_root / ".bmad-assist" / "cache"
     file_path = cache_dir / f"code-reviews-{session_id}.json"
@@ -1458,13 +1457,10 @@ def load_reviews_for_synthesis(
             ),
         )
 
-    # Validate v2 cache has evidence_score key
+    # Evidence score is optional -- models may not produce parseable scores
+    # (e.g. free-tier models returning raw templates instead of real reviews).
+    # Synthesis proceeds without it; the prompt handles missing scores.
     evidence_score = data.get("evidence_score")
-    if evidence_score is None:
-        raise CacheFormatError(
-            "Cache version 2 is missing required 'evidence_score' key. "
-            "Re-run code review phase to generate valid cache."
-        )
 
     reviews = []
     for v in data.get("reviews", []):

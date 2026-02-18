@@ -34,8 +34,11 @@ class TestArtifactDomain:
     """Tests for ArtifactDomain enum."""
 
     def test_all_domains_exist(self) -> None:
-        """All 6 domains should be defined."""
-        expected = {"security", "storage", "transform", "concurrency", "api", "messaging"}
+        """All 8 domains should be defined."""
+        expected = {
+            "security", "storage", "transform", "concurrency",
+            "api", "messaging", "prd", "documentation",
+        }
         actual = {d.value for d in ArtifactDomain}
         assert actual == expected
 

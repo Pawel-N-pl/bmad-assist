@@ -65,9 +65,12 @@ logger = logging.getLogger(__name__)
 # Supported short model names accepted by Claude Code
 SUPPORTED_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku"})
 
-# Track SDK init failures across invocations within same process.
-# Once SDK fails to init, all subsequent calls go straight to subprocess.
-_sdk_init_failed: bool = False
+# Track SDK init failures with cooldown-based retry.
+# After init failure, skip SDK for _SDK_RETRY_COOLDOWN seconds, then retry.
+# This prevents wasting time on repeated timeouts while allowing recovery
+# from transient issues (API hiccups, slow WSL2 I/O, etc.).
+_sdk_init_failed_at: float = 0.0  # monotonic timestamp of last failure
+_SDK_RETRY_COOLDOWN: float = 120.0  # seconds before retrying SDK
 
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
@@ -387,9 +390,9 @@ class ClaudeSDKProvider(BaseProvider):
                     len(self._last_stderr_lines),
                     stderr_tail[:300] if stderr_tail else "(none captured)",
                 )
-                # Remember failure so subsequent calls skip SDK entirely
-                global _sdk_init_failed
-                _sdk_init_failed = True
+                # Remember failure timestamp — SDK will be retried after cooldown
+                global _sdk_init_failed_at
+                _sdk_init_failed_at = time.monotonic()
                 raise ProviderTimeoutError(
                     f"SDK initialization timeout ({init_timeout}s)"
                 )
@@ -635,17 +638,27 @@ class ClaudeSDKProvider(BaseProvider):
             0
 
         """
-        # Auto-fallback: if SDK init previously failed in this process,
-        # skip SDK entirely and delegate to subprocess (no more wasted timeouts).
-        # Also handles nested Claude Code sessions (CLAUDECODE=1).
-        # BMAD_SDK_FORCE=1 bypasses both checks (for testing).
-        global _sdk_init_failed
+        # Auto-fallback: delegate to subprocess if SDK init recently failed
+        # (cooldown-based retry) or if running inside Claude Code (CLAUDECODE=1).
+        # BMAD_SDK_FORCE=1 bypasses both checks (for testing/debugging).
+        global _sdk_init_failed_at
+        sdk_cooldown_active = (
+            _sdk_init_failed_at > 0
+            and (time.monotonic() - _sdk_init_failed_at) < _SDK_RETRY_COOLDOWN
+        )
         if not os.environ.get("BMAD_SDK_FORCE") and (
-            _sdk_init_failed or os.environ.get("CLAUDECODE") == "1"
+            sdk_cooldown_active or os.environ.get("CLAUDECODE") == "1"
         ):
             from bmad_assist.providers.claude import ClaudeSubprocessProvider
 
-            logger.info("Nested Claude Code session detected, delegating to subprocess provider")
+            if sdk_cooldown_active:
+                remaining = _SDK_RETRY_COOLDOWN - (time.monotonic() - _sdk_init_failed_at)
+                logger.info(
+                    "SDK init cooldown active (retry in %.0fs), using subprocess",
+                    remaining,
+                )
+            else:
+                logger.info("Nested Claude Code session, using subprocess")
             return ClaudeSubprocessProvider().invoke(
                 prompt,
                 model=model,
@@ -669,6 +682,11 @@ class ClaudeSDKProvider(BaseProvider):
         # Validate timeout parameter
         if timeout is not None and timeout <= 0:
             raise ValueError(f"timeout must be positive, got {timeout}")
+
+        # Log SDK retry after cooldown expiry
+        if _sdk_init_failed_at > 0:
+            elapsed = time.monotonic() - _sdk_init_failed_at
+            logger.info("SDK retrying after %.0fs cooldown (failed %.0fs ago)", _SDK_RETRY_COOLDOWN, elapsed)
 
         # Resolve model with fallback chain: explicit -> default -> literal
         effective_model = model or self.default_model or "sonnet"
@@ -803,6 +821,11 @@ class ClaudeSDKProvider(BaseProvider):
             raise ProviderError(f"Unexpected SDK error: {e}") from e
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Clear cooldown on success — SDK is healthy again
+        if _sdk_init_failed_at > 0:
+            logger.info("SDK recovered after previous init failure, clearing cooldown")
+            _sdk_init_failed_at = 0.0
 
         logger.info(
             "Claude SDK completed: duration=%dms, response_len=%d",

@@ -9,7 +9,7 @@ All providers implement a common interface:
 - **parse_output()** - Extract response text from CLI output
 - **supports_model()** - Check model compatibility
 
-Providers run CLI tools via subprocess, capturing stdout/stderr for processing.
+Providers run CLI tools via subprocess, capturing stdout/stderr for processing. The `opencode-sdk` provider is an exception - it uses the official Python SDK with a persistent HTTP server instead of per-call subprocesses.
 
 ---
 
@@ -19,7 +19,7 @@ Providers run CLI tools via subprocess, capturing stdout/stderr for processing.
 
 The primary provider for bmad-assist. Uses Claude Code CLI which provides file access, tool use, and agentic capabilities.
 
-> **Note:** There is also a `claude-sdk` provider that uses the Anthropic SDK directly, but it is not fully implemented and lacks tool use support. Always use `claude-subprocess`.
+> **Note:** There is also a `claude-sdk` provider that uses the Anthropic Agent SDK directly. It is the internal primary but is not recommended for external use as it requires the `claude-agent-sdk` package. Use `claude-subprocess` for the simplest setup.
 
 ### Installation
 
@@ -255,6 +255,83 @@ opencode chat --print --model <model>
 
 ---
 
+## opencode-sdk
+
+**SDK:** [opencode-ai](https://pypi.org/project/opencode-ai/) Python SDK (`opencode-ai`)
+
+SDK-based provider that replaces per-call subprocess overhead with a persistent `opencode serve` HTTP server. Provides live SSE event streaming for real-time progress visibility, automatic server lifecycle management, and cancel support.
+
+### How It Works
+
+1. On first invocation, the provider auto-starts an `opencode serve` process on a random port with a random password
+2. All subsequent invocations reuse the same server (one-shot sessions: create → chat → delete)
+3. Live SSE events stream text deltas, tool calls, and cost/token usage in real time
+4. If the server fails to start, the provider falls back to the subprocess `opencode` provider with a 2-minute cooldown before retrying the SDK
+
+### Installation
+
+The `opencode-ai` SDK is bundled as a dependency of bmad-assist. You also need the `opencode` CLI installed:
+
+```bash
+# OpenCode CLI (required for the managed server)
+go install github.com/opencode-ai/opencode@latest
+# or via npm/brew - see OpenCode docs
+```
+
+### Configuration
+
+```yaml
+providers:
+  master:
+    provider: opencode-sdk
+    model: opencode/claude-sonnet-4
+
+  multi:
+    - provider: opencode-sdk
+      model: zai-coding-plan/glm-4.7
+    - provider: opencode-sdk
+      model: xai/grok-4
+```
+
+### Model Format
+
+Same as `opencode` - models use `provider/model` format:
+- `opencode/claude-sonnet-4` - Claude via OpenCode
+- `opencode/claude-opus-4-5` - Opus via OpenCode
+- `zai-coding-plan/glm-4.7` - GLM via Z.ai
+- `xai/grok-4` - Grok via xAI
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Persistent server** | Single `opencode serve` process shared across all invocations |
+| **SSE streaming** | Real-time text deltas, tool call progress, cost/token tracking |
+| **Auto lifecycle** | Server starts on demand, cleans up on process exit |
+| **Subprocess fallback** | Automatic fallback to `opencode` CLI if server fails |
+| **Cancel support** | In-flight requests can be aborted via `session.abort()` |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `OPENCODE_SERVER_PORT` | Override default server port (default: auto-selected) |
+| `OPENCODE_SERVER_PASSWORD` | Override auto-generated server password |
+
+### When to Use opencode-sdk vs opencode
+
+| | `opencode` | `opencode-sdk` |
+|---|---|---|
+| **Startup** | New subprocess per call | Persistent server (faster) |
+| **Progress** | No live output | SSE streaming with text/tool/cost events |
+| **Overhead** | Process spawn + teardown | HTTP request to running server |
+| **Reliability** | Simple, always works | Falls back to subprocess on failure |
+| **Best for** | Single-use, simple setups | Multi-LLM orchestration, long sessions |
+
+Use `opencode-sdk` when you want lower latency and live streaming. Use `opencode` for simplicity or if the SDK server has issues with your setup.
+
+---
+
 ## amp
 
 **CLI Tool:** [Amp](https://sourcegraph.com/amp) (`amp`)
@@ -353,7 +430,7 @@ All providers support these configuration options:
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `provider` | Yes | Provider identifier (e.g., `claude-subprocess`) |
+| `provider` | Yes | Provider identifier (e.g., `claude-subprocess`, `opencode-sdk`) |
 | `model` | Yes | Model name passed to CLI |
 | `model_name` | No | Display name in logs/benchmarks (overrides model) |
 | `settings` | No | Path to settings file (claude-subprocess only) |

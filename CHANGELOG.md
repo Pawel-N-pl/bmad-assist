@@ -2,6 +2,18 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.30] - 2026-02-18
+
+### Added
+- **OpenCode SDK Provider** - New `opencode-sdk` provider using official `opencode-ai` Python SDK with auto-managed `opencode serve` HTTP server. Replaces per-call subprocess overhead with persistent server, live SSE event streaming for real-time progress (text deltas, tool calls, cost/tokens), cooldown-based subprocess fallback, and cancel support via `session.abort()`
+- **Deep Verify Domains** - PRD and documentation domains with dedicated pattern libraries
+
+### Fixed
+- **OpenCode SDK Compatibility** - Basic auth (`opencode:<password>`), proper HTTP timeouts, `session.create()` body workaround, tool name normalization (lowercase→PascalCase), strict health check requiring 2xx to prevent stale server false positives
+- **Evidence Score Resilience** - Synthesis no longer crashes when reviewers fail to produce parseable evidence scores (e.g. free-tier models returning raw templates)
+- **Config Phase Models Override** - Replace `phase_models` entirely on override instead of shallow-merging, fixing entry leaking between config tiers
+- **Patch Timeout** - Pass phase-specific timeout to `PatchSession` instead of hardcoded 300s default. Thanks [@DevRGT](https://github.com/DevRGT)! ([#18](https://github.com/Pawel-N-pl/bmad-assist/issues/18))
+
 ## [0.4.29.2] - 2026-02-14
 
 ### Fixed

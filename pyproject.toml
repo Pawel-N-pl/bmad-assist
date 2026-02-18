@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bmad-assist"
-version = "0.4.29"
+version = "0.4.30"
 description = "CLI tool for automating BMAD methodology development loop"
 readme = "README.md"
 license = {text = "MIT"}
@@ -21,6 +21,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "python-dotenv>=1.0.0",
     "claude-agent-sdk>=0.1.0",
+    "opencode-ai>=0.1.0a36,<0.2.0",
     "textstat>=0.7.3",
     "httpx>=0.27.0",
     "questionary>=2.0.0",  # Interactive prompts with arrow-key navigation

@@ -55,6 +55,8 @@ class ArtifactDomain(str, Enum):
     CONCURRENCY = "concurrency"  # Parallel execution, async, workers, locks, mutexes
     API = "api"  # HTTP endpoints, REST, webhooks, external service integration
     MESSAGING = "messaging"  # Message queues, pub/sub, events, retries, DLQ
+    PRD = "prd"  # Product requirements, user stories, scope management
+    DOCUMENTATION = "documentation"  # Technical documentation, API docs, code-doc consistency
 
 
 class Severity(str, Enum):
