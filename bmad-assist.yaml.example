@@ -15,14 +15,15 @@ user_skill_level: expert              # expert to minimize LLM verbosity
 
 # Per-phase timeout configuration (seconds), for larger projects increase timeouts
 timeouts:
-  default: 600                  # 10 m
+  default: 600                  # 10m
   retries: 2                    # 2 retries
-  validate_story_synthesis: 900 # 15 m
-  dev_story: 3600               # 1 h
-  code_review_synthesis: 1200   # 20 m
-  qa_plan_generate: 1200        # 20 m
-  qa_plan_execute: 3600         # 1 h (Playwright!)
-  qa_remediate: 3600            # 1 h (LLM fixes + re-test)
+  create_story: 900             # 15m
+  validate_story_synthesis: 900 # 15m
+  dev_story: 3600               # 1h
+  code_review_synthesis: 1200   # 20m
+  qa_plan_generate: 1200        # 20m
+  qa_plan_execute: 3600         # 1h (Playwright!)
+  qa_remediate: 3600            # 1h (LLM fixes + re-test)
   
 providers:
   # Default provider used for single-LLM phases when no phase_models specified
@@ -59,11 +60,11 @@ providers:
     # Claude subprocess providers
     - provider: claude
       model: sonnet
-      model_name: glm-4.7
+      model_name: glm-5
       settings: ~/.claude/glm.json
     - provider: claude
       model: sonnet
-      model_name: glm-4.7
+      model_name: glm-5
       settings: ~/.claude/glm.json
 
     # OpenCode providers (NEW)
@@ -107,9 +108,9 @@ phase_models:
     model: opus
   validate_story_synthesis:
     provider: claude
-    model: sonnet
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    model: opus
+    model_name: glm-5
+    settings: ~/.claude/glm5.json
   dev_story:
     provider: claude
     model: opus
@@ -118,9 +119,9 @@ phase_models:
     model: opus
   retrospective:
     provider: claude
-    model: sonnet
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    model: opus
+    model_name: glm-5
+    settings: ~/.claude/glm5.json
 
   # Multi-LLM phases - array format
   # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
@@ -136,24 +137,21 @@ phase_models:
       model: gemini-2.5-flash-lite
     - provider: gemini
       model: gemini-2.5-flash-lite
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     # - provider: kimi
     #   model: kimi-code/kimi-for-coding
     #   thinking: true
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
+      model: opus
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
+    - provider: claude
+      model: claude-sonnet-4-6
+    - provider: codex
+      model: gpt-5.3-codex
+      reasoning_effort: high
 
   # Same for code_review - full control over reviewer list
   code_review:
@@ -167,25 +165,21 @@ phase_models:
       model: gemini-2.5-flash-lite
     - provider: gemini
       model: gemini-2.5-flash-lite
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     # - provider: kimi
     #   model: kimi-code/kimi-for-coding
     #   thinking: true
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
-
+      model: opus
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
+    - provider: claude
+      model: claude-sonnet-4-6
+    - provider: codex
+      model: gpt-5.3-codex
+      reasoning_effort: high
 
 # Compiler configuration
 compiler:
@@ -262,9 +256,9 @@ loop:
     - trace                   # Generate traceability matrix
     - tea_nfr_assess          # NFR assessment before release
     - retrospective
-    - qa_plan_generate        # Generate E2E test plan
-    - qa_plan_execute         # Execute E2E tests
-    - qa_remediate            # Collect issues, auto-fix or escalate
+    # - qa_plan_generate        # Generate E2E test plan
+    # - qa_plan_execute         # Execute E2E tests
+    # - qa_remediate            # Collect issues, auto-fix or escalate
 
 # TEA (Test Architect Enterprise) configuration
 testarch:
@@ -290,7 +284,7 @@ testarch:
 
 # Deep Verify configuration - multi-method artifact verification
 deep_verify:
-  enabled: true                       # Master switch for Deep Verify module
+  enabled: false                       # Master switch for Deep Verify module
 
   # Provider configuration (optional)
   # If not specified, uses global 'helper' provider from providers section
@@ -369,7 +363,7 @@ deep_verify:
     timeout_seconds: 90
 
 security_agent:
-  enabled: true
+  enabled: false
   max_findings: 20
 
 notifications:

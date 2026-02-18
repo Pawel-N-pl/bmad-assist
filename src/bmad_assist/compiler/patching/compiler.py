@@ -35,6 +35,53 @@ from bmad_assist.core.exceptions import CompilerError, PatchError
 
 logger = logging.getLogger(__name__)
 
+# Regex for extracting <instructions-xml> section from compiled templates
+_INSTRUCTIONS_XML_RE = None  # Lazy-compiled
+
+
+def _validate_instructions_xml(compiled_content: str) -> str | None:
+    """Validate XML well-formedness of the instructions section.
+
+    Extracts the <instructions-xml> section from compiled template content
+    and validates it can be parsed as XML. LLMs can produce mismatched tags
+    that pass content validation but break XML parsing in filter_instructions().
+
+    Args:
+        compiled_content: Full compiled template content.
+
+    Returns:
+        Error message if XML is invalid, None if valid or no instructions section.
+
+    """
+    import re
+    import xml.etree.ElementTree as ET
+
+    global _INSTRUCTIONS_XML_RE
+    if _INSTRUCTIONS_XML_RE is None:
+        _INSTRUCTIONS_XML_RE = re.compile(
+            r"<instructions-xml>\s*(.*?)\s*</instructions-xml>",
+            re.DOTALL,
+        )
+
+    match = _INSTRUCTIONS_XML_RE.search(compiled_content)
+    if not match:
+        return None  # No instructions section (e.g., markdown workflow)
+
+    instructions_xml = match.group(1).strip()
+    if not instructions_xml:
+        return None  # Empty instructions
+
+    # Skip validation for markdown content
+    if not instructions_xml.lstrip().startswith("<"):
+        return None
+
+    try:
+        ET.fromstring(instructions_xml)
+        return None  # Valid XML
+    except ET.ParseError as e:
+        return f"mismatched or malformed XML in instructions: {e}"
+
+
 # Standard workflow locations in BMAD folder structure
 # Supports both legacy (.bmad/) and new (_bmad/) directory structures
 _WORKFLOW_LOCATIONS = [
@@ -292,6 +339,22 @@ def compile_patch(
 
         # Post-process: apply deterministic rules from patch config
         compiled_workflow = post_process_compiled(compiled_workflow, patch.post_process)
+
+        # Validate XML well-formedness of instructions section
+        # LLMs can produce mismatched tags that pass content validation but
+        # break XML parsing later in filter_instructions()
+        xml_errors = _validate_instructions_xml(compiled_workflow)
+        if xml_errors:
+            logger.warning(
+                "XML validation failed: %s. Retry %d/%d",
+                xml_errors,
+                validation_attempt + 1,
+                max_validation_retries,
+            )
+            if validation_attempt == max_validation_retries - 1:
+                msg = f"XML validation failed after {max_validation_retries} attempts: {xml_errors}"
+                raise PatchError(msg)
+            continue
 
         # Validate output
         if patch.validation:
@@ -573,8 +636,8 @@ def load_workflow_ir(
 
     Unified loading logic that:
     1. Ensures patch is compiled if it exists
-    2. Loads from cached template if available
-    3. Falls back to original workflow files
+    2. Loads from cached template if available and valid
+    3. Falls back to original workflow files if cache is missing/corrupted
 
     Args:
         workflow: Workflow name (e.g., 'create-story').
@@ -590,101 +653,164 @@ def load_workflow_ir(
         CompilerError: If workflow cannot be loaded.
 
     """
-    import re
-
-    import yaml
-
     # Ensure template is compiled (auto-compiles if patch exists but no cache)
     cache_path = ensure_template_compiled(workflow, project_root, cwd=cwd)
 
     if cache_path is not None:
-        # Load directly from the verified cache path
-        # (avoid re-deriving cache_location - we already have the valid path)
-        try:
-            cached_content = cache_path.read_text(encoding="utf-8")
-        except OSError as e:
-            raise CompilerError(
-                f"Failed to load cached template: {cache_path}\n  Error: {e}"
-            ) from e  # noqa: E501
+        result = _try_load_from_cache(
+            cache_path, workflow, project_root, workflow_dir,
+        )
+        if result is not None:
+            return result
+        # Cache load failed - fall through to original files
 
-        # Parse cached template into WorkflowIR
-        # NOTE: Use ^tag to match tags at line start, not as text in comments
-        # (e.g., workflow.yaml may contain "# template: embedded in <output-template>")
-        try:
-            yaml_match = re.search(
-                r"^<workflow-yaml>\s*(.*?)\s*^</workflow-yaml>",
-                cached_content,
-                re.DOTALL | re.MULTILINE,
+    # Fall through: no valid cache or cache was corrupted
+    # Load from original workflow files
+    # But check if patch exists - if so, return patch_path for post_process
+    try:
+        if workflow_dir is None:
+            workflow_yaml_path, _ = _find_workflow_files(workflow, project_root)
+            workflow_dir = workflow_yaml_path.parent
+        workflow_ir = parse_workflow(workflow_dir)
+
+        # Check if patch exists (for post_process application by compiler)
+        patch_path = discover_patch(workflow, project_root, cwd=cwd)
+        if patch_path:
+            logger.info(
+                "Loaded workflow %s from original files (patch post_process will apply)",
+                workflow,
             )
-            instructions_match = re.search(
-                r"^<instructions-xml>\s*(.*?)\s*^</instructions-xml>",
-                cached_content,
-                re.DOTALL | re.MULTILINE,
+        else:
+            logger.debug("Loaded workflow %s from original files", workflow)
+
+        return workflow_ir, patch_path
+    except PatchError as e:
+        raise CompilerError(str(e)) from e
+
+
+def _try_load_from_cache(
+    cache_path: Path,
+    workflow: str,
+    project_root: Path,
+    workflow_dir: Path | None,
+) -> tuple[WorkflowIR, Path | None] | None:
+    """Try to load workflow IR from a cached template.
+
+    Returns None if cache is unreadable, corrupted, or has invalid XML,
+    allowing the caller to fall back to original workflow files.
+
+    Args:
+        cache_path: Path to cached template file.
+        workflow: Workflow name.
+        project_root: Project root directory.
+        workflow_dir: Explicit workflow directory (optional).
+
+    Returns:
+        Tuple of (WorkflowIR, None) if cache loaded successfully, None otherwise.
+
+    """
+    import re
+
+    import yaml
+
+    # Read cache file
+    try:
+        cached_content = cache_path.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning(
+            "Failed to read cached template %s: %s. "
+            "Falling back to original files.",
+            cache_path,
+            e,
+        )
+        return None
+
+    # Parse cached template into WorkflowIR
+    # NOTE: Use ^tag to match tags at line start, not as text in comments
+    # (e.g., workflow.yaml may contain "# template: embedded in <output-template>")
+    try:
+        yaml_match = re.search(
+            r"^<workflow-yaml>\s*(.*?)\s*^</workflow-yaml>",
+            cached_content,
+            re.DOTALL | re.MULTILINE,
+        )
+        instructions_match = re.search(
+            r"^<instructions-xml>\s*(.*?)\s*^</instructions-xml>",
+            cached_content,
+            re.DOTALL | re.MULTILINE,
+        )
+        # Extract embedded output template (optional)
+        template_match = re.search(
+            r"^<output-template>\s*(.*?)\s*^</output-template>",
+            cached_content,
+            re.DOTALL | re.MULTILINE,
+        )
+
+        if not yaml_match or not instructions_match:
+            logger.warning(
+                "Cached template for %s missing required sections, "
+                "falling back to original files",
+                workflow,
             )
-            # Extract embedded output template (optional)
-            template_match = re.search(
-                r"^<output-template>\s*(.*?)\s*^</output-template>",
-                cached_content,
-                re.DOTALL | re.MULTILINE,
+            return None
+
+        config = yaml.safe_load(yaml_match.group(1))
+
+        # Extract output template content (may be empty string)
+        output_template = template_match.group(1).strip() if template_match else None
+        if output_template == "":
+            output_template = None
+
+        # Find original workflow dir for {installed_path} resolution
+        # config_path must point to original workflow.yaml, not cache file
+        if workflow_dir is None:
+            workflow_yaml_path, _ = _find_workflow_files(workflow, project_root)
+            workflow_dir = workflow_yaml_path.parent
+        else:
+            workflow_yaml_path = workflow_dir / "workflow.yaml"
+
+        raw_instructions = instructions_match.group(1)
+
+        # Validate XML well-formedness of cached instructions
+        # Catches corrupted cache from LLM auto-compilation
+        xml_error = _validate_instructions_xml(cached_content)
+        if xml_error:
+            logger.warning(
+                "Cached template for %s has invalid XML (%s), "
+                "deleting cache and falling back to original files",
+                workflow,
+                xml_error,
             )
-
-            if not yaml_match or not instructions_match:
-                raise CompilerError(f"Cached template missing required sections: {cache_path}")
-
-            config = yaml.safe_load(yaml_match.group(1))
-
-            # Extract output template content (may be empty string)
-            output_template = template_match.group(1).strip() if template_match else None
-            if output_template == "":
-                output_template = None
-
-            # Find original workflow dir for {installed_path} resolution
-            # config_path must point to original workflow.yaml, not cache file
-            if workflow_dir is None:
-                workflow_yaml_path, _ = _find_workflow_files(workflow, project_root)
-                workflow_dir = workflow_yaml_path.parent
-            else:
-                workflow_yaml_path = workflow_dir / "workflow.yaml"
-
-            workflow_ir = WorkflowIR(
-                name=config.get("name", workflow),
-                config_path=workflow_yaml_path,  # Original workflow.yaml for {installed_path}
-                instructions_path=cache_path,  # Cache file for instructions content
-                template_path=config.get("template"),
-                validation_path=config.get("validation"),
-                raw_config=config,
-                raw_instructions=instructions_match.group(1),
-                output_template=output_template,  # Embedded template content from cache
-            )
-
-            # Cached templates have post_process already applied, no patch_path needed
-            logger.info("Loaded workflow %s from cached template", workflow)
-            return workflow_ir, None
-
-        except Exception as e:
-            raise CompilerError(
-                f"Failed to parse cached template: {cache_path}\n  Error: {e}"
-            ) from e
-
-    else:
-        # No cache - load from original workflow files
-        # But check if patch exists - if so, return patch_path for post_process
-        try:
-            if workflow_dir is None:
-                workflow_yaml_path, _ = _find_workflow_files(workflow, project_root)
-                workflow_dir = workflow_yaml_path.parent
-            workflow_ir = parse_workflow(workflow_dir)
-
-            # Check if patch exists (for post_process application by compiler)
-            patch_path = discover_patch(workflow, project_root, cwd=cwd)
-            if patch_path:
-                logger.info(
-                    "Loaded workflow %s from original files (patch post_process will apply)",
-                    workflow,
+            try:
+                cache_path.unlink(missing_ok=True)
+                meta_path = cache_path.with_suffix(
+                    cache_path.suffix + ".meta.yaml"
                 )
-            else:
-                logger.debug("Loaded workflow %s from original files", workflow)
+                meta_path.unlink(missing_ok=True)
+            except OSError:
+                pass  # Best effort cleanup
+            return None
 
-            return workflow_ir, patch_path
-        except PatchError as e:
-            raise CompilerError(str(e)) from e
+        workflow_ir = WorkflowIR(
+            name=config.get("name", workflow),
+            config_path=workflow_yaml_path,  # Original workflow.yaml for {installed_path}
+            instructions_path=cache_path,  # Cache file for instructions content
+            template_path=config.get("template"),
+            validation_path=config.get("validation"),
+            raw_config=config,
+            raw_instructions=raw_instructions,
+            output_template=output_template,  # Embedded template content from cache
+        )
+
+        # Cached templates have post_process already applied, no patch_path needed
+        logger.info("Loaded workflow %s from cached template", workflow)
+        return workflow_ir, None
+
+    except Exception as e:
+        logger.warning(
+            "Failed to parse cached template for %s: %s. "
+            "Falling back to original files.",
+            workflow,
+            e,
+        )
+        return None

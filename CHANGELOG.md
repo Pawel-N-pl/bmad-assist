@@ -2,6 +2,12 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.31] - 2026-02-18
+
+### Fixed
+- **Patch Compilation XML Validation** - LLM auto-compiled patches could produce XML with mismatched tags that passed content validation but crashed `filter_instructions()` at compile time. Added XML well-formedness validation in the compilation retry loop (retries up to 3 times if LLM produces broken XML) and in cache loading (deletes corrupted cache and falls back to original workflow files). Prevents `CompilerError: Invalid XML in raw_instructions: mismatched tag` after `init --reset-workflows` when custom patches trigger auto-compilation
+- **Cache Load Resilience** - `load_workflow_ir()` now gracefully falls back to original workflow files instead of crashing when cached templates are unreadable, corrupted, or missing required sections
+
 ## [0.4.30] - 2026-02-18
 
 ### Added

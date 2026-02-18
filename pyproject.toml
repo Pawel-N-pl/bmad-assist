@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bmad-assist"
-version = "0.4.30"
+version = "0.4.31"
 description = "CLI tool for automating BMAD methodology development loop"
 readme = "README.md"
 license = {text = "MIT"}
