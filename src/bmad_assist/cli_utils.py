@@ -153,6 +153,12 @@ def _setup_logging(verbose: bool, quiet: bool, debug: bool = False) -> None:
         handlers=[handler],
     )
 
+    # Install spinner-aware log intercept so log messages don't interleave
+    # with the progress spinner during parallel agent execution
+    from bmad_assist.providers.progress import install_log_intercept
+
+    install_log_intercept()
+
     # Suppress HTTP client loggers (security: prevent secret leakage)
     # These loggers can expose sensitive URLs (Telegram bot tokens, Discord webhooks)
     for logger_name in ("httpx", "httpcore", "urllib3"):

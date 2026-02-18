@@ -1,0 +1,185 @@
+# bmad-assist configuration (optimized example)
+# This is an optimized reference config with recommended settings.
+# Copy to your project and customize provider settings as needed.
+
+project_name: project-name
+user_name: Tester
+communication_language: English
+document_output_language: English
+user_skill_level: expert              # expert to minimize LLM verbosity
+
+# External paths (optional) - store docs/artifacts outside project root
+# paths:
+#   project_knowledge: /shared/docs/my-project    # PRD, architecture, epics
+#   output_folder: /data/bmad-output/my-project   # generated artifacts
+
+# Per-phase timeout configuration (seconds)
+timeouts:
+  default: 600
+  dev_story: 3600
+  code_review_synthesis: 900
+  retrospective: 900
+
+# LLM stream output configuration
+# Controls real-time streaming feedback during LLM calls.
+# Can be overridden by CLI flags: --stream preview|full, --stream-chars N
+stream:
+  mode: preview           # off = no streaming, preview = truncated, full = all output
+  preview_chars: 200      # Characters to show in preview mode (min 10)
+  
+providers:
+  master:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+    # model_name: glm-4.7
+    # settings: ~/.claude/glm.json
+
+  helper:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+
+  # Additional providers for multi-provider scenarios
+  multi:
+    # Gemini providers
+    - provider: opencode
+      model: zai-coding-plan/glm-4.7
+
+    # OpenCode providers (NEW)
+    # - provider: opencode
+    #   model: opencode/claude-sonnet-4       # Claude Sonnet 4 via OpenCode
+    # - provider: opencode
+    #   model: opencode/claude-opus-4-5       # Claude Opus 4.5 via OpenCode
+    # - provider: opencode
+    #   model: zai-coding-plan/glm-4.7        # GLM 4.7 via Z.ai
+    # - provider: opencode
+    #   model: xai/grok-4                     # Grok 4 via xAI
+    # - provider: opencode
+    #   model: opencode/gemini-3-flash        # Gemini 3 Flash via OpenCode
+    # - provider: opencode
+    #   model: opencode/gemini-3-pro          # Gemini 3 Pro via OpenCode
+
+    # Amp providers - Sourcegraph's Claude wrapper
+    # Note: Amp uses "modes" instead of model names
+    # WARNING: Only "smart" mode works with bmad-assist (rush/free lack tool use)
+    # - provider: amp
+    #   model: smart                          # Claude Opus 4.5 (most capable)
+
+    # Cursor Agent providers
+    # Command: cursor-agent --print --model "<MODEL>" --force "<PROMPT>"
+    # - provider: cursor-agent
+    #   model: auto                # Default model
+    # - provider: cursor-agent
+    #   model: composer-1
+
+    # GitHub Copilot providers
+    # Command: copilot -p "<PROMPT>" --allow-all-tools --yolo --model "<MODEL>"
+    # - provider: copilot
+    #   model: claude-haiku-4.5                         # Default model
+
+
+# Per-Phase Model Configuration
+phase_models:
+  # Single-LLM phases - object format
+  create_story:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+  validate_story_synthesis:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+  dev_story:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+  code_review_synthesis:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+  retrospective:
+    provider: opencode
+    model: zai-coding-plan/glm-4.7
+
+  # Multi-LLM phases - array format
+  # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
+  # Master is NOT auto-added - you have full control over the validator/reviewer list.
+  validate_story:
+    - provider: opencode
+      model: zai-coding-plan/glm-4.7
+    - provider: opencode
+      model: zai-coding-plan/glm-4.7
+
+  # Same for code_review - full control over reviewer list
+  code_review:
+    - provider: opencode
+      model: zai-coding-plan/glm-4.7
+    - provider: opencode
+      model: zai-coding-plan/glm-4.7
+
+
+# Compiler configuration
+compiler:
+  # patch_path: .bmad-assist/patches  # Custom patch files directory
+
+  # Source files context collection for workflow prompts
+  source_context:
+    # Per-workflow token budgets (0-99 = disabled)
+    budgets:
+      create_story: 20000
+      validate_story: 10000
+      validate_story_synthesis: 10000
+      dev_story: 15000
+      code_review: 15000
+      code_review_synthesis: 15000
+      default: 20000             # Fallback for unlisted workflows
+
+    # File prioritization scoring weights
+    scoring:
+      in_file_list: 50           # Bonus for files in story's File List
+      in_git_diff: 50            # Bonus for files in git diff
+      is_test_file: -10          # Penalty for test files
+      is_config_file: -5         # Penalty for config files (.yaml, .json, etc.)
+      change_lines_factor: 1     # Points per changed line
+      change_lines_cap: 50       # Max points from change_lines
+
+    # Content extraction settings
+    extraction:
+      adaptive_threshold: 0.25   # If file_tokens > (budget/files)*threshold → hunks only
+      hunk_context_lines: 20     # Min context lines around changes
+      hunk_context_scale: 0.3    # Context = max(hunk_context_lines, changes * scale)
+      max_files: 15              # Hard cap on files (prevents budget dilution)
+
+  # Strategic document loading for workflow prompts
+  # Controls which docs (PRD, Architecture, UX, project-context) are included
+  strategic_context:
+    budget: 10000                 # Total token cap for strategic docs (0 = disabled)
+
+    # Default settings for all workflows
+    defaults:
+      include: [project-context, architecture] # Doc types to include (order matters)
+      main_only: true            # For sharded docs: load only index.md
+
+    # Per-workflow overrides (null fields inherit from defaults)
+    create_story:
+      include: [project-context, architecture, ux, prd]
+    validate_story:
+      include: [project-context, architecture, ux, prd]
+    dev_story:
+      include: [project-context, architecture, ux, prd]
+    code_review:
+      include: [project-context, architecture, ux]
+
+
+benchmarking:
+  enabled: true
+
+notifications:
+  enabled: true
+  providers:
+    - type: telegram
+      bot_token: "${TELEGRAM_BOT_TOKEN}"
+      chat_id: "${TELEGRAM_CHAT_ID}"
+    - type: discord
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+  events:
+    - story_started
+    - story_completed
+    - phase_completed
+    - error_occurred
+    - anomaly_detected
