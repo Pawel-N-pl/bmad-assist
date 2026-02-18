@@ -32,6 +32,7 @@ def opencode_sdk_state_reset():
         "_server_process": mod._server_process,
         "_server_port": mod._server_port,
         "_server_token": mod._server_token,
+        "_server_cwd": mod._server_cwd,
         "_atexit_registered": mod._atexit_registered,
     }
 
@@ -41,6 +42,7 @@ def opencode_sdk_state_reset():
     mod._server_process = orig["_server_process"]
     mod._server_port = orig["_server_port"]
     mod._server_token = orig["_server_token"]
+    mod._server_cwd = orig["_server_cwd"]
     mod._atexit_registered = orig["_atexit_registered"]
 
 
@@ -559,6 +561,54 @@ class TestOpenCodeSDKProviderServerLifecycle:
             assert port == 14096
             assert token == "existing-token"
 
+    def test_restarts_server_on_cwd_mismatch(self):
+        """Server restarts if requested CWD differs from running server's CWD."""
+        import bmad_assist.providers.opencode_sdk as mod
+
+        mod._server_port = 14096
+        mod._server_token = "old-token"
+        mod._server_cwd = Path("/old/project").resolve()
+
+        mock_process = MagicMock()
+        mock_process.pid = 99999
+        mock_process.poll.return_value = None
+
+        with (
+            patch.object(mod, "_resolve_opencode_binary", return_value="/usr/bin/opencode"),
+            patch.object(mod, "Popen", return_value=mock_process) as mock_popen,
+            patch.object(
+                mod,
+                "_health_check",
+                side_effect=[
+                    False,   # quick check (unhealthy or CWD mismatch)
+                    True,    # re-check under lock (healthy but CWD mismatch triggers restart)
+                    True,    # new server health check
+                ],
+            ),
+            patch.object(mod, "_read_pid_file", return_value=None),
+            patch.object(mod, "_write_pid_file"),
+            patch.object(mod, "_cleanup_pid_files"),
+            patch.object(
+                mod,
+                "_cleanup_server",
+                side_effect=lambda: setattr(mod, "_server_port", None) or setattr(mod, "_server_cwd", None),
+            ) as mock_cleanup,
+            patch.object(mod, "register_child_pgid"),
+            patch.object(mod, "time") as mock_time,
+            patch.object(mod, "atexit"),
+        ):
+            mock_time.sleep = MagicMock()
+            mock_time.monotonic.return_value = 1000.0
+
+            new_cwd = Path("/new/project")
+            port, token = mod._ensure_server(cwd=new_cwd)
+
+            # Server was restarted (cleanup called for CWD mismatch)
+            mock_cleanup.assert_called_once()
+            # New server started with correct CWD
+            popen_kwargs = mock_popen.call_args.kwargs
+            assert popen_kwargs["cwd"] == new_cwd
+
     def test_double_checked_locking_skips_lock(self):
         import bmad_assist.providers.opencode_sdk as mod
 
@@ -567,7 +617,7 @@ class TestOpenCodeSDKProviderServerLifecycle:
 
         health_calls = []
 
-        def mock_health(port: int, timeout: float = 2.0) -> bool:
+        def mock_health(port: int, token: str | None = None, timeout: float = 2.0) -> bool:
             health_calls.append(port)
             return True
 

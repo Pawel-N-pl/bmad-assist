@@ -62,6 +62,7 @@ logger = logging.getLogger(__name__)
 _server_process: Popen[bytes] | None = None
 _server_port: int | None = None
 _server_token: str | None = None
+_server_cwd: Path | None = None
 _server_lock = threading.Lock()
 _atexit_registered: bool = False
 
@@ -258,7 +259,7 @@ def _cleanup_pid_files() -> None:
 
 def _cleanup_server() -> None:
     """Terminate the managed server process and clean up PID file."""
-    global _server_process, _server_port, _server_token
+    global _server_process, _server_port, _server_token, _server_cwd
 
     if _server_process is not None:
         try:
@@ -278,6 +279,7 @@ def _cleanup_server() -> None:
     _server_process = None
     _server_port = None
     _server_token = None
+    _server_cwd = None
 
 
 def _shutdown_server() -> None:
@@ -311,12 +313,19 @@ def _resolve_opencode_binary() -> str:
     raise ProviderError("OpenCode CLI not found. Install 'opencode' or set BMAD_OPENCODE_CLI_PATH")
 
 
-def _ensure_server() -> tuple[int, str]:
+def _ensure_server(cwd: Path | None = None) -> tuple[int, str]:
     """Ensure OpenCode server is running and healthy.
 
     Uses double-checked locking: quick health check without lock first,
     then lock only if server needs starting. This prevents 10s serialization
     with 4 parallel validators.
+
+    Args:
+        cwd: Working directory for the server process. When provided, the
+            server is started with this as its CWD so file operations
+            (Read, Write, Edit) resolve relative to the target project.
+            If the server is already running with a different CWD, it is
+            restarted with the new one.
 
     Returns:
         Tuple of (port, auth_token).
@@ -325,19 +334,35 @@ def _ensure_server() -> tuple[int, str]:
         ProviderError: If server cannot be started after retries.
 
     """
-    global _server_process, _server_port, _server_token, _atexit_registered
+    global _server_process, _server_port, _server_token, _server_cwd, _atexit_registered
 
-    # Quick check WITHOUT lock
-    if _server_port is not None and _health_check(_server_port, _server_token):
+    # Resolve cwd for comparison (None means "no preference", don't force restart)
+    resolved_cwd = cwd.resolve() if cwd else None
+
+    # Quick check WITHOUT lock (includes CWD match)
+    if (
+        _server_port is not None
+        and _health_check(_server_port, _server_token)
+        and (resolved_cwd is None or _server_cwd == resolved_cwd)
+    ):
         return (_server_port, _server_token or "")
 
     with _server_lock:
         # Re-check under lock (double-checked locking)
         if _server_port is not None and _health_check(_server_port, _server_token):
-            return (_server_port, _server_token or "")
+            if resolved_cwd is None or _server_cwd == resolved_cwd:
+                return (_server_port, _server_token or "")
+
+            # Server healthy but CWD mismatch -- restart with correct CWD
+            logger.warning(
+                "OpenCode server CWD mismatch: running=%s, requested=%s. Restarting...",
+                _server_cwd,
+                resolved_cwd,
+            )
+            _cleanup_server()
 
         # Server unhealthy or not started -- clean up if needed
-        if _server_port is not None:
+        elif _server_port is not None:  # noqa: SIM102
             logger.warning("OpenCode server unhealthy, restarting...")
             _cleanup_server()
 
@@ -379,6 +404,7 @@ def _ensure_server() -> tuple[int, str]:
                     stderr=DEVNULL,
                     start_new_session=True,
                     env=env,
+                    cwd=cwd,
                 )
             except FileNotFoundError as e:
                 raise ProviderError(f"OpenCode binary not found: {binary}") from e
@@ -407,6 +433,7 @@ def _ensure_server() -> tuple[int, str]:
                 _server_process = process
                 _server_port = port
                 _server_token = token
+                _server_cwd = resolved_cwd
                 _write_pid_file(port, process.pid, token)
 
                 # Register atexit handler (once)
@@ -519,7 +546,7 @@ class OpenCodeSDKProvider(BaseProvider):
         Args:
             prompt: The prompt text.
             model: Model in 'provider/model' format.
-            cwd: Working directory (reserved for future use).
+            cwd: Working directory for the server process.
             allowed_tools: Optional tool restriction list.
             color_index: Color index for progress output.
             display_model: Display name for the model.
@@ -533,8 +560,7 @@ class OpenCodeSDKProvider(BaseProvider):
             ProviderError: If SDK call fails.
 
         """
-        _ = cwd  # Reserved: server uses its own working directory
-        port, token = _ensure_server()
+        port, token = _ensure_server(cwd=cwd)
 
         try:
             from opencode_ai import AsyncOpencode
