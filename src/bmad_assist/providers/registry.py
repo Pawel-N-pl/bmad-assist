@@ -51,6 +51,7 @@ def _init_default_providers() -> None:
     from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
     from bmad_assist.providers.codex import CodexProvider
     from bmad_assist.providers.copilot import CopilotProvider
+    from bmad_assist.providers.copilot_sdk import CopilotSDKProvider
     from bmad_assist.providers.cursor_agent import CursorAgentProvider
     from bmad_assist.providers.gemini import GeminiProvider
     from bmad_assist.providers.kimi import KimiProvider
@@ -65,6 +66,7 @@ def _init_default_providers() -> None:
             "claude-subprocess": ClaudeSubprocessProvider,
             "codex": CodexProvider,
             "copilot": CopilotProvider,
+            "copilot-sdk": CopilotSDKProvider,
             "cursor-agent": CursorAgentProvider,
             "gemini": GeminiProvider,
             "kimi": KimiProvider,

@@ -300,20 +300,35 @@ _LOG_LEVEL_CHECK_INTERVAL: float = 1.0  # Check control file at most once per se
 
 _stream_enabled: bool = False  # Whether to show LLM stream output at all
 _full_stream_enabled: bool = False  # Whether to show full untruncated stream
+_verbose_stream_enabled: bool = False  # Whether to show stream at --verbose level
+_preview_chars: int = 150  # Chars to show in preview mode (configurable)
 
 
-def set_stream_mode(enabled: bool, full: bool = False) -> None:
+def set_stream_mode(
+    enabled: bool,
+    full: bool = False,
+    verbose: bool = False,
+    preview_chars: int | None = None,
+) -> None:
     """Configure LLM stream output visibility.
 
     Args:
         enabled: Whether to show LLM stream output (truncated previews).
+            This is the --debug mode flag.
         full: Whether to show full untruncated stream output. Only meaningful
-            when enabled=True.
+            when enabled=True or verbose=True.
+        verbose: Whether to show stream at --verbose level (INFO logging).
+            Enables streaming without --debug. Works with full=True for
+            full streaming at --verbose level.
+        preview_chars: Characters to show in preview mode. None keeps current value.
 
     """
-    global _stream_enabled, _full_stream_enabled
+    global _stream_enabled, _full_stream_enabled, _verbose_stream_enabled, _preview_chars
     _stream_enabled = enabled
-    _full_stream_enabled = full if enabled else False
+    _full_stream_enabled = full if (enabled or verbose) else False
+    _verbose_stream_enabled = verbose
+    if preview_chars is not None:
+        _preview_chars = max(10, preview_chars)  # Minimum 10 chars
 
 
 def is_stream_enabled() -> bool:
@@ -326,10 +341,20 @@ def is_full_stream() -> bool:
     return _full_stream_enabled
 
 
+def is_verbose_stream() -> bool:
+    """Check if verbose-level streaming is enabled (--stream flag)."""
+    return _verbose_stream_enabled
+
+
+def get_preview_chars() -> int:
+    """Get the configured preview character limit."""
+    return _preview_chars
+
+
 def should_print_progress() -> bool:
     """Check if LLM stream output should be printed.
 
-    Decoupled from log level — controlled by set_stream_mode().
+    Returns True if either --debug stream or --stream verbose mode is enabled.
     Dynamically checks the control file for log level changes (rate-limited
     to once per second) so dashboard log level changes take effect immediately.
     """
@@ -342,7 +367,7 @@ def should_print_progress() -> bool:
         _last_log_level_check = now
         _check_log_level_control_file()
 
-    return _stream_enabled
+    return _stream_enabled or _verbose_stream_enabled
 
 
 def _check_log_level_control_file() -> None:

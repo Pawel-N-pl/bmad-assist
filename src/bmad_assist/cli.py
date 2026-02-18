@@ -284,7 +284,18 @@ def run(
     full_stream: bool = typer.Option(
         False,
         "--full-stream",
-        help="Show full untruncated LLM stream output (requires --debug)",
+        help="Show full untruncated LLM stream output (requires --debug or --stream)",
+    ),
+    stream: str | None = typer.Option(
+        None,
+        "--stream",
+        help="Enable LLM streaming at --verbose level: 'preview' (truncated) or 'full' (all output). "
+        "Also accepts a number (e.g. '300') to set preview character limit.",
+    ),
+    stream_chars: int | None = typer.Option(
+        None,
+        "--stream-chars",
+        help="Characters to show in stream preview mode (default: 150, min: 10)",
     ),
     disable_compiler: bool = typer.Option(
         False,
@@ -353,12 +364,40 @@ def run(
     # Setup logging: --debug = DEBUG, --verbose = INFO, default = WARNING
     _setup_logging(verbose, quiet, debug=debug_jsonl)
 
-    # Stream output: only with --debug (not --verbose)
+    # Stream output configuration
     from bmad_assist.providers.base import set_stream_mode
 
-    if full_stream and not debug_jsonl:
-        _warning("--full-stream has no effect without --debug")
-    set_stream_mode(enabled=debug_jsonl, full=full_stream)
+    # Parse --stream flag: 'preview', 'full', or a number for preview chars
+    stream_verbose = False
+    stream_full_from_flag = False
+    preview_chars_from_flag: int | None = stream_chars
+
+    if stream is not None:
+        stream_lower = stream.strip().lower()
+        if stream_lower == "full":
+            stream_verbose = True
+            stream_full_from_flag = True
+        elif stream_lower == "preview":
+            stream_verbose = True
+        elif stream_lower.isdigit():
+            stream_verbose = True
+            preview_chars_from_flag = int(stream_lower)
+        else:
+            _warning(f"Unknown --stream value '{stream}', expected 'preview', 'full', or a number")
+
+    if full_stream and not debug_jsonl and not stream_verbose:
+        _warning("--full-stream has no effect without --debug or --stream")
+
+    set_stream_mode(
+        enabled=debug_jsonl,
+        full=full_stream or stream_full_from_flag,
+        verbose=stream_verbose,
+        preview_chars=preview_chars_from_flag,
+    )
+
+    if stream_verbose:
+        mode = "full" if (full_stream or stream_full_from_flag) else "preview"
+        console.print(f"[dim]Stream: {mode} mode enabled[/dim]")
 
     # Set non-interactive mode if -n flag is passed
     # This must be set early, before any interactive prompts can occur
@@ -451,6 +490,23 @@ def run(
             cwd_config_path=False if config is not None else None,
         )
         logger.debug("Configuration loaded successfully")
+
+        # Apply config-based stream settings (CLI flags override config)
+        if stream is None and not debug_jsonl:
+            # No CLI stream flags — apply config defaults
+            stream_cfg = loaded_config.stream
+            if stream_cfg.mode != "off":
+                cfg_verbose = True
+                cfg_full = stream_cfg.mode == "full"
+                cfg_preview = stream_chars if stream_chars is not None else stream_cfg.preview_chars
+                set_stream_mode(
+                    enabled=False,
+                    full=cfg_full,
+                    verbose=cfg_verbose,
+                    preview_chars=cfg_preview,
+                )
+                mode_label = "full" if cfg_full else f"preview ({cfg_preview} chars)"
+                console.print(f"[dim]Stream: {mode_label} (from config)[/dim]")
 
         # Initialize project paths singleton
         paths_config: dict[str, str | None] = {
