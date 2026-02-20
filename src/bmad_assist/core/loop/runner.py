@@ -283,6 +283,7 @@ def run_loop(
     epic_stories_loader: Callable[[EpicId], list[str]],
     cancel_ctx: CancellationContext | None = None,
     skip_signal_handlers: bool = False,
+    single_phase: bool = False,
 ) -> LoopExitReason:
     """Execute the main BMAD development loop.
 
@@ -394,7 +395,8 @@ def run_loop(
         with _running_lock(project_path):
             try:
                 exit_reason = _run_loop_body(
-                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx
+                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx,
+                    single_phase=single_phase,
                 )
                 # Update run_log with final status
                 run_log.status = RunStatus.COMPLETED
@@ -463,6 +465,7 @@ def _run_loop_body(
     epic_stories_loader: Callable[[EpicId], list[str]],
     run_log: RunLog | None = None,
     cancel_ctx: CancellationContext | None = None,
+    single_phase: bool = False,
 ) -> LoopExitReason:
     """Execute the main loop body with signal handling active.
 
@@ -681,7 +684,12 @@ def _run_loop_body(
 
     # Epic setup: run before first story if not already complete
     # Per ADR-007: This also handles resume-after-setup-crash by restarting all setup phases
-    if not state.epic_setup_complete and loop_config.epic_setup:
+    # SKIP setup when current phase is an epic_teardown phase (e.g., hardening via --phase override)
+    _teardown_phase_set = (
+        {Phase(p) for p in loop_config.epic_teardown} if loop_config.epic_teardown else set()
+    )
+    _is_starting_at_teardown = state.current_phase in _teardown_phase_set
+    if not state.epic_setup_complete and loop_config.epic_setup and not _is_starting_at_teardown:
         # Save the current phase before setup — on resume, state may have a mid-story phase
         # (e.g., dev_story) that should be preserved after setup completes.
         saved_phase = state.current_phase
@@ -727,10 +735,12 @@ def _run_loop_body(
         save_state(state, state_path)
 
         # CLI Observability: Print phase banner (visible regardless of log level)
+        # For teardown phases, don't show story (they are epic-scoped, not story-scoped)
+        _banner_story = state.current_story if state.current_phase not in _teardown_phase_set else None
         _print_phase_banner(
             phase=state.current_phase.name if state.current_phase else "UNKNOWN",
             epic=state.current_epic,
-            story=state.current_story,
+            story=_banner_story,
         )
 
         # CLI Observability: Record phase START in run log (crash diagnostics)
@@ -849,6 +859,24 @@ def _run_loop_body(
                 phase_status="completed" if result.success else "failed",
             )
 
+        # Single-phase mode: set deferred exit flag after the specified phase completes.
+        # We do NOT exit immediately — the normal post-phase processing (teardown handling,
+        # epic advancement, sprint sync, etc.) must run first so state is properly advanced.
+        _single_phase_exit: LoopExitReason | None = None
+        if single_phase:
+            if result.success:
+                logger.info(
+                    "Single-phase mode: %s completed successfully, will exit after post-processing",
+                    state.current_phase.name if state.current_phase else "UNKNOWN",
+                )
+                _single_phase_exit = LoopExitReason.COMPLETED
+            else:
+                logger.warning(
+                    "Single-phase mode: %s failed, will exit after post-processing",
+                    state.current_phase.name if state.current_phase else "UNKNOWN",
+                )
+                _single_phase_exit = LoopExitReason.GUARDIAN_HALT
+
         # AC5: Handle phase failures
         if not result.success:
             logger.warning(
@@ -929,6 +957,9 @@ def _run_loop_body(
                     "Advanced to epic %s after teardown failure",
                     state.current_epic,
                 )
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue
 
             # Story phase failure - goes through normal guardian flow
@@ -965,6 +996,8 @@ def _run_loop_body(
             # AC5: MVP guardian ALWAYS returns "continue" - proceed to next phase
             # Note: In MVP, failures don't block loop (acknowledged risk - NFR4 deferred to Epic 8)
             # Code Review Fix: Skip AC6 save below - already saved above before guardian
+            if _single_phase_exit is not None:
+                return _single_phase_exit
             continue
 
         # AC6: Save state after each phase completion (SUCCESS PATH ONLY)
@@ -1187,6 +1220,9 @@ def _run_loop_body(
                 start_epic_timing(state)
                 start_story_timing(state)
                 logger.info("Advanced to epic %s after teardown", state.current_epic)
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue  # Next iteration will run epic_setup for new epic
             else:
                 # AC3: Not last story - advance to next story
@@ -1255,6 +1291,9 @@ def _run_loop_body(
                         phase_status="in-progress",
                     )
 
+            if _single_phase_exit is not None:
+                save_state(state, state_path)
+                return _single_phase_exit
             continue
 
         # AC4: QA_PLAN_EXECUTE success → handle epic completion
@@ -1329,6 +1368,9 @@ def _run_loop_body(
                 story_title=story_title,
             )
 
+            if _single_phase_exit is not None:
+                save_state(state, state_path)
+                return _single_phase_exit
             continue
 
         # Code Review Fix: Honor PhaseResult.next_phase override from handlers
@@ -1437,6 +1479,9 @@ def _run_loop_body(
                     story_title=story_title,
                 )
 
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue
 
             # Other phases returning None is unexpected - raise error
@@ -1466,3 +1511,8 @@ def _run_loop_body(
                 phase=next_phase.name,
                 phase_status="in-progress",
             )
+
+        # Single-phase mode: exit after post-phase processing is complete
+        if _single_phase_exit is not None:
+            save_state(state, state_path)
+            return _single_phase_exit

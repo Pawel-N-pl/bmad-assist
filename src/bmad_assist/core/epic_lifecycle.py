@@ -55,7 +55,10 @@ class EpicLifecycleStatus:
         qa_plan_generated: True if QA plan file exists.
         qa_plan_executed: True if QA results file exists.
         next_phase: Recommended next phase based on status.
+        next_phase: Recommended next phase based on status.
         last_story: Last story number in epic (for phase positioning).
+        hardening_enabled: True if hardening phase is enabled in config.
+        hardening_completed: True if hardening story has been generated.
 
     """
 
@@ -66,6 +69,8 @@ class EpicLifecycleStatus:
     qa_plan_executed: bool
     next_phase: Phase | None
     last_story: str | None
+    hardening_enabled: bool = False
+    hardening_completed: bool = False
 
     @property
     def is_fully_completed(self) -> bool:
@@ -75,6 +80,10 @@ class EpicLifecycleStatus:
         When QA is enabled (--qa flag), epic requires QA phases too.
         """
         if not self.all_stories_done or not self.retro_completed:
+            return False
+
+        # Hardening phase check
+        if self.hardening_enabled and not self.hardening_completed:
             return False
 
         # QA phases only count if QA is enabled
@@ -90,6 +99,9 @@ class EpicLifecycleStatus:
             return "stories in progress"
         if not self.retro_completed:
             return "ready for retrospective"
+
+        if self.hardening_enabled and not self.hardening_completed:
+            return "ready for hardening"
 
         # QA phases only shown if QA is enabled
         if is_qa_enabled():
@@ -123,7 +135,7 @@ def _check_retro_exists(epic_id: EpicId, project_path: Path) -> bool:
 
     # Check 1: Retrospective file exists
     paths = get_paths()
-    retro_pattern = f"retro-epic-{epic_id}-*.md"
+    retro_pattern = f"epic-{epic_id}-retro-*.md"
     retro_files = list(paths.retrospectives_dir.glob(retro_pattern))
     if retro_files:
         logger.debug("Retro exists for epic %s: found file(s)", epic_id)
@@ -143,6 +155,43 @@ def _check_retro_exists(epic_id: EpicId, project_path: Path) -> bool:
                 return True
     except Exception as e:
         logger.warning("Could not check sprint-status for retro: %s", e)
+
+    return False
+
+
+def _check_hardening_completed(epic_id: EpicId, project_path: Path) -> bool:
+    """Check if hardening is completed for epic.
+
+    Checks if epic-{id}-hardening has status "done" in sprint-status.yaml.
+
+    Args:
+        epic_id: Epic identifier.
+        project_path: Project root directory.
+
+    Returns:
+        True if hardening is completed.
+
+    """
+    from bmad_assist.core.paths import get_paths
+    from bmad_assist.sprint.parser import parse_sprint_status
+
+    paths = get_paths()
+    sprint_status_path = paths.sprint_status_file
+    
+    if not sprint_status_path.exists():
+        return False
+
+    try:
+        sprint_status = parse_sprint_status(sprint_status_path)
+        hardening_key = f"epic-{epic_id}-hardening"
+        entry = sprint_status.entries.get(hardening_key)
+        
+        if entry is not None and entry.status == "done":
+            logger.debug("Hardening completed for epic %s: sprint-status done", epic_id)
+            return True
+            
+    except Exception as e:
+        logger.warning("Could not check sprint-status for hardening: %s", e)
 
     return False
 
@@ -253,9 +302,19 @@ def get_epic_lifecycle_status(
         qa_plan_done = True
         qa_exec_done = True
 
+    # Check hardening status
+    hardening_enabled = False
+    hardening_completed = True  # Default to True if disabled
+    
+    if config.loop.epic_teardown and "hardening" in config.loop.epic_teardown:
+        hardening_enabled = True
+        hardening_completed = _check_hardening_completed(epic_id, project_path)
+
     # Determine next phase
     if not retro_done:
         next_phase = Phase.RETROSPECTIVE
+    elif hardening_enabled and not hardening_completed:
+        next_phase = Phase.HARDENING
     elif qa_enabled and not qa_plan_done:
         next_phase = Phase.QA_PLAN_GENERATE
     elif qa_enabled and not qa_exec_done:
@@ -281,4 +340,6 @@ def get_epic_lifecycle_status(
         qa_plan_executed=qa_exec_done,
         next_phase=next_phase,
         last_story=last_story,
+        hardening_enabled=hardening_enabled,
+        hardening_completed=hardening_completed,
     )

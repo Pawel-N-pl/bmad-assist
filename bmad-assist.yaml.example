@@ -122,6 +122,9 @@ phase_models:
     model: opus
     model_name: glm-5
     settings: ~/.claude/glm5.json
+  # hardening:
+  #   provider: claude
+  #   model: opus            # Reasoning model recommended for Story 0 synthesis
 
   # Multi-LLM phases - array format
   # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
@@ -256,6 +259,7 @@ loop:
     - trace                   # Generate traceability matrix
     - tea_nfr_assess          # NFR assessment before release
     - retrospective
+    # - hardening             # Generate Story 0 (Hardening) from Retrospective
     # - qa_plan_generate        # Generate E2E test plan
     # - qa_plan_execute         # Execute E2E tests
     # - qa_remediate            # Collect issues, auto-fix or escalate

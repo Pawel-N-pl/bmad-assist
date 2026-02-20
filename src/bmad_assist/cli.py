@@ -622,7 +622,10 @@ def run(
             raise typer.Exit(code=EXIT_SUCCESS)
 
         # Delegate to main loop
-        exit_reason = run_loop(loaded_config, project_path, epic_list, epic_stories_loader)
+        exit_reason = run_loop(
+            loaded_config, project_path, epic_list, epic_stories_loader,
+            single_phase=bool(phase_override),
+        )
 
         # Story 6.6: Handle exit reasons from run_loop
         if exit_reason == LoopExitReason.INTERRUPTED_SIGINT:

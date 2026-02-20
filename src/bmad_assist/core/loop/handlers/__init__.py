@@ -34,6 +34,9 @@ if TYPE_CHECKING:
     from bmad_assist.core.loop.handlers.retrospective import (
         RetrospectiveHandler as RetrospectiveHandler,
     )
+    from bmad_assist.core.loop.handlers.hardening import (
+        HardeningHandler as HardeningHandler,
+    )
     from bmad_assist.core.loop.handlers.validate_story import (
         ValidateStoryHandler as ValidateStoryHandler,
     )
@@ -51,6 +54,7 @@ __all__ = [
     "CodeReviewHandler",
     "CodeReviewSynthesisHandler",
     "RetrospectiveHandler",
+    "HardeningHandler",
     "QaPlanGenerateHandler",
     "QaPlanExecuteHandler",
     "QaRemediateHandler",
@@ -66,6 +70,7 @@ _lazy_imports = {
     "QaPlanGenerateHandler": ".qa_plan_generate",
     "QaRemediateHandler": ".qa_remediate",
     "RetrospectiveHandler": ".retrospective",
+    "HardeningHandler": ".hardening",
     "ValidateStoryHandler": ".validate_story",
     "ValidateStorySynthesisHandler": ".validate_story_synthesis",
 }

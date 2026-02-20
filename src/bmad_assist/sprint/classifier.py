@@ -43,6 +43,9 @@ class EntryType(Enum):
     - RETROSPECTIVE: Retrospective entries for completed epics.
         Merge behavior: Preserve existing status.
 
+    - HARDENING: Hardening entries for completed epics.
+        Merge behavior: Preserve existing status.
+
     - UNKNOWN: Unrecognized patterns.
         Merge behavior: Preserve (safe default to prevent data loss).
     """
@@ -52,6 +55,7 @@ class EntryType(Enum):
     STANDALONE = "standalone"
     EPIC_META = "epic_meta"
     RETROSPECTIVE = "retro"
+    HARDENING = "hardening"
     UNKNOWN = "unknown"
 
 
@@ -110,6 +114,10 @@ def classify_entry(
     # This catches: epic-12-retrospective, testarch-retrospective, etc.
     if key.endswith("-retrospective"):
         return EntryType.RETROSPECTIVE
+
+    # Priority 1b: Check for hardening suffix (high priority)
+    if key.endswith("-hardening"):
+        return EntryType.HARDENING
 
     # Priority 2: Check for epic meta pattern (epic-{id})
     # Must check before module prefixes since "epic-testarch" should be EPIC_META

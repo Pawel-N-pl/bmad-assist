@@ -174,6 +174,7 @@ class Phase(Enum):
     TEA_AUTOMATE = "tea_automate"  # epic_setup scope: after test_design
     TEA_NFR_ASSESS = "tea_nfr_assess"  # epic_teardown scope: after trace
     RETROSPECTIVE = "retrospective"
+    HARDENING = "hardening"
     QA_PLAN_GENERATE = "qa_plan_generate"
     QA_PLAN_EXECUTE = "qa_plan_execute"
     QA_REMEDIATE = "qa_remediate"

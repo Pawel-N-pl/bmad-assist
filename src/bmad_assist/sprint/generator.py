@@ -640,9 +640,9 @@ def generate_from_epics(
 
     # Define epic scan locations in priority order
     epic_locations: list[Path] = [
+        planning_artifacts / "epics",  # planning-artifacts/epics (prioritize Story 0 / generated planning)
         epics_dir,  # docs/epics (sharded)
         project_knowledge / "epics.md",  # Single-file multi-epic
-        planning_artifacts / "epics",  # planning-artifacts/epics
     ]
 
     # Scan epic files from primary locations
