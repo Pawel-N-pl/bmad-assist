@@ -544,8 +544,14 @@ def run(
             raise typer.Exit(code=EXIT_ERROR) from None
 
         def epic_stories_loader(epic: EpicId) -> list[str]:
-            """Return story IDs for given epic number."""
-            return stories_by_epic.get(epic, [])
+            """Return story IDs for given epic number (re-reads state).
+
+            Uses dynamic re-read so stories added at runtime (e.g., hardening
+            Story 0 written to sprint-status during epic teardown) are picked up
+            when the next epic starts.
+            """
+            _, fresh_stories = _load_epic_data(loaded_config, project_path)
+            return fresh_stories.get(epic, [])
 
         # Validate: --story requires --epic
         if story and not epic:
