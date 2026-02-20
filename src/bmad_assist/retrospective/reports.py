@@ -23,7 +23,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from bmad_assist.core.extraction import HARDENING_PLAN_MARKERS, RETROSPECTIVE_MARKERS, extract_report
+from bmad_assist.core.extraction import (
+    HARDENING_PLAN_MARKERS,
+    RETROSPECTIVE_MARKERS,
+    extract_report,
+)
 from bmad_assist.core.io import atomic_write
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.types import EpicId
@@ -92,7 +96,7 @@ def extract_hardening_plan(raw_output: str) -> dict[str, Any] | None:
         if match:
             xml_content = match.group(0)
             root = ET.fromstring(xml_content)
-            
+
             next_epic_id = root.findtext("next_epic_id")
             action_items_tags = root.findall(".//item")
             action_items = [item.text.strip() for item in action_items_tags if item.text and item.text.strip()]

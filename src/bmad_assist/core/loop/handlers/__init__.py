@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     )
     from bmad_assist.core.loop.handlers.create_story import CreateStoryHandler as CreateStoryHandler
     from bmad_assist.core.loop.handlers.dev_story import DevStoryHandler as DevStoryHandler
+    from bmad_assist.core.loop.handlers.hardening import (
+        HardeningHandler as HardeningHandler,
+    )
     from bmad_assist.core.loop.handlers.qa_plan_execute import (
         QaPlanExecuteHandler as QaPlanExecuteHandler,
     )
@@ -33,9 +36,6 @@ if TYPE_CHECKING:
     )
     from bmad_assist.core.loop.handlers.retrospective import (
         RetrospectiveHandler as RetrospectiveHandler,
-    )
-    from bmad_assist.core.loop.handlers.hardening import (
-        HardeningHandler as HardeningHandler,
     )
     from bmad_assist.core.loop.handlers.validate_story import (
         ValidateStoryHandler as ValidateStoryHandler,

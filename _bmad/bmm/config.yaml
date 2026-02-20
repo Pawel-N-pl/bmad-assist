@@ -1,0 +1,7 @@
+
+# Minimal dummy config for retrospective workflow
+project_name: "Mock Project"
+user_name: "Developer"
+communication_language: "English"
+document_output_language: "English"
+user_skill_level: "expert"

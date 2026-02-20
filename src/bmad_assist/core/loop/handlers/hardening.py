@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 class HardeningHandler(BaseHandler):
     """Handler for HARDENING phase.
-    
+
     Reads the last retrospective report and prompts the LLM to generate
     a "Hardening Story" (Story 0) for the next epic.
-    
+
     """
 
     @property
@@ -51,7 +51,7 @@ class HardeningHandler(BaseHandler):
 
         """
         base_context = self._build_common_context(state)
-        
+
         epic_id = state.current_epic
         if epic_id is None:
             return {**base_context, "retrospective_report_content": "No active epic."}
@@ -59,7 +59,7 @@ class HardeningHandler(BaseHandler):
         # Find retrospective report
         # Note: Retrospective runs for current epic, so we look for report of current epic
         report_path, content = get_latest_retrospective_report(epic_id)
-        
+
         if not content:
             logger.warning("No retrospective report found for epic %s", epic_id)
             return {**base_context, "retrospective_report_content": "No retrospective report found."}
@@ -81,7 +81,7 @@ class HardeningHandler(BaseHandler):
 
         # Invoke LLM via BaseHandler
         result = super().execute(state)
-        
+
         if not result.success:
             return result
 
@@ -91,24 +91,24 @@ class HardeningHandler(BaseHandler):
 
         # Extract and clean content
         content = strip_code_block(raw_output)
-        
+
         # Determine target file path
         # The hardening story is for the NEXT epic (current_epic + 1).
         # During teardown, state.current_epic is the completed epic.
         # The action items from the retrospective form Story 0 of the next epic.
         next_epic_id = epic_id + 1 if isinstance(epic_id, int) else epic_id
-        
+
         paths = get_paths()
         # Save to implementation-artifacts/hardening/ (NOT planning-artifacts/epics/
         # which would break the sharded epic loader)
         target_dir = paths.implementation_artifacts / "hardening"
         target_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Default filename if we can't parse ID from content
         # We try to find `# Story X.0` in content to key the file.
         import re
         match = re.search(r"^#\s*Story\s+([A-Za-z0-9_.-]+)(\.0)?", content, re.MULTILINE | re.IGNORECASE)
-        
+
         if match:
             # e.g., "5.0" -> id="5"
             file_naming_id = match.group(1)
@@ -118,10 +118,10 @@ class HardeningHandler(BaseHandler):
 
         filename = f"epic-{file_naming_id}-0-hardening.md"
         file_path = target_dir / filename
-        
+
         if file_path.exists():
             logger.warning("Overwriting existing hardening story: %s", file_path)
-            
+
         try:
             atomic_write(file_path, content)
             logger.info("Created hardening story: %s", file_path)

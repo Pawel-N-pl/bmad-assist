@@ -177,7 +177,7 @@ def _check_hardening_completed(epic_id: EpicId, project_path: Path) -> bool:
 
     paths = get_paths()
     sprint_status_path = paths.sprint_status_file
-    
+
     if not sprint_status_path.exists():
         return False
 
@@ -185,11 +185,11 @@ def _check_hardening_completed(epic_id: EpicId, project_path: Path) -> bool:
         sprint_status = parse_sprint_status(sprint_status_path)
         hardening_key = f"epic-{epic_id}-hardening"
         entry = sprint_status.entries.get(hardening_key)
-        
+
         if entry is not None and entry.status == "done":
             logger.debug("Hardening completed for epic %s: sprint-status done", epic_id)
             return True
-            
+
     except Exception as e:
         logger.warning("Could not check sprint-status for hardening: %s", e)
 
@@ -305,7 +305,7 @@ def get_epic_lifecycle_status(
     # Check hardening status
     hardening_enabled = False
     hardening_completed = True  # Default to True if disabled
-    
+
     if config.loop.epic_teardown and "hardening" in config.loop.epic_teardown:
         hardening_enabled = True
         hardening_completed = _check_hardening_completed(epic_id, project_path)
