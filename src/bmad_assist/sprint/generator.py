@@ -622,12 +622,14 @@ def generate_from_epics(
         project_knowledge = paths.project_knowledge
         planning_artifacts = paths.planning_artifacts
         modules_dir = paths.modules_dir
+        hardening_dir = paths.implementation_artifacts / "hardening"
     except RuntimeError:
         # Paths not initialized (e.g., in tests) - use project_root defaults
         epics_dir = project_root / "docs" / "epics"
         project_knowledge = project_root / "docs"
         planning_artifacts = project_root / "_bmad-output" / "planning-artifacts"
         modules_dir = project_root / "docs" / "modules"
+        hardening_dir = project_root / "_bmad-output" / "implementation-artifacts" / "hardening"
 
     # Determine excluded epics: explicit or auto-detected
     effective_exclude: set[int] = set()
@@ -640,8 +642,9 @@ def generate_from_epics(
 
     # Define epic scan locations in priority order
     epic_locations: list[Path] = [
-        planning_artifacts / "epics",  # planning-artifacts/epics (prioritize Story 0 / generated planning)
-        epics_dir,  # docs/epics (sharded)
+        epics_dir,  # docs/epics (sharded) - PRIMARY
+        planning_artifacts / "epics",  # planning-artifacts/epics (generated planning)
+        hardening_dir,  # hardening stories (Story 0)
         project_knowledge / "epics.md",  # Single-file multi-epic
     ]
 
