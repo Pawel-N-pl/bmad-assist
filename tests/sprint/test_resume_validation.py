@@ -1,10 +1,7 @@
 """Tests for sprint resume validation module."""
 
-from datetime import datetime
-from pathlib import Path
 
 import pytest
-import yaml
 
 from bmad_assist.core.state import Phase, State
 from bmad_assist.sprint.resume_validation import (

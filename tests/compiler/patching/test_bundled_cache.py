@@ -3,7 +3,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 
 from bmad_assist.compiler.patching.cache import (

@@ -25,11 +25,11 @@ from bmad_assist.core.config import (
 )
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.testarch.config import (
+    VALID_BROWSERS,
     EligibilityConfig,
     PlaywrightConfig,
     PreflightConfig,
     TestarchConfig,
-    VALID_BROWSERS,
 )
 
 

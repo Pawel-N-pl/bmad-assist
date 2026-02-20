@@ -44,7 +44,6 @@ from bmad_assist.sprint.reconciler import (
 )
 from bmad_assist.sprint.scanner import ArtifactIndex
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -308,7 +307,7 @@ class TestStatusChange:
         )
 
         log_line = change.as_log_line()
-        assert "20-1-setup: backlog → done (STRONG) [master_review_exists]" == log_line
+        assert log_line == "20-1-setup: backlog → done (STRONG) [master_review_exists]"
 
     def test_as_log_line_without_confidence(self) -> None:
         """Test as_log_line() without confidence."""
@@ -320,7 +319,7 @@ class TestStatusChange:
         )
 
         log_line = change.as_log_line()
-        assert "20-1-setup: backlog → done [preserve_existing]" == log_line
+        assert log_line == "20-1-setup: backlog → done [preserve_existing]"
 
     def test_as_log_line_new_entry(self) -> None:
         """Test as_log_line() for new entry."""
@@ -332,7 +331,7 @@ class TestStatusChange:
         )
 
         log_line = change.as_log_line()
-        assert "20-4-new: (new) → backlog [new_entry_from_epic]" == log_line
+        assert log_line == "20-4-new: (new) → backlog [new_entry_from_epic]"
 
     def test_repr(self) -> None:
         """Test __repr__."""

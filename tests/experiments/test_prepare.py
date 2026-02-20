@@ -26,7 +26,6 @@ from bmad_assist.experiments.prepare import (
     PrepareResult,
     RunData,
     _build_model_lookup,
-    _calculate_correlations,
     _calculate_model_aggregates,
     _calculate_phase_aggregates,
     _calculate_rankings,
@@ -36,10 +35,8 @@ from bmad_assist.experiments.prepare import (
     _load_benchmark_record,
     _load_validation_mappings,
     _pearson,
-    _process_benchmarks,
     _resolve_model_name,
 )
-
 
 # =============================================================================
 # Test Fixtures

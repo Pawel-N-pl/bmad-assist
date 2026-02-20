@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.bmad.sharding.index_parser import (
     MARKDOWN_LINK_PATTERN,
     parse_index_references,

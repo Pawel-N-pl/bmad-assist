@@ -3,13 +3,10 @@
 Verifies that prompts are saved for debugging (ADR-1 in tech-spec-tea-context-loader.md).
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.config import Config
-from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import State
 from bmad_assist.providers.base import ProviderResult
 from bmad_assist.testarch.config import TestarchConfig
@@ -237,7 +234,7 @@ class TestPromptSaving:
         mock_paths.output_folder = tmp_path
         mock_get_paths.return_value = mock_paths
 
-        mock_save_prompt.side_effect = IOError("Permission denied")
+        mock_save_prompt.side_effect = OSError("Permission denied")
 
         state = State(current_epic=25, current_story="25.1")
 

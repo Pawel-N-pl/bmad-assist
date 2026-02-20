@@ -15,9 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import Phase, State
-
 
 # =============================================================================
 # Fixtures
@@ -31,7 +29,7 @@ def mock_config() -> MagicMock:
     config.testarch = MagicMock()
     config.testarch.engagement_model = "auto"  # Allow workflows to run
     config.testarch.test_review_on_code_complete = "auto"
-    
+
     config.providers = MagicMock()
     config.providers.master = MagicMock()
     config.providers.master.provider = "claude"

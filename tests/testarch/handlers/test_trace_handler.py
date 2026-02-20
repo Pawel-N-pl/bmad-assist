@@ -23,7 +23,6 @@ import pytest
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import Phase, State
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -38,7 +37,7 @@ def mock_config() -> MagicMock:
     config.testarch.trace_on_epic_complete = "auto"
     config.benchmarking = MagicMock()
     config.benchmarking.enabled = False
-    
+
     config.providers = MagicMock()
     config.providers.master = MagicMock()
     config.providers.master.provider = "claude"

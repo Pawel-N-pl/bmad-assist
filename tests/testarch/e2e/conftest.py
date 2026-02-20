@@ -10,12 +10,12 @@ Provides fixtures for:
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # =============================================================================
 # Path Reset Fixture (CRITICAL - prevents singleton pollution)
@@ -51,6 +51,7 @@ def tea_project_with_workflows(tmp_path: Path) -> Path:
 
     Returns:
         Path to temporary project root.
+
     """
     # Create workflow directories for all 8 workflows
     workflows = [
@@ -157,6 +158,7 @@ def tea_minimal_project(tmp_path: Path) -> Path:
 
     Returns:
         Path to temporary project root.
+
     """
     (tmp_path / "docs").mkdir(parents=True)
     (tmp_path / "docs/project-context.md").write_text("# Project Context\nRules here.")
@@ -360,6 +362,7 @@ def create_provider_result(
 
     Returns:
         ProviderResult instance.
+
     """
     from bmad_assist.providers.base import ProviderResult
 

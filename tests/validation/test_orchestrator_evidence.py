@@ -17,7 +17,6 @@ import pytest
 
 from bmad_assist.validation.anonymizer import AnonymizedValidation
 from bmad_assist.validation.evidence_score import (
-    CacheFormatError,
     EvidenceFinding,
     EvidenceScoreAggregate,
     EvidenceScoreReport,

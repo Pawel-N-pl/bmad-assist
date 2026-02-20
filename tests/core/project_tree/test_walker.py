@@ -2,13 +2,11 @@
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from bmad_assist.core.project_tree.config import ProjectTreeConfig
 from bmad_assist.core.project_tree.gitignore import GitignoreParser
-from bmad_assist.core.project_tree.types import TreeEntry
 from bmad_assist.core.project_tree.walker import TreeWalker
 
 

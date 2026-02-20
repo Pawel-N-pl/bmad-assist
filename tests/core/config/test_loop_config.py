@@ -9,15 +9,15 @@ Tests for:
 """
 
 import logging
+
 import pytest
 from pydantic import ValidationError
 
 from bmad_assist.core.config.models.loop import (
-    LoopConfig,
     DEFAULT_LOOP_CONFIG,
     TEA_FULL_LOOP_CONFIG,
+    LoopConfig,
 )
-
 
 # =============================================================================
 # Test DEFAULT_LOOP_CONFIG
@@ -144,7 +144,7 @@ class TestTeaFullLoopConfig:
         assert "retrospective" in TEA_FULL_LOOP_CONFIG.epic_teardown
 
     def test_trace_before_retrospective(self) -> None:
-        """trace comes before retrospective in TEA epic_teardown."""
+        """Trace comes before retrospective in TEA epic_teardown."""
         teardown = TEA_FULL_LOOP_CONFIG.epic_teardown
         trace_idx = teardown.index("trace")
         retro_idx = teardown.index("retrospective")

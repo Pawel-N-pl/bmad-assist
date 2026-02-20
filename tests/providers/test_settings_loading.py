@@ -165,8 +165,8 @@ class TestValidateSettingsFile:
         assert len(record.args) == 3
         # Verify the arguments are passed separately (structured logging)
         assert str(missing_file) in str(record.args[0])
-        assert "test-provider" == record.args[1]
-        assert "test-model" == record.args[2]
+        assert record.args[1] == "test-provider"
+        assert record.args[2] == "test-model"
 
 
 class TestClaudeSubprocessProviderSettingsIntegration:

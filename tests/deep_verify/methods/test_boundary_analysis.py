@@ -10,13 +10,10 @@ import yaml
 
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
-    Evidence,
-    Finding,
     MethodId,
     Severity,
 )
 from bmad_assist.deep_verify.methods import BoundaryAnalysisMethod, ChecklistItem, ChecklistLoader
-
 
 # =============================================================================
 # Test Fixtures

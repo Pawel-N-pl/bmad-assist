@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from bmad_assist.bmad.sharding.sorting import EPIC_NUMBER_PATTERN, get_sort_key
 
 

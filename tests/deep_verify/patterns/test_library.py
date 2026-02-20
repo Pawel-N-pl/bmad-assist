@@ -10,12 +10,11 @@ from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
     PatternId,
     Severity,
-    Signal,
 )
 from bmad_assist.deep_verify.patterns.library import (
+    PATTERN_ID_REGEX,
     PatternLibrary,
     _parse_yaml_signal,
-    PATTERN_ID_REGEX,
 )
 
 
@@ -504,7 +503,7 @@ class TestPatternLibraryLoadRealData:
         if yaml_file.exists():
             library = PatternLibrary.load([yaml_file])
             assert len(library) >= 5  # At least 5 concurrency patterns
-            
+
             # Check CC-001 exists and has correct structure
             pattern = library.get_pattern(PatternId("CC-001"))
             assert pattern is not None

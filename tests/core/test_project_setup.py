@@ -7,7 +7,7 @@ Mocking strategy for Rich prompts:
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from rich.console import Console
@@ -228,7 +228,7 @@ class TestAtomicCopyFile:
 
     def test_temp_file_cleaned_on_write_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC9: Temp file cleaned up when write fails."""
-        from bmad_assist.core.project_setup import _atomic_copy_file, SetupError
+        from bmad_assist.core.project_setup import SetupError, _atomic_copy_file
 
         src = tmp_path / "source.txt"
         dst = tmp_path / "dest.txt"
@@ -258,7 +258,6 @@ class TestAtomicCopyFile:
         _atomic_copy_file(src, dst)
 
         # Check permissions (masking with 0o777 to ignore setuid/setgid bits)
-        import stat
         mode = dst.stat().st_mode & 0o777
         assert mode == 0o644
 
@@ -268,7 +267,7 @@ class TestNonTTYBehavior:
 
     def test_non_tty_returns_skip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC4: Non-TTY mode skips differing files without prompting."""
-        from bmad_assist.core.project_setup import _prompt_overwrite_batch, OverwriteDecision
+        from bmad_assist.core.project_setup import OverwriteDecision, _prompt_overwrite_batch
 
         # Mock stdin.isatty() to return False
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)

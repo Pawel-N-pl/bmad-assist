@@ -10,7 +10,6 @@ from bmad_assist.compiler.patching.session import (
     PatchSession,
     extract_workflow_from_response,
 )
-from bmad_assist.compiler.patching.types import TransformResult
 from bmad_assist.core.exceptions import PatchError
 from bmad_assist.providers.base import BaseProvider, ProviderResult
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 from bmad_assist.security.patterns import (
@@ -16,7 +15,6 @@ from bmad_assist.security.patterns import (
     get_pattern_dir,
     load_security_patterns,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers

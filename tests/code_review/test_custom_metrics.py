@@ -7,16 +7,12 @@ Tests cover:
 - Task 12: Unit tests for custom metrics
 """
 
-import re
 from pathlib import Path
-
-import pytest
 
 from bmad_assist.code_review.orchestrator import (
     _extract_code_review_custom_metrics,
     _extract_code_review_report,
 )
-
 
 # ============================================================================
 # Tests for custom metrics extraction (AC: #5)

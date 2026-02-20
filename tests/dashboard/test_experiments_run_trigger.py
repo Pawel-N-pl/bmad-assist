@@ -10,7 +10,7 @@ Tests verify the experiment run trigger endpoints for the dashboard:
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -23,7 +23,6 @@ from bmad_assist.dashboard.experiments import (
     ExperimentStatusEvent,
 )
 from bmad_assist.dashboard.server import DashboardServer
-
 
 # =============================================================================
 # Unit Tests: Request/Response Models

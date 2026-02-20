@@ -1,6 +1,5 @@
 """Tests for validation engine."""
 
-import pytest
 
 from bmad_assist.compiler.patching.types import TransformResult, Validation
 from bmad_assist.compiler.patching.validation import (

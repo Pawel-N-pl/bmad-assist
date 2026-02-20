@@ -19,7 +19,6 @@ from bmad_assist.security.config import (
     SecurityAgentProviderConfig,
 )
 
-
 # =============================================================================
 # SecurityAgentProviderConfig Tests
 # =============================================================================

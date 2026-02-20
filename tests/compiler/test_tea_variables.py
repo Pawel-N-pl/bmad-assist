@@ -7,10 +7,7 @@ Tests the TEA-specific variable resolution including:
 - Integration with step chain compilation
 """
 
-import tempfile
 from pathlib import Path
-
-import pytest
 
 
 class TestResolveKnowledgeIndex:

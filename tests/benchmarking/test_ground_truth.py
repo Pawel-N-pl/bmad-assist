@@ -13,7 +13,7 @@ Tests cover:
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,7 +22,6 @@ from bmad_assist.benchmarking.schema import (
     BenchmarkingError,
     GroundTruth,
 )
-
 
 # =============================================================================
 # Task 1: Dataclass and exception tests
@@ -438,8 +437,9 @@ class TestFindValidationReportForRecord:
 
     def test_returns_most_recent_when_multiple_matches(self, tmp_path: Path) -> None:
         """Return most recent file when multiple reports match."""
-        from bmad_assist.benchmarking.ground_truth import _find_validation_report_for_record
         import time
+
+        from bmad_assist.benchmarking.ground_truth import _find_validation_report_for_record
 
         validations_dir = tmp_path / "story-validations"
         validations_dir.mkdir()
@@ -680,7 +680,6 @@ class TestMatchFindings:
         """Category match boosts score and affects matching priority."""
         from bmad_assist.benchmarking.ground_truth import (
             CodeReviewFinding,
-            ValidationFinding,
             _calculate_combined_score,
         )
 
@@ -1240,8 +1239,9 @@ Consider adding retry mechanism.
         sample_evaluation_record: dict,
     ) -> None:
         """Already populated ground truth is overwritten with warning."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import populate_ground_truth
 
@@ -1672,8 +1672,9 @@ class TestAmendGroundTruth:
         sample_evaluation_record: dict,
     ) -> None:
         """Successfully apply amendment to ground truth."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import amend_ground_truth
         from bmad_assist.benchmarking.storage import load_evaluation_record
@@ -1724,8 +1725,9 @@ class TestAmendGroundTruth:
         sample_evaluation_record: dict,
     ) -> None:
         """Apply multiple amendments in sequence."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import amend_ground_truth
         from bmad_assist.benchmarking.storage import load_evaluation_record
@@ -1788,8 +1790,9 @@ class TestAmendGroundTruth:
         sample_evaluation_record: dict,
     ) -> None:
         """Amendment recalculates precision and recall."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import amend_ground_truth
         from bmad_assist.benchmarking.storage import load_evaluation_record
@@ -1858,8 +1861,9 @@ class TestAmendGroundTruth:
         sample_evaluation_record: dict,
     ) -> None:
         """Raise GroundTruthError when ground truth not populated."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import (
             GroundTruthError,
@@ -1893,8 +1897,9 @@ class TestAmendGroundTruth:
         sample_evaluation_record: dict,
     ) -> None:
         """Negative values are clamped to 0."""
-        import yaml
         from datetime import UTC, datetime
+
+        import yaml
 
         from bmad_assist.benchmarking.ground_truth import amend_ground_truth
         from bmad_assist.benchmarking.storage import load_evaluation_record

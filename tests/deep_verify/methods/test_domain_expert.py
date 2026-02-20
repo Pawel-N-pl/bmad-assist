@@ -1174,8 +1174,6 @@ class TestAsyncBehavior:
 
     def test_analyze_requires_await(self, method: DomainExpertMethod) -> None:
         """Test that analyze returns a coroutine when not awaited."""
-        import asyncio
-
         result = method.analyze("")
         # In Python 3.8+, coroutines are not detected by inspect.iscoroutine
         # So we just check it's not a list yet

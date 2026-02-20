@@ -425,7 +425,7 @@ class TestCreateSynthesizerRecord:
 """
 
     @pytest.fixture
-    def sample_workflow_info(self) -> "WorkflowInfo":
+    def sample_workflow_info(self) -> WorkflowInfo:
         """Sample workflow info."""
         from bmad_assist.benchmarking import PatchInfo, WorkflowInfo
 
@@ -437,7 +437,7 @@ class TestCreateSynthesizerRecord:
         )
 
     @pytest.fixture
-    def sample_story_info(self) -> "StoryInfo":
+    def sample_story_info(self) -> StoryInfo:
         """Sample story info."""
         from bmad_assist.benchmarking import StoryInfo
 
@@ -451,8 +451,8 @@ class TestCreateSynthesizerRecord:
     def test_creates_record_with_synthesizer_role(
         self,
         valid_synthesis_output: str,
-        sample_workflow_info: "WorkflowInfo",
-        sample_story_info: "StoryInfo",
+        sample_workflow_info: WorkflowInfo,
+        sample_story_info: StoryInfo,
     ) -> None:
         """Creates LLMEvaluationRecord with role=SYNTHESIZER."""
         from datetime import UTC, datetime
@@ -484,8 +484,8 @@ class TestCreateSynthesizerRecord:
     def test_populates_quality_and_consensus(
         self,
         valid_synthesis_output: str,
-        sample_workflow_info: "WorkflowInfo",
-        sample_story_info: "StoryInfo",
+        sample_workflow_info: WorkflowInfo,
+        sample_story_info: StoryInfo,
     ) -> None:
         """Populates quality and consensus from extracted metrics."""
         from datetime import UTC, datetime
@@ -517,8 +517,8 @@ class TestCreateSynthesizerRecord:
 
     def test_handles_extraction_failure(
         self,
-        sample_workflow_info: "WorkflowInfo",
-        sample_story_info: "StoryInfo",
+        sample_workflow_info: WorkflowInfo,
+        sample_story_info: StoryInfo,
     ) -> None:
         """Returns None for quality/consensus when extraction fails."""
         from datetime import UTC, datetime
@@ -554,8 +554,8 @@ class TestCreateSynthesizerRecord:
     def test_calculates_duration_from_times(
         self,
         valid_synthesis_output: str,
-        sample_workflow_info: "WorkflowInfo",
-        sample_story_info: "StoryInfo",
+        sample_workflow_info: WorkflowInfo,
+        sample_story_info: StoryInfo,
     ) -> None:
         """Calculates duration_ms from start and end times."""
         from datetime import UTC, datetime
@@ -585,8 +585,8 @@ class TestCreateSynthesizerRecord:
     def test_sequence_position_is_validator_count(
         self,
         valid_synthesis_output: str,
-        sample_workflow_info: "WorkflowInfo",
-        sample_story_info: "StoryInfo",
+        sample_workflow_info: WorkflowInfo,
+        sample_story_info: StoryInfo,
     ) -> None:
         """Synthesizer runs after all validators, so sequence_position = validator_count."""
         from datetime import UTC, datetime

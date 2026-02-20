@@ -1050,8 +1050,8 @@ class TestApplyStartPointOverride:
 
     def test_epic_only_uses_first_undone_story(self, tmp_path: Path) -> None:
         """--epic without --story finds first story with status not 'done'."""
+        from bmad_assist.bmad.state_reader import EpicStory, ProjectState
         from bmad_assist.cli_start_point import apply_start_point_override
-        from bmad_assist.bmad.state_reader import ProjectState, EpicStory
         from bmad_assist.core.state import State
 
         project_dir = tmp_path / "project"
@@ -1123,9 +1123,10 @@ class TestApplyStartPointOverride:
 
     def test_invalid_epic_exits_with_error(self, tmp_path: Path) -> None:
         """Invalid epic exits with EXIT_CONFIG_ERROR."""
-        from bmad_assist.cli_start_point import apply_start_point_override
-        from bmad_assist.bmad.state_reader import ProjectState, EpicStory
         import typer
+
+        from bmad_assist.bmad.state_reader import EpicStory, ProjectState
+        from bmad_assist.cli_start_point import apply_start_point_override
 
         project_dir = tmp_path / "project"
         project_dir.mkdir()

@@ -3,7 +3,7 @@
 This module tests the anonymizer functionality for Multi-LLM validation synthesis.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -48,7 +48,7 @@ class TestValidationOutput:
             provider="claude",
             model="claude-sonnet-4",
             content="Test content",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             duration_ms=1000,
             token_count=100,
         )
@@ -65,7 +65,7 @@ class TestValidationOutput:
             provider="claude",
             model="claude-sonnet-4",
             content="Test content",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             duration_ms=1000,
             token_count=100,
         )
@@ -115,7 +115,7 @@ class TestAnonymizationMapping:
 
         mapping = AnonymizationMapping(
             session_id="test-session",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={},
         )
 
@@ -126,7 +126,7 @@ class TestAnonymizationMapping:
         """All fields are present."""
         from bmad_assist.validation import AnonymizationMapping
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mapping = AnonymizationMapping(
             session_id="test-session",
             timestamp=now,
@@ -150,7 +150,7 @@ class TestAnonymizeValidations:
             provider=provider,
             model=model,
             content=content,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             duration_ms=1000,
             token_count=100,
         )
@@ -342,7 +342,7 @@ class TestAnonymizeValidations:
         """Mapping contains all required metadata fields."""
         from bmad_assist.validation import anonymize_validations
 
-        now = datetime(2025, 12, 16, 10, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 12, 16, 10, 0, 0, tzinfo=UTC)
         from bmad_assist.validation import ValidationOutput
 
         output = ValidationOutput(
@@ -378,7 +378,7 @@ class TestNeutralizePatterns:
             provider=provider,
             model=model,
             content=content,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             duration_ms=1000,
             token_count=100,
         )
@@ -756,7 +756,7 @@ class TestMappingPersistence:
 
         mapping = AnonymizationMapping(
             session_id="test-session-123",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={},
         )
 
@@ -775,7 +775,7 @@ class TestMappingPersistence:
 
         mapping = AnonymizationMapping(
             session_id="test-session-456",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={"Validator A": {"provider": "claude"}},
         )
 
@@ -803,7 +803,7 @@ class TestMappingPersistence:
 
         mapping = AnonymizationMapping(
             session_id="test-atomic",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={},
         )
 
@@ -821,7 +821,7 @@ class TestMappingPersistence:
 
         from bmad_assist.validation import AnonymizationMapping, save_mapping
 
-        now = datetime(2025, 12, 16, 1, 21, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 12, 16, 1, 21, 0, tzinfo=UTC)
         mapping = AnonymizationMapping(
             session_id="550e8400-e29b-41d4-a716-446655440000",
             timestamp=now,
@@ -839,7 +839,7 @@ class TestMappingPersistence:
 
         result_path = save_mapping(mapping, tmp_path)
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             data = json.load(f)
 
         assert data["session_id"] == "550e8400-e29b-41d4-a716-446655440000"
@@ -854,12 +854,12 @@ class TestMappingPersistence:
 
         mapping1 = AnonymizationMapping(
             session_id="same-session",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={"Validator A": {"provider": "claude"}},
         )
         mapping2 = AnonymizationMapping(
             session_id="same-session",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             mapping={"Validator B": {"provider": "gemini"}},
         )
 
@@ -870,7 +870,7 @@ class TestMappingPersistence:
 
         import json
 
-        with open(path2, "r", encoding="utf-8") as f:
+        with open(path2, encoding="utf-8") as f:
             data = json.load(f)
         assert "Validator B" in data["mapping"]
         assert "Validator A" not in data["mapping"]
@@ -887,7 +887,7 @@ class TestGetMapping:
             save_mapping,
         )
 
-        now = datetime(2025, 12, 16, 1, 21, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 12, 16, 1, 21, 0, tzinfo=UTC)
         original = AnonymizationMapping(
             session_id="test-retrieval",
             timestamp=now,

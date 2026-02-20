@@ -1,11 +1,9 @@
 """Tests for TestarchBaseHandler."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.config import Config
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import State
 from bmad_assist.providers.base import ProviderResult
@@ -45,14 +43,14 @@ def mock_config():
     config.testarch.knowledge = KnowledgeConfig(
         playwright_utils=True,
     )
-    
+
     # Configure providers
     config.providers = MagicMock()
     config.providers.master = MagicMock()
     config.providers.master.provider = "mock-provider"
     config.providers.master.model = "mock-model"
     config.timeout = 30
-    
+
     return config
 
 
@@ -76,17 +74,17 @@ def test_initialization(handler):
 
 def test_get_evidence_config(handler, mock_config):
     assert handler._get_evidence_config() == mock_config.testarch.evidence
-    
+
     mock_config.testarch = None
     assert handler._get_evidence_config() is None
 
 
 def test_should_collect_evidence(handler, mock_config):
     assert handler._should_collect_evidence() is True
-    
+
     # Disabled in config
     mock_config.testarch.evidence = EvidenceConfig(enabled=False)
-    # Even if enabled is False, the object exists. 
+    # Even if enabled is False, the object exists.
     # Logic: evidence_config.enabled and collect_before_step
     # Default collect_before_step is True.
     assert handler._should_collect_evidence() is False
@@ -100,9 +98,9 @@ def test_should_collect_evidence(handler, mock_config):
 def test_collect_evidence(mock_get_collector, handler, mock_config):
     mock_collector_instance = MagicMock()
     mock_get_collector.return_value = mock_collector_instance
-    
+
     handler._collect_evidence()
-    
+
     mock_get_collector.assert_called_with(handler.project_path)
     mock_collector_instance.collect_all.assert_called_with(mock_config.testarch.evidence)
 
@@ -112,7 +110,7 @@ def test_get_evidence_markdown(mock_get_collector, handler):
     mock_collector_instance = MagicMock()
     mock_collector_instance.collect_all.return_value.to_markdown.return_value = "# Evidence"
     mock_get_collector.return_value = mock_collector_instance
-    
+
     markdown = handler._get_evidence_markdown()
     assert markdown == "# Evidence"
 
@@ -126,12 +124,12 @@ def test_save_evidence(mock_get_paths, handler, mock_config):
     mock_paths = MagicMock()
     mock_paths.implementation_artifacts = handler.project_path / "artifacts"
     mock_get_paths.return_value = mock_paths
-    
+
     evidence = MagicMock()
     evidence.to_markdown.return_value = "Evidence Content"
-    
+
     path = handler._save_evidence(evidence, "1.2")
-    
+
     assert path is not None
     assert path.exists()
     assert "Evidence Content" in path.read_text()
@@ -199,7 +197,7 @@ def test_extract_numeric_score(handler):
     text = "Quality Score: 85/100"
     patterns = [r"Score: (\d+)"]
     assert handler._extract_numeric_score(text, patterns) == 85
-    
+
     text = "Score: 105/100" # Invalid
     assert handler._extract_numeric_score(text, patterns) is None
 
@@ -223,7 +221,7 @@ def test_extract_file_path(handler):
 def test_save_report(handler, tmp_path):
     output_dir = tmp_path / "reports"
     path = handler._save_report(output_dir, "test", "content", "1.1")
-    
+
     assert path.exists()
     assert path.read_text() == "content"
     assert path.name.startswith("test-1.1-")
@@ -236,7 +234,7 @@ def test_save_report(handler, tmp_path):
 def test_is_first_story_in_epic(handler):
     state = State(current_story="1.1")
     assert handler._is_first_story_in_epic(state) is True
-    
+
     state = State(current_story="1.2")
     assert handler._is_first_story_in_epic(state) is False
 
@@ -249,9 +247,9 @@ def test_get_story_file_path(handler, project_path):
     artifacts = project_path / "_bmad-output" / "implementation-artifacts"
     artifacts.mkdir(parents=True)
     (artifacts / "10-2-my-story.md").touch()
-    
+
     state = State(current_epic="10", current_story="10.2")
-    
+
     path = handler._get_story_file_path(state)
     assert path is not None
     assert path.name == "10-2-my-story.md"

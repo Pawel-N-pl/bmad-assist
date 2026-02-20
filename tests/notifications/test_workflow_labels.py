@@ -12,7 +12,7 @@ Tests cover:
 
 import threading
 from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
@@ -449,13 +449,12 @@ notification: {}
 
     def test_load_file_not_found(self) -> None:
         """Test loading config when file doesn't exist returns None."""
-        with patch.object(Path, "exists", return_value=False):
-            with patch(
-                "bmad_assist.notifications.workflow_labels._find_workflow_yaml_paths",
-                return_value=[Path("/fake/workflow.yaml")],
-            ):
-                config = _load_workflow_notification_config("nonexistent")
-                assert config is None
+        with patch.object(Path, "exists", return_value=False), patch(
+            "bmad_assist.notifications.workflow_labels._find_workflow_yaml_paths",
+            return_value=[Path("/fake/workflow.yaml")],
+        ):
+            config = _load_workflow_notification_config("nonexistent")
+            assert config is None
 
     def test_load_malformed_yaml(self) -> None:
         """Test loading malformed YAML returns None and logs warning."""

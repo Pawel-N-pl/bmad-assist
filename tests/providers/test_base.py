@@ -15,7 +15,7 @@ Tests cover:
 """
 
 import inspect
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 

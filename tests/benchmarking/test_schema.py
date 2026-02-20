@@ -9,8 +9,7 @@ Tests cover:
 - Identity field auto-generation (AC6)
 """
 
-import re
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest

@@ -6,7 +6,6 @@ that evidence is properly collected, cached, and passed to workflow context.
 """
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +13,7 @@ import pytest
 from bmad_assist.core.state import State
 
 # Import shared fixtures from conftest
-from tests.testarch.e2e.conftest import FakeConfig, FakeTestarchConfig
+from tests.testarch.e2e.conftest import FakeConfig
 
 
 class TestEvidenceCollectorBasics:
@@ -52,7 +51,7 @@ end_of_record
 
     def test_collector_singleton_per_project(self, tmp_path: Path) -> None:
         """Test collector is singleton per project root."""
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
 
@@ -74,7 +73,7 @@ end_of_record
         self, setup_project_with_coverage: Path
     ) -> None:
         """Test collector can collect coverage evidence."""
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
         project_path = setup_project_with_coverage
@@ -94,7 +93,7 @@ end_of_record
         self, tmp_path: Path
     ) -> None:
         """Test collector handles missing evidence files gracefully."""
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
 
@@ -217,7 +216,7 @@ class TestEvidenceCaching:
 
     def test_collector_caches_evidence(self, setup_cacheable_project: Path) -> None:
         """Test collector caches evidence on subsequent calls."""
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
         project_path = setup_cacheable_project
@@ -241,7 +240,7 @@ class TestEvidenceCaching:
         """Test collector invalidates cache when source files change."""
         import time
 
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
         project_path = setup_cacheable_project
@@ -362,7 +361,7 @@ end_of_record
         self, setup_multi_source_project: Path
     ) -> None:
         """Test collector handles multiple evidence sources."""
-        from bmad_assist.testarch.evidence import get_evidence_collector, clear_all_collectors
+        from bmad_assist.testarch.evidence import clear_all_collectors, get_evidence_collector
 
         clear_all_collectors()
         project_path = setup_multi_source_project

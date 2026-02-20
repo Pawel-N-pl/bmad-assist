@@ -28,8 +28,8 @@ class TestPlatformDetection:
 
     def test_matches_sys_platform(self):
         """IS_WINDOWS should match sys.platform == win32."""
-        assert IS_WINDOWS == (sys.platform == "win32")
-        assert IS_POSIX == (sys.platform != "win32")
+        assert (sys.platform == "win32") == IS_WINDOWS
+        assert (sys.platform != "win32") == IS_POSIX
 
 
 class TestTempFileThreshold:

@@ -1,7 +1,6 @@
 """Tests for parallel_delay parsing."""
 
 import logging
-from unittest.mock import patch
 
 import pytest
 

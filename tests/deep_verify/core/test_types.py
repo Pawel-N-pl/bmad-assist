@@ -7,7 +7,6 @@ import pytest
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
     DeepVerifyValidationResult,
-    DomainAmbiguity,
     DomainConfidence,
     DomainDetectionResult,
     Evidence,
@@ -23,7 +22,6 @@ from bmad_assist.deep_verify.core.types import (
     serialize_finding,
     serialize_verdict,
 )
-
 
 # =============================================================================
 # Enum Tests

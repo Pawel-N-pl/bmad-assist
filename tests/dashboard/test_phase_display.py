@@ -6,10 +6,8 @@ Tests verify:
 - AC3: All standard phases match documented convention
 """
 
-import pytest
 
 from bmad_assist.dashboard.server import PHASE_DISPLAY_NAMES, _build_phases_from_config
-
 
 # =============================================================================
 # Test: PHASE_DISPLAY_NAMES Mapping - AC1, AC3

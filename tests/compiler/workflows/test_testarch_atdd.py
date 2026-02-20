@@ -5,12 +5,11 @@ ATDD (Acceptance Test Driven Development) workflow execution.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.compiler.core import compile_workflow, get_workflow_compiler
-from bmad_assist.compiler.types import CompilerContext, WorkflowIR
+from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.exceptions import CompilerError
 
 

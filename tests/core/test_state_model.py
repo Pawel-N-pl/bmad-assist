@@ -21,7 +21,6 @@ from pydantic import ValidationError
 
 from bmad_assist.core.state import Phase, State
 
-
 # =============================================================================
 # AC2: Phase enum defines workflow phases
 # =============================================================================

@@ -5,7 +5,6 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
 import yaml
 
 from bmad_assist.deep_verify.metrics.corpus_loader import (
@@ -109,7 +108,6 @@ class TestArtifactLabel:
         """Test content_path property returns Path."""
         from bmad_assist.deep_verify.metrics.corpus_loader import (
             ArtifactMetadata,
-            ExpectedDomainLabel,
         )
 
         label = ArtifactLabel(

@@ -13,9 +13,9 @@ from unittest.mock import patch
 import pytest
 
 from bmad_assist.compiler import (
+    CompiledWorkflow,
     CompilerContext,
     CompilerError,
-    CompiledWorkflow,
     WorkflowCompiler,
     WorkflowIR,
     compile_workflow,
@@ -79,8 +79,8 @@ class TestModuleStructure:
 
     def test_compiler_error_importable_from_core_exceptions(self) -> None:
         """CompilerError should be importable from core.exceptions."""
-        from bmad_assist.core.exceptions import CompilerError as CoreCompilerError
         from bmad_assist.core.exceptions import BmadAssistError
+        from bmad_assist.core.exceptions import CompilerError as CoreCompilerError
 
         assert issubclass(CoreCompilerError, BmadAssistError)
 
@@ -305,7 +305,7 @@ class TestWorkflowCompilerProtocol:
         assert "output_folder" in str(exc_info.value)
 
     def test_create_story_compiler_compile_returns_compiled_workflow(self, tmp_path: Path) -> None:
-        """compile returns CompiledWorkflow instance."""
+        """Compile returns CompiledWorkflow instance."""
         # Create required directory structure
         docs = tmp_path / "docs"
         docs.mkdir()

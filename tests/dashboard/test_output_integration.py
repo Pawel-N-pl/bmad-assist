@@ -15,10 +15,9 @@ import asyncio
 import threading
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # =============================================================================
 # Task 1: Test Thread-Local Provider Context (AC: 2, 3)
@@ -464,11 +463,9 @@ class TestSyncToAsyncBridge:
         THEN returns early without error.
         """
         from bmad_assist.dashboard import (
-            register_output_bridge,
             sync_broadcast,
             unregister_output_bridge,
         )
-        from bmad_assist.dashboard.sse import SSEBroadcaster
 
         # GIVEN: Create a new (not-running) loop and register it
         # Note: This simulates the server shutdown scenario
@@ -659,7 +656,6 @@ class TestEndToEndOutputFlow:
         WHEN write_progress() is called with active provider
         THEN subscriber receives output via SSE.
         """
-        from bmad_assist.dashboard import get_output_hook
         from bmad_assist.dashboard.server import DashboardServer
         from bmad_assist.providers.base import set_active_provider, write_progress
 

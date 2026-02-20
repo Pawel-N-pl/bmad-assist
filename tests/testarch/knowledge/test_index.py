@@ -1,10 +1,11 @@
 """Tests for CSV index parsing."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from bmad_assist.core.exceptions import ParserError
-from bmad_assist.testarch.knowledge.index import parse_index, REQUIRED_COLUMNS
+from bmad_assist.testarch.knowledge.index import REQUIRED_COLUMNS, parse_index
 
 
 class TestParseIndex:
@@ -148,7 +149,7 @@ valid-id,Test2,Desc2,tag2,test2.md
 
     def test_required_columns_set(self) -> None:
         """Test that REQUIRED_COLUMNS contains expected columns."""
-        assert REQUIRED_COLUMNS == {"id", "name", "description", "tags", "fragment_file"}
+        assert {"id", "name", "description", "tags", "fragment_file"} == REQUIRED_COLUMNS
 
     def test_parse_preserves_order(self, tmp_path: Path) -> None:
         """Test that fragments are returned in CSV order."""

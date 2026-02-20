@@ -8,18 +8,18 @@ from bmad_assist.deep_verify.core.types import (
     PatternId,
     Severity,
     Signal,
-    serialize_pattern,
     deserialize_pattern,
-    serialize_signal,
     deserialize_signal,
+    serialize_pattern,
+    serialize_signal,
 )
 from bmad_assist.deep_verify.patterns.types import (
     MatchedSignal,
     PatternMatchResult,
-    serialize_matched_signal,
+    deserialize_match_result,
     deserialize_matched_signal,
     serialize_match_result,
-    deserialize_match_result,
+    serialize_matched_signal,
 )
 
 

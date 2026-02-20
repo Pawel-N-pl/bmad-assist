@@ -224,12 +224,12 @@ class TestDebugJsonLoggerIntegration:
             assert logger.enabled is False
 
     def test_path_property_returns_none_when_disabled(self, tmp_path: Path) -> None:
-        """path property should return None when disabled."""
+        """Path property should return None when disabled."""
         logger = DebugJsonLogger(debug_dir=tmp_path, enabled=False)
         assert logger.path is None
 
     def test_path_property_returns_path_when_enabled(self, tmp_path: Path) -> None:
-        """path property should return Path when enabled and file created."""
+        """Path property should return Path when enabled and file created."""
         logger = DebugJsonLogger(debug_dir=tmp_path, enabled=True)
 
         logger.append(json.dumps({"type": "system", "subtype": "init", "session_id": "test"}))

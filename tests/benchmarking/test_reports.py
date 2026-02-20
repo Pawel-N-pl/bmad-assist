@@ -7,7 +7,7 @@ Tests for Story 13.9: Model Comparison Report.
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -26,7 +26,6 @@ from bmad_assist.benchmarking.schema import (
     WorkflowInfo,
 )
 from bmad_assist.benchmarking.storage import StorageError
-
 
 # =============================================================================
 # Task 1: Dataclass Tests
@@ -475,8 +474,6 @@ class TestCalculateSignificance:
 
     def test_scipy_not_available(self) -> None:
         """Test graceful degradation when scipy is not available."""
-        from bmad_assist.benchmarking.reports import _calculate_significance
-
         values_a = [1.0] * 15
         values_b = [2.0] * 15
 
@@ -747,7 +744,6 @@ class TestGenerateComparisonReport:
         """Test that scipy unavailable note is included."""
         from bmad_assist.benchmarking.reports import (
             ComparisonResult,
-            MetricComparison,
             VariantMetrics,
             generate_comparison_report,
         )

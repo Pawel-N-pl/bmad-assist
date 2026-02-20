@@ -3,7 +3,6 @@
 Tests organized by Acceptance Criteria from the tech-spec.
 """
 
-import asyncio
 import json
 import os
 import threading
@@ -15,7 +14,6 @@ import pytest
 
 from bmad_assist.core.exceptions import ProviderError, ProviderTimeoutError
 from bmad_assist.providers.base import BaseProvider, ProviderResult
-
 
 # =============================================================================
 # Module-level state reset fixture (autouse)
@@ -298,10 +296,9 @@ class TestOpenCodeSDKProviderErrors:
             patch(
                 "bmad_assist.core.async_utils.run_async_in_thread",
                 side_effect=TimeoutError,
-            ),
+            ),pytest.raises(ProviderTimeoutError)
         ):
-            with pytest.raises(ProviderTimeoutError):
-                provider.invoke("Hello", model="opencode/claude-sonnet-4", timeout=1)
+            provider.invoke("Hello", model="opencode/claude-sonnet-4", timeout=1)
 
     def test_ac8_server_failure_sets_cooldown(self):
         """AC8: Server startup failure sets cooldown."""
@@ -353,10 +350,9 @@ class TestOpenCodeSDKProviderErrors:
             patch(
                 "bmad_assist.core.async_utils.run_async_in_thread",
                 side_effect=ImportError("No module named 'opencode_ai'"),
-            ),
+            ),pytest.raises(ProviderError, match="opencode-ai package not installed")
         ):
-            with pytest.raises(ProviderError, match="opencode-ai package not installed"):
-                provider.invoke("Hello", model="opencode/claude-sonnet-4")
+            provider.invoke("Hello", model="opencode/claude-sonnet-4")
 
 
 # =============================================================================
@@ -407,7 +403,6 @@ class TestOpenCodeSDKProviderExports:
     def test_no_top_level_sdk_import(self):
         """No top-level opencode_ai import in module."""
         import ast
-
         import importlib.util
 
         spec = importlib.util.find_spec("bmad_assist.providers.opencode_sdk")
@@ -758,9 +753,9 @@ class TestOpenCodeSDKProviderPIDFile:
     """AC19: PID file lifecycle."""
 
     def test_stale_pid_file_cleaned(self):
-        from bmad_assist.providers.opencode_sdk import _read_pid_file
-
         import tempfile
+
+        from bmad_assist.providers.opencode_sdk import _read_pid_file
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -774,9 +769,9 @@ class TestOpenCodeSDKProviderPIDFile:
             assert not pid_file.exists()
 
     def test_corrupt_pid_file(self):
-        from bmad_assist.providers.opencode_sdk import _read_pid_file
-
         import tempfile
+
+        from bmad_assist.providers.opencode_sdk import _read_pid_file
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,
@@ -786,9 +781,9 @@ class TestOpenCodeSDKProviderPIDFile:
             assert _read_pid_file(14096) is None
 
     def test_missing_pid_file(self):
-        from bmad_assist.providers.opencode_sdk import _read_pid_file
-
         import tempfile
+
+        from bmad_assist.providers.opencode_sdk import _read_pid_file
 
         with (
             tempfile.TemporaryDirectory() as tmpdir,

@@ -1,7 +1,7 @@
 """End-to-end integration tests for patch compilation."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -9,14 +9,11 @@ import pytest
 
 from bmad_assist.compiler.patching import (
     CacheMeta,
-    Compatibility,
-    PatchConfig,
     PatchSession,
     TemplateCache,
     TemplateMetadata,
     TransformResult,
     Validation,
-    WorkflowPatch,
     check_threshold,
     compute_file_hash,
     discover_patch,
@@ -160,7 +157,7 @@ validation:
         # Create cache
         cache = TemplateCache()
         content = "<workflow>Compiled content</workflow>"
-        compiled_at = datetime.now(timezone.utc).isoformat()
+        compiled_at = datetime.now(UTC).isoformat()
 
         meta = CacheMeta(
             compiled_at=compiled_at,
@@ -198,7 +195,7 @@ validation:
         # Create and save cache
         cache = TemplateCache()
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_file)},
             patch_hash=compute_file_hash(patch_file),
@@ -477,7 +474,7 @@ validation:
             patch_name=patch.config.name,
             patch_version=patch.config.version,
             bmad_version="0.1.0",
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             source_hash=compute_file_hash(patch_path),
         )
         template = generate_template(result, meta)

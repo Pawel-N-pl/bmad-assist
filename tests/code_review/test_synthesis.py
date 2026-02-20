@@ -7,17 +7,15 @@ Tests cover:
 - Task 11: Unit tests for synthesis record
 """
 
-from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.code_review.orchestrator import (
     CODE_REVIEW_SYNTHESIS_WORKFLOW_ID,
-    save_reviews_for_synthesis,
-    load_reviews_for_synthesis,
     CodeReviewError,
+    load_reviews_for_synthesis,
+    save_reviews_for_synthesis,
 )
 from bmad_assist.validation.anonymizer import AnonymizedValidation
 from bmad_assist.validation.evidence_score import (
@@ -25,7 +23,6 @@ from bmad_assist.validation.evidence_score import (
     Severity,
     Verdict,
 )
-
 
 # ============================================================================
 # Tests for save_reviews_for_synthesis and load_reviews_for_synthesis

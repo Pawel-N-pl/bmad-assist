@@ -103,10 +103,9 @@ class TestCheckpointAndPrompt:
 
         with patch(
             "bmad_assist.core.loop.interactive.save_state",
-            side_effect=IOError("Disk full"),
-        ):
-            with pytest.raises(IOError, match="Disk full"):
-                checkpoint_and_prompt(mock_state, state_path, "Continue?")
+            side_effect=OSError("Disk full"),
+        ), pytest.raises(IOError, match="Disk full"):
+            checkpoint_and_prompt(mock_state, state_path, "Continue?")
 
     def test_returns_prompt_result_true(self, tmp_path: Path) -> None:
         """Returns True when prompt_continuation returns True."""

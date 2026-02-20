@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -42,7 +42,6 @@ from bmad_assist.sprint.writer import (
     has_ruamel,
     write_sprint_status,
 )
-
 
 # =============================================================================
 # Fixtures

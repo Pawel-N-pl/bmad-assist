@@ -21,7 +21,6 @@ import yaml
 from bmad_assist.core.exceptions import StateError
 from bmad_assist.core.state import State, _cleanup_temp_files, save_state
 
-
 # =============================================================================
 # AC1: Atomic write via temporary file + rename
 # =============================================================================

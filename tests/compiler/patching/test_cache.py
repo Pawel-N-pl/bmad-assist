@@ -1,8 +1,7 @@
 """Tests for cache management."""
 
-import hashlib
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,7 +162,7 @@ class TestTemplateCache:
         patch_file.write_text("patch content")
 
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(source_file)},
             patch_hash=compute_file_hash(patch_file),

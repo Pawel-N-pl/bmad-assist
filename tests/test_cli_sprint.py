@@ -9,7 +9,6 @@ Tests the CLI commands added in Story 20.11:
 
 import json
 import os
-import shutil
 from pathlib import Path
 
 import pytest
