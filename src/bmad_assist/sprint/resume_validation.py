@@ -404,7 +404,45 @@ def validate_resume_state(
             # Continue loop to check if new story is also done
             continue
 
-        # Current position is not done - we're at the right place
+        # Current position is not done — but check if an EARLIER story in
+        # this epic is also incomplete (e.g., Story X.0 added by hardening).
+        try:
+            epic_stories = epic_stories_loader(current_epic)
+        except Exception:
+            break  # Cannot load stories — keep current position
+
+        if epic_stories and current_state.current_story:
+            # Find first incomplete story in the full list
+            first_incomplete = None
+            for s in epic_stories:
+                if s in current_state.completed_stories:
+                    continue
+                if _is_story_done_in_sprint(s, sprint_status):
+                    continue
+                first_incomplete = s
+                break
+
+            if (
+                first_incomplete
+                and first_incomplete != current_state.current_story
+                and current_state.current_story in epic_stories
+                and epic_stories.index(first_incomplete)
+                < epic_stories.index(current_state.current_story)
+            ):
+                # Earlier story needs work — rewind
+                logger.info(
+                    "Earlier story %s is incomplete (before %s), rewinding",
+                    first_incomplete,
+                    current_state.current_story,
+                )
+                current_state = current_state.model_copy(
+                    update={
+                        "current_story": first_incomplete,
+                        "current_phase": Phase.CREATE_STORY,
+                        "updated_at": now,
+                    }
+                )
+
         break
 
     if iterations >= max_iterations:
