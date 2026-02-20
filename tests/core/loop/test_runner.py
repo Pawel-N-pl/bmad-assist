@@ -922,11 +922,12 @@ class TestRunLoopIntegrationFull:
                                 run_loop(config, tmp_path, [1], lambda x: ["1.1"])
 
         # DEFAULT_LOOP_CONFIG is minimal (no TEA phases):
-        # 6 story phases + RETROSPECTIVE in epic_teardown = 7 total
-        # With --tea flag (TEA_FULL_LOOP_CONFIG), would be 10 phases
-        assert len(phases_executed) == 7
+        # DEFAULT_LOOP_CONFIG is minimal (no TEA phases):
+        # 6 story phases + RETROSPECTIVE, HARDENING in epic_teardown = 8 total
+        # With --tea flag (TEA_FULL_LOOP_CONFIG), would be 11 phases
+        assert len(phases_executed) == 8
         assert phases_executed[0] == Phase.CREATE_STORY
-        assert phases_executed[-1] == Phase.RETROSPECTIVE
+        assert phases_executed[-1] == Phase.HARDENING
 
 
 class TestPhaseTimingReset:

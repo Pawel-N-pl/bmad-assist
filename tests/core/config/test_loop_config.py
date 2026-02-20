@@ -56,8 +56,8 @@ class TestDefaultLoopConfig:
         assert DEFAULT_LOOP_CONFIG.story == expected_core
 
     def test_epic_teardown_includes_retrospective(self) -> None:
-        """DEFAULT_LOOP_CONFIG epic_teardown includes only 'retrospective'."""
-        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective"]
+        """DEFAULT_LOOP_CONFIG epic_teardown includes 'retrospective' and 'hardening'."""
+        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective", "hardening"]
 
     def test_epic_teardown_no_trace(self) -> None:
         """DEFAULT_LOOP_CONFIG epic_teardown excludes 'trace' (TEA phase)."""

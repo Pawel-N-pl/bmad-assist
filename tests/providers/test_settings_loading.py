@@ -53,7 +53,7 @@ class TestResolveSettingsFile:
         """AC1: Absolute path is used directly, ignoring base_dir."""
         absolute_path = "/etc/provider-settings.json"
         result = resolve_settings_file(absolute_path, tmp_path)
-        assert result == Path(absolute_path)
+        assert result == Path(absolute_path).resolve()
 
     def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC8: Tilde (~) is expanded to user home directory."""
