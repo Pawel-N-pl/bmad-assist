@@ -12,7 +12,7 @@ Tests cover:
 - extract_validation_report() (Multi-LLM extraction)
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import frontmatter
@@ -753,7 +753,7 @@ class TestSaveValidationReportAC1:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         metadata = post.metadata
@@ -784,7 +784,7 @@ class TestSaveValidationReportAC1:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         ts = post.metadata["timestamp"]
@@ -806,7 +806,7 @@ class TestSaveValidationReportAC1:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         assert "## Issues Found" in post.content
@@ -937,7 +937,7 @@ class TestSaveSynthesisReportAC2:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         metadata = post.metadata
@@ -965,7 +965,7 @@ class TestSaveSynthesisReportAC2:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         ts = post.metadata["timestamp"]
@@ -985,7 +985,7 @@ class TestSaveSynthesisReportAC2:
             validations_dir=validations_dir,
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         assert "## Synthesis Summary" in post.content
@@ -1356,7 +1356,7 @@ class TestStory22_8SessionIdInValidationReports:
             session_id="test-session-12345",
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # AC #3: session_id should be in frontmatter
@@ -1378,7 +1378,7 @@ class TestStory22_8SessionIdInValidationReports:
             # session_id not provided
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # session_id should NOT be in frontmatter (backward compatible)
@@ -1400,7 +1400,7 @@ class TestStory22_8SessionIdInValidationReports:
             session_id="sess-abc-123",
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # Both role_id and session_id should be present
@@ -1435,7 +1435,7 @@ class TestStory22_8FailedValidatorsInSynthesis:
             failed_validators=["claude-haiku", "gemini-flash"],
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # AC #2, AC #4: failed_validators should be in frontmatter
@@ -1459,7 +1459,7 @@ class TestStory22_8FailedValidatorsInSynthesis:
             failed_validators=[],  # Empty list - treated same as None
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # Empty list is omitted (same as None) for cleaner YAML
@@ -1482,7 +1482,7 @@ class TestStory22_8FailedValidatorsInSynthesis:
             # failed_validators not provided (defaults to None)
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         # failed_validators should NOT be in frontmatter
@@ -1505,7 +1505,7 @@ class TestStory22_8FailedValidatorsInSynthesis:
             failed_validators=["claude-haiku"],
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         metadata = post.metadata

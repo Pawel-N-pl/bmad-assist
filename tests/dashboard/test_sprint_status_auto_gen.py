@@ -15,7 +15,6 @@ import pytest
 from typer.testing import CliRunner
 
 from bmad_assist.cli import app
-from bmad_assist.cli_utils import EXIT_ERROR, EXIT_SUCCESS
 from bmad_assist.core.exceptions import DashboardError
 
 runner = CliRunner()
@@ -148,8 +147,9 @@ Implementation of first story.
         WHEN dashboard server starts
         THEN existing file is used (no auto-generation).
         """
-        from bmad_assist.dashboard.server import DashboardServer
         import yaml
+
+        from bmad_assist.dashboard.server import DashboardServer
 
         # GIVEN: Project with existing sprint-status
         project_dir = tmp_path / "project"
@@ -197,8 +197,9 @@ Implementation of first story.
         WHEN dashboard server starts
         THEN legacy file is used (no auto-generation).
         """
-        from bmad_assist.dashboard.server import DashboardServer
         import yaml
+
+        from bmad_assist.dashboard.server import DashboardServer
 
         # GIVEN: Project with legacy sprint-status only
         project_dir = tmp_path / "project"

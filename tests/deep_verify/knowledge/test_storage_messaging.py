@@ -15,15 +15,12 @@ import pytest
 
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
-    Evidence,
-    Finding,
     PatternId,
     Severity,
 )
 from bmad_assist.deep_verify.knowledge import (
     KnowledgeCategory,
     KnowledgeLoader,
-    KnowledgeRule,
 )
 from bmad_assist.deep_verify.methods.domain_expert import (
     DomainExpertMethod,
@@ -456,7 +453,7 @@ class TestCrossDomainIntegration:
         all_ids = [r.id for r in rules]
         unique_ids = set(all_ids)
 
-        assert len(all_ids) == len(unique_ids), f"Duplicate IDs found"
+        assert len(all_ids) == len(unique_ids), "Duplicate IDs found"
 
     def test_distinct_id_prefixes(self, method: DomainExpertMethod) -> None:
         """Test that domains use distinct ID prefixes."""

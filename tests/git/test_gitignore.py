@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.git.gitignore import (
-    REQUIRED_PATTERNS,
     check_gitignore,
     ensure_gitignore,
     setup_gitignore,

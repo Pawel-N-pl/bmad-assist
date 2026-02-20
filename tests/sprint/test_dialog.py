@@ -24,7 +24,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.state import Phase, State
 from bmad_assist.sprint.classifier import EntryType
 from bmad_assist.sprint.dialog import (
     CLIRepairDialog,
@@ -208,20 +207,20 @@ class TestRepairDialogResult:
             result.approved = False  # type: ignore
 
     def test_dialog_result_repr_approved(self):
-        """repr shows approved status."""
+        """Repr shows approved status."""
         result = RepairDialogResult(approved=True, elapsed_seconds=2.5)
         repr_str = repr(result)
         assert "approved" in repr_str
         assert "elapsed=2.5s" in repr_str
 
     def test_dialog_result_repr_timed_out(self):
-        """repr shows timed_out status."""
+        """Repr shows timed_out status."""
         result = RepairDialogResult(approved=False, timed_out=True, elapsed_seconds=60.0)
         repr_str = repr(result)
         assert "timed_out" in repr_str
 
     def test_dialog_result_repr_cancelled(self):
-        """repr shows cancelled status."""
+        """Repr shows cancelled status."""
         result = RepairDialogResult(approved=False, timed_out=False, elapsed_seconds=1.0)
         repr_str = repr(result)
         assert "cancelled" in repr_str

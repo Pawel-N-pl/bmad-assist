@@ -1,12 +1,11 @@
 """Tests for PatternMatchMethod class."""
 
 import logging
+
 import pytest
 
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
-    Evidence,
-    Finding,
     MethodId,
     Pattern,
     PatternId,
@@ -14,8 +13,6 @@ from bmad_assist.deep_verify.core.types import (
     Signal,
 )
 from bmad_assist.deep_verify.methods import PatternMatchMethod
-from bmad_assist.deep_verify.patterns import get_default_pattern_library
-
 
 # =============================================================================
 # Test Fixtures

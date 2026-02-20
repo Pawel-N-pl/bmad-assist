@@ -8,18 +8,15 @@ Tests verify the comparison endpoints for the dashboard:
 - AC5: Error handling for invalid inputs
 """
 
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from starlette.responses import JSONResponse, Response
 
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.experiments import MAX_COMPARISON_RUNS
-
 
 # =============================================================================
 # Fixtures

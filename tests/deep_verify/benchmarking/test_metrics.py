@@ -13,9 +13,6 @@ This module tests:
 
 from __future__ import annotations
 
-import math
-from pathlib import Path
-
 import pytest
 
 from bmad_assist.deep_verify.core.types import (
@@ -26,8 +23,6 @@ from bmad_assist.deep_verify.core.types import (
     MethodId,
     PatternId,
     Severity,
-    Verdict,
-    VerdictDecision,
 )
 from bmad_assist.deep_verify.metrics.collector import (
     ArtifactMetrics,
@@ -40,19 +35,15 @@ from bmad_assist.deep_verify.metrics.collector import (
     SeverityMetrics,
 )
 from bmad_assist.deep_verify.metrics.corpus_loader import (
-    ArtifactLabel,
     CorpusLoader,
     CorpusManifest,
     ExpectedDomainLabel,
-    ExpectedFindingLabel,
 )
 from bmad_assist.deep_verify.metrics.report import ReportFormatter
 from bmad_assist.deep_verify.metrics.threshold import (
     ThresholdChecker,
     ThresholdConfig,
-    ThresholdResult,
 )
-
 
 # =============================================================================
 # ArtifactMetrics Tests

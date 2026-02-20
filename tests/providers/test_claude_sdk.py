@@ -126,6 +126,7 @@ def _patch_sdk_client(messages: list[MagicMock] | None = None, connect_error: Ex
 
     Returns:
         A context manager that patches ClaudeSDKClient and returns the mock class.
+
     """
     mock_client_class = MagicMock()
     mock_client = MagicMock()

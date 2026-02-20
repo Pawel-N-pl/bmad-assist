@@ -27,6 +27,7 @@ class TestEntryType:
             "standalone",
             "epic_meta",
             "retro",
+            "hardening",
             "unknown",
         }
         actual_values = {e.value for e in EntryType}
@@ -39,6 +40,7 @@ class TestEntryType:
         assert EntryType.STANDALONE.value == "standalone"
         assert EntryType.EPIC_META.value == "epic_meta"
         assert EntryType.RETROSPECTIVE.value == "retro"
+        assert EntryType.HARDENING.value == "hardening"
         assert EntryType.UNKNOWN.value == "unknown"
 
 
@@ -154,6 +156,30 @@ class TestClassifyEntryRetrospective:
         assert classify_entry("testarch-retrospective") == EntryType.RETROSPECTIVE
 
 
+class TestClassifyEntryHardening:
+    """Tests for hardening pattern classification."""
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "epic-12-hardening",
+            "epic-1-hardening",
+            "epic-testarch-hardening",
+        ],
+    )
+    def test_epic_hardening_patterns(self, key: str):
+        """Hardening entries ending with -hardening classified correctly."""
+        assert classify_entry(key) == EntryType.HARDENING
+
+    def test_hardening_suffix_has_high_priority(self):
+        """Edge case: -hardening suffix wins over other patterns."""
+        # Would match standalone- prefix but -hardening has priority
+        assert classify_entry("standalone-hardening") == EntryType.HARDENING
+
+        # Would match testarch- module prefix but -hardening has priority
+        assert classify_entry("testarch-hardening") == EntryType.HARDENING
+
+
 class TestClassifyEntryEpicStory:
     """Tests for epic story pattern classification (AC2)."""
 
@@ -252,6 +278,10 @@ class TestClassifyEntryEdgeCases:
     def test_retrospective_wins_over_epic_meta(self):
         """Edge case: epic-12-retrospective is RETROSPECTIVE not EPIC_META."""
         assert classify_entry("epic-12-retrospective") == EntryType.RETROSPECTIVE
+
+    def test_hardening_wins_over_epic_meta(self):
+        """Edge case: epic-12-hardening is HARDENING not EPIC_META."""
+        assert classify_entry("epic-12-hardening") == EntryType.HARDENING
 
     def test_story_pattern_requires_slug(self):
         """Edge case: {id}-{num} without slug is UNKNOWN."""

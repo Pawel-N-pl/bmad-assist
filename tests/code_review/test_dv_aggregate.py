@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from bmad_assist.code_review.orchestrator import _aggregate_dv_results
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
     DeepVerifyValidationResult,
@@ -13,7 +14,6 @@ from bmad_assist.deep_verify.core.types import (
     Severity,
     VerdictDecision,
 )
-from bmad_assist.code_review.orchestrator import _aggregate_dv_results
 
 
 @pytest.fixture

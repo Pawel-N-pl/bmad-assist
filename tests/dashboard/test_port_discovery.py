@@ -9,14 +9,13 @@ Tests verify:
 """
 
 import socket
-from typing import Generator
+from collections.abc import Generator
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.core.exceptions import DashboardError
 from bmad_assist.dashboard.server import find_available_port, is_port_available
-
 
 # =============================================================================
 # Fixtures for socket mocking

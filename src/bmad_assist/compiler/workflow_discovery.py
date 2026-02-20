@@ -29,6 +29,7 @@ STANDARD_WORKFLOWS = {
     "create-story",
     "dev-story",
     "retrospective",
+    "hardening",  # Retrospective action items -> Story 0
     # Testarch module (standard BMAD, not custom) - all 8 TEA workflows
     "testarch-atdd",
     "testarch-trace",

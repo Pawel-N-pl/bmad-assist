@@ -4,7 +4,6 @@ Tests for IsolationResult dataclass, FixtureIsolator class,
 and IsolationError exception handling.
 """
 
-import os
 import stat
 import time
 from pathlib import Path

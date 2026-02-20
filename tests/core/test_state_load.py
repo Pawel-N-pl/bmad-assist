@@ -25,7 +25,6 @@ from pydantic import ValidationError
 from bmad_assist.core.exceptions import StateError
 from bmad_assist.core.state import Phase, State, load_state, save_state
 
-
 # =============================================================================
 # AC1: State file loaded and deserialized
 # =============================================================================

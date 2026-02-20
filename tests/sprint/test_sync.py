@@ -26,7 +26,6 @@ from bmad_assist.sprint.models import (
 )
 from bmad_assist.sprint.sync import (
     PHASE_TO_STATUS,
-    SyncCallback,
     SyncResult,
     _find_epic_key,
     _find_story_key,
@@ -36,7 +35,6 @@ from bmad_assist.sprint.sync import (
     sync_state_to_sprint,
     trigger_sync,
 )
-
 
 # =============================================================================
 # Fixtures

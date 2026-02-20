@@ -4,7 +4,7 @@ Story 15.4: Test _dispatch_event helper and loop integration points.
 """
 
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -43,7 +43,6 @@ class TestDispatchEventHelper:
             init_dispatcher,
             reset_dispatcher,
         )
-        from bmad_assist.notifications.events import EventType
 
         reset_dispatcher()
 
@@ -167,6 +166,7 @@ class TestDispatchEventHelper:
     def test_dispatch_event_unknown_type_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test unknown event types are logged and ignored."""
         import logging
+
         from bmad_assist.core.loop.runner import _dispatch_event
         from bmad_assist.core.state import Phase, State
         from bmad_assist.notifications.config import NotificationConfig
@@ -201,6 +201,7 @@ class TestDispatchEventHelper:
     def test_dispatch_event_exception_caught(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test exceptions in dispatch are caught and logged."""
         import logging
+
         from bmad_assist.core.loop.runner import _dispatch_event
         from bmad_assist.core.state import Phase, State
         from bmad_assist.notifications.dispatcher import reset_dispatcher
@@ -237,7 +238,6 @@ class TestRunnerIntegrationWithNotifications:
     def test_init_dispatcher_called_from_cli(self) -> None:
         """Test that CLI imports and calls init_dispatcher."""
         # Check import works
-        from bmad_assist.cli import run
 
         # Check dispatcher module is imported in cli.py
         import importlib

@@ -15,7 +15,6 @@ import pytest
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
     Evidence,
-    Finding,
     MethodId,
     PatternId,
     Severity,
@@ -33,7 +32,6 @@ from bmad_assist.deep_verify.methods.assumption_surfacing import (
     risk_to_confidence,
     risk_to_severity,
 )
-
 
 # =============================================================================
 # Fixtures

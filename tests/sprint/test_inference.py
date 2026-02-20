@@ -18,7 +18,6 @@ from bmad_assist.sprint.inference import (
 )
 from bmad_assist.sprint.scanner import ArtifactIndex
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================

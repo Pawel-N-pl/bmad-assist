@@ -14,7 +14,7 @@ from bmad_assist.compiler.patching.discovery import (
     load_defaults,
     load_patch,
 )
-from bmad_assist.compiler.patching.types import PostProcessRule, WorkflowPatch
+from bmad_assist.compiler.patching.types import WorkflowPatch
 from bmad_assist.core.exceptions import PatchError
 
 

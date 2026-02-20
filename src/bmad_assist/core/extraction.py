@@ -29,6 +29,7 @@ __all__ = [
     "RETROSPECTIVE_MARKERS",
     "SYNTHESIS_MARKERS",
     "CODE_REVIEW_SYNTHESIS_MARKERS",
+    "HARDENING_PLAN_MARKERS",
 ]
 
 
@@ -130,6 +131,16 @@ CODE_REVIEW_SYNTHESIS_MARKERS = ReportMarkers(
         r"^##\s*Changes\s+Applied",
     ],
     name="code-review-synthesis",
+)
+
+HARDENING_PLAN_MARKERS = ReportMarkers(
+    start_marker="<!-- HARDENING_PLAN_START -->",
+    end_marker="<!-- HARDENING_PLAN_END -->",
+    fallback_patterns=[
+        # XML start tag
+        r"<hardening_plan>",
+    ],
+    name="hardening-plan",
 )
 
 

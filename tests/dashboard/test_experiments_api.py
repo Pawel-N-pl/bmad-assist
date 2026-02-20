@@ -13,7 +13,7 @@ Tests verify the experiments list endpoint for the dashboard:
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -21,7 +21,6 @@ from httpx import ASGITransport, AsyncClient
 from bmad_assist.dashboard.experiments import (
     CACHE_TTL_SECONDS,
     ExperimentRunSummary,
-    ExperimentsListResponse,
     PaginationInfo,
     clear_cache,
     discover_runs,
@@ -32,7 +31,6 @@ from bmad_assist.dashboard.experiments import (
 )
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.experiments import ExperimentStatus
-
 
 # =============================================================================
 # Fixtures

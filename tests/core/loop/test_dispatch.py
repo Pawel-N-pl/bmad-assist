@@ -269,9 +269,8 @@ class TestExecutePhaseExceptionHandling:
             mock_get.return_value = MagicMock(side_effect=RuntimeError("boom"))
             with patch(
                 "bmad_assist.core.loop.dispatch.time.perf_counter", side_effect=[0.0, 0.010]
-            ):
-                with caplog.at_level(logging.INFO):
-                    execute_phase(state)
+            ), caplog.at_level(logging.INFO):
+                execute_phase(state)
 
         # AC3 requires completion and duration logs even on exception
         assert "completed" in caplog.text
@@ -438,9 +437,8 @@ class TestExecutePhaseStateError:
             mock_get.side_effect = StateError("Unknown workflow phase")
             with patch(
                 "bmad_assist.core.loop.dispatch.time.perf_counter", side_effect=[0.0, 0.005]
-            ):
-                with caplog.at_level(logging.INFO):
-                    execute_phase(state)
+            ), caplog.at_level(logging.INFO):
+                execute_phase(state)
 
         # AC3 requires completion and duration logs even for StateError
         assert "completed" in caplog.text

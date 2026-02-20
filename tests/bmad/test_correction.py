@@ -12,11 +12,9 @@ import pytest
 import yaml
 
 from bmad_assist.bmad.correction import (
-    ConfirmCallback,
     CorrectionAction,
     CorrectionResult,
     _atomic_write_file,
-    _check_bmad_matches_internal,
     _create_minimal_story_file,
     _find_sprint_status_key,
     _find_story_file,

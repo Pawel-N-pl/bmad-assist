@@ -8,17 +8,16 @@ the fallback chain behavior.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from bmad_assist.deep_verify.core.language_detector import (
     EXTENSION_MAP,
     HEURISTIC_PATTERNS,
-    LanguageDetector,
-    LanguageInfo,
     SHEBANG_PATTERNS,
     TEST_PATTERNS,
+    LanguageDetector,
+    LanguageInfo,
 )
 
 # =============================================================================

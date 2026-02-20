@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 # =============================================================================
 # Shared Mock State for StateComparable Protocol
 # =============================================================================
@@ -52,6 +51,7 @@ def sample_bmad_project() -> Path:
 
     Returns:
         Path to tests/fixtures/bmad-sample-project/docs/
+
     """
     project_path = Path(__file__).parent.parent / "fixtures" / "bmad-sample-project" / "docs"
     if not project_path.exists():

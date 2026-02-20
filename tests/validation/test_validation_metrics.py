@@ -7,7 +7,6 @@ Tests cover:
 - Evidence Score integration
 """
 
-import pytest
 
 from bmad_assist.validation.validation_metrics import (
     AggregateMetrics,

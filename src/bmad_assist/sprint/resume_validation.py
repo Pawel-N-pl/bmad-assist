@@ -187,6 +187,7 @@ def validate_resume_state(
 
     stories_skipped: list[str] = []
     epics_skipped: list[EpicId] = []
+    rewound = False  # Track if we rewound to an earlier story
 
     # Find sprint-status location (uses paths singleton for external paths support)
     try:
@@ -404,7 +405,70 @@ def validate_resume_state(
             # Continue loop to check if new story is also done
             continue
 
-        # Current position is not done - we're at the right place
+        # Current position is not done — but check if an EARLIER story in
+        # this epic is also incomplete (e.g., Story X.0 added by hardening).
+        try:
+            epic_stories = epic_stories_loader(current_epic)
+
+            # Inject stories from sprint_status that belong to this epic (like Story X.0)
+            prefix = f"{current_epic}."
+            sprint_epic_stories = [
+                s_id for s_id in sprint_status.entries
+                if s_id.startswith(prefix)
+            ]
+            for s_id in sprint_epic_stories:
+                if s_id not in epic_stories:
+                    epic_stories.append(s_id)
+
+            # Sort logically so X.0 comes before X.1
+            import re
+            def story_sort_key(s_id: str) -> tuple[str, int]:
+                m = re.search(r'^(.+?)[-.](\d+)$', str(s_id))
+                if m:
+                    epic_val = m.group(1)
+                    # Use formatted string for epic to ensure numeric epics sort correctly
+                    epic_sort = f"{int(epic_val):04d}" if epic_val.isdigit() else epic_val
+                    return (epic_sort, int(m.group(2)))
+                return (str(s_id), 9999)
+
+            epic_stories.sort(key=story_sort_key)
+
+        except Exception:
+            break  # Cannot load stories — keep current position
+
+        if epic_stories and current_state.current_story:
+            # Find first incomplete story in the full list
+            first_incomplete = None
+            for s in epic_stories:
+                if s in current_state.completed_stories:
+                    continue
+                if _is_story_done_in_sprint(s, sprint_status):
+                    continue
+                first_incomplete = s
+                break
+
+            if (
+                first_incomplete
+                and first_incomplete != current_state.current_story
+                and current_state.current_story in epic_stories
+                and epic_stories.index(first_incomplete)
+                < epic_stories.index(current_state.current_story)
+            ):
+                # Earlier story needs work — rewind
+                logger.info(
+                    "Earlier story %s is incomplete (before %s), rewinding",
+                    first_incomplete,
+                    current_state.current_story,
+                )
+                current_state = current_state.model_copy(
+                    update={
+                        "current_story": first_incomplete,
+                        "current_phase": Phase.CREATE_STORY,
+                        "updated_at": now,
+                    }
+                )
+                rewound = True
+
         break
 
     if iterations >= max_iterations:
@@ -414,7 +478,7 @@ def validate_resume_state(
         state=current_state,
         stories_skipped=stories_skipped,
         epics_skipped=epics_skipped,
-        advanced=bool(stories_skipped or epics_skipped),
+        advanced=bool(stories_skipped or epics_skipped or rewound),
         project_complete=False,
     )
 

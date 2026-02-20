@@ -3,8 +3,7 @@
 Story 15.4: Test concurrent dispatch, event filtering, and global accessors.
 """
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -52,6 +51,7 @@ class TestEventDispatcher:
     ) -> None:
         """Test unknown provider types are logged and skipped."""
         import logging
+
         from bmad_assist.notifications.config import NotificationConfig, ProviderConfigItem
         from bmad_assist.notifications.dispatcher import EventDispatcher
 
@@ -181,6 +181,7 @@ class TestEventDispatcher:
     ) -> None:
         """Test one provider failure doesn't block other providers."""
         import logging
+
         from bmad_assist.notifications.config import NotificationConfig, ProviderConfigItem
         from bmad_assist.notifications.dispatcher import EventDispatcher
         from bmad_assist.notifications.events import EventType, StoryStartedPayload
@@ -227,6 +228,7 @@ class TestEventDispatcher:
     ) -> None:
         """Test provider returning False is logged as warning."""
         import logging
+
         from bmad_assist.notifications.config import NotificationConfig, ProviderConfigItem
         from bmad_assist.notifications.dispatcher import EventDispatcher
         from bmad_assist.notifications.events import EventType, StoryStartedPayload
@@ -327,6 +329,7 @@ class TestGlobalAccessor:
     ) -> None:
         """Test double init logs warning."""
         import logging
+
         from bmad_assist.notifications.config import NotificationConfig
         from bmad_assist.notifications.dispatcher import init_dispatcher, reset_dispatcher
 

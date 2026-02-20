@@ -155,8 +155,22 @@ class LoopController:
         )
 
         def epic_stories_loader(epic: EpicId) -> list[str]:
-            """Return story IDs for given epic."""
-            return stories_by_epic.get(epic, [])
+            """Return story IDs for given epic (re-reads state).
+
+            Uses dynamic re-read so stories added at runtime (e.g., hardening
+            Story 0 written to sprint-status during epic teardown) are picked up.
+            """
+            fresh_state = read_project_state(bmad_path, use_sprint_status=True)
+            fresh_stories: dict[EpicId, list[str]] = {}
+            for s in fresh_state.all_stories:
+                if s.status == "done":
+                    continue
+                epart = s.number.split(".")[0]
+                eid = parse_epic_id(epart)
+                if eid not in fresh_stories:
+                    fresh_stories[eid] = []
+                fresh_stories[eid].append(s.number)
+            return fresh_stories.get(epic, [])
 
         return epic_list, epic_stories_loader
 

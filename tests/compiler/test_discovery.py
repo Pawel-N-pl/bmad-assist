@@ -17,14 +17,12 @@ from pathlib import Path
 import pytest
 
 from bmad_assist.compiler.discovery import (
-    LoadStrategy,
     discover_files,
     extract_section,
     load_file_contents,
 )
 from bmad_assist.compiler.types import CompilerContext, WorkflowIR
 from bmad_assist.core.exceptions import AmbiguousFileError, CompilerError
-
 
 # ==============================================================================
 # Fixtures
@@ -308,7 +306,7 @@ class TestRequiredFileValidation:
         assert discovered["ux"] == []
 
     def test_required_defaults_to_false(self, tmp_path: Path) -> None:
-        """required defaults to False when not specified."""
+        """Required defaults to False when not specified."""
         docs = tmp_path / "docs"
         docs.mkdir()
         # No file

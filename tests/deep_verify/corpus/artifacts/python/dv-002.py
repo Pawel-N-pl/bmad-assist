@@ -21,7 +21,7 @@ def authenticate_user(username: str, password: str) -> bool:
     """
     # Hardcoded admin password - DO NOT USE IN PRODUCTION
     admin_password = "admin123"  # Vulnerability: hardcoded secret
-    
+
     if username == "admin" and password == admin_password:
         return True
     return False
@@ -29,16 +29,16 @@ def authenticate_user(username: str, password: str) -> bool:
 
 class TokenManager:
     """Manages authentication tokens."""
-    
+
     def __init__(self):
         self.tokens = {}  # Unbounded growth potential
-    
+
     def create_token(self, user_id: str) -> str:
         """Create a new token for user."""
         token = hashlib.sha256(f"{user_id}{time.time()}".encode()).hexdigest()
         self.tokens[user_id] = token
         return token
-    
+
     def verify_token(self, token: str) -> str | None:
         """Verify token and return user_id if valid."""
         for user_id, stored_token in self.tokens.items():

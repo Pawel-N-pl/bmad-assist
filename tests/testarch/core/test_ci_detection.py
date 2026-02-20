@@ -6,8 +6,6 @@ CI/CD platform from project structure.
 
 from pathlib import Path
 
-import pytest
-
 
 class TestDetectCIPlatform:
     """Tests for detect_ci_platform()."""

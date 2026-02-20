@@ -21,7 +21,6 @@ import pytest
 import yaml
 
 from bmad_assist.core.config import (
-    _reset_config,
     get_config,
     load_global_config,
     reload_config,
@@ -35,7 +34,6 @@ from bmad_assist.core.config_editor import (
     _set_nested_value,
 )
 from bmad_assist.core.exceptions import ConfigError
-
 
 # =============================================================================
 # Fixtures

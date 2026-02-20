@@ -397,9 +397,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", timeout=5)
 
             # Check log contains exit code
             assert "exit_code=1" in caplog.text
@@ -415,9 +414,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", timeout=5)
 
             # Log comes from claude provider module
             assert "bmad_assist.providers.claude" in caplog.text
@@ -433,9 +431,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", model="opus", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", model="opus", timeout=5)
 
             assert "model=opus" in caplog.text
 
@@ -450,9 +447,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", timeout=5)
 
             assert "status=NOT_FOUND" in caplog.text
 
@@ -468,9 +464,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", timeout=5)
 
             # Should be truncated
             assert "E" * 200 in caplog.text
@@ -505,9 +500,8 @@ class TestClaudeSubprocessProviderExitCode:
 
             provider = ClaudeSubprocessProvider()
 
-            with caplog.at_level(logging.ERROR):
-                with pytest.raises(ProviderExitCodeError):
-                    provider.invoke("Hello", timeout=5)
+            with caplog.at_level(logging.ERROR), pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello", timeout=5)
 
             # Structured format should have "exit_code=X" not interpolated
             # The message format uses %s parameters

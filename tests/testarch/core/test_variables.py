@@ -8,9 +8,6 @@ Tests the centralized TEA variable resolution including:
 """
 
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from tests.testarch.core.conftest import MockCompilerContext
 
@@ -227,9 +224,6 @@ class TestCoreVariableResolutionIntegration:
         self, tmp_path: Path
     ) -> None:
         """Should resolve TEA variables when workflow is testarch-*."""
-        from dataclasses import dataclass, field
-        from typing import Any
-
         from bmad_assist.compiler.types import CompilerContext, WorkflowIR
         from bmad_assist.compiler.variables.core import resolve_variables
 

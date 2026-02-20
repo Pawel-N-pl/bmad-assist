@@ -18,15 +18,14 @@ import pytest
 from bmad_assist.compiler.types import CompilerContext, WorkflowIR
 from bmad_assist.compiler.variables import (
     MAX_RECURSION_DEPTH,
-    resolve_variables,
     _compute_story_variables,
     _extract_story_title,
     _load_external_config,
     _resolve_path_placeholders,
     _validate_config_path,
+    resolve_variables,
 )
 from bmad_assist.core.exceptions import VariableError
-
 
 # ==============================================================================
 # Fixtures
@@ -322,7 +321,7 @@ class TestStoryVariableComputation:
         assert resolved["story_key"] == "10-3-variable-resolution-engine"
 
     def test_date_computed_in_iso_format(self, context: CompilerContext) -> None:
-        """date is computed in ISO format (YYYY-MM-DD)."""
+        """Date is computed in ISO format (YYYY-MM-DD)."""
         invocation_params = {"epic_num": 10, "story_num": 3}
 
         resolved = resolve_variables(context, invocation_params)

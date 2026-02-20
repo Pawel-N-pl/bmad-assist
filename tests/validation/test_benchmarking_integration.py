@@ -18,17 +18,14 @@ import platform
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.benchmarking import (
-    CollectorContext,
     DeterministicMetrics,
-    EnvironmentInfo,
     EvaluatorInfo,
     EvaluatorRole,
-    ExecutionTelemetry,
     LLMEvaluationRecord,
     MetricsExtractionError,
     PatchInfo,
@@ -223,7 +220,6 @@ class TestParseRoleId:
 
     def test_pydantic_validation_succeeds_for_all_validators(self) -> None:
         """Pydantic validation succeeds for all VALIDATOR role test cases."""
-        from bmad_assist.benchmarking import EvaluatorInfo
         from bmad_assist.validation.benchmarking_integration import (
             _parse_role_id,
         )
@@ -260,7 +256,6 @@ class TestParseRoleId:
         """
         from pydantic import ValidationError
 
-        from bmad_assist.benchmarking import EvaluatorInfo
 
         invalid_cases = [
             "ä",  # Unicode lowercase (German umlaut)
@@ -727,10 +722,10 @@ class TestSafeExtractMetrics:
 
     def test_returns_none_on_extraction_error(self) -> None:
         """Returns None when extraction fails."""
+        from bmad_assist.benchmarking.extraction import ExtractionContext
         from bmad_assist.validation.benchmarking_integration import (
             _safe_extract_metrics,
         )
-        from bmad_assist.benchmarking.extraction import ExtractionContext
 
         context = ExtractionContext(
             story_epic=13,
@@ -751,15 +746,15 @@ class TestSafeExtractMetrics:
 
     def test_returns_metrics_on_success(self) -> None:
         """Returns ExtractedMetrics when extraction succeeds."""
-        from bmad_assist.validation.benchmarking_integration import (
-            _safe_extract_metrics,
-        )
         from bmad_assist.benchmarking.extraction import (
-            ExtractionContext,
             ExtractedMetrics,
+            ExtractionContext,
             FindingsData,
             LinguisticData,
             QualityData,
+        )
+        from bmad_assist.validation.benchmarking_integration import (
+            _safe_extract_metrics,
         )
 
         context = ExtractionContext(

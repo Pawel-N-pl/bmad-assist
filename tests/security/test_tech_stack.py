@@ -2,17 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.security.tech_stack import (
     EXTENSION_MAP,
     MARKER_MAP,
-    detect_tech_stack,
     _detect_from_diff,
     _detect_from_markers,
     _get_extension,
+    detect_tech_stack,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

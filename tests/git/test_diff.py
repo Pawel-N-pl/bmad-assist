@@ -6,7 +6,6 @@ Tests the P0/P1 fixes for the 92% false positive rate in code reviews:
 - P1: Diff quality validation (warns if too much garbage)
 """
 
-import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 

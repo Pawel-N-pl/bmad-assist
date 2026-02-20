@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.bmad.sharding.detection import is_sharded_path, resolve_doc_path
 
 

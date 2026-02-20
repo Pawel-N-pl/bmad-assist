@@ -1,14 +1,10 @@
 """Tests for TEA context resolvers."""
 
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 from bmad_assist.testarch.context.resolvers import (
     RESOLVER_REGISTRY,
     ATDDResolver,
-    BaseResolver,
     TestDesignResolver,
     TestReviewResolver,
     TraceResolver,

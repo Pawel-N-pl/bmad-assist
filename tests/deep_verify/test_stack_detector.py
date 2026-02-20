@@ -152,4 +152,4 @@ class TestValidStacks:
 
     def test_all_stacks_present(self) -> None:
         expected = {"python", "javascript", "go", "java", "rust", "ruby", "csharp", "cpp", "swift"}
-        assert VALID_STACKS == expected
+        assert expected == VALID_STACKS

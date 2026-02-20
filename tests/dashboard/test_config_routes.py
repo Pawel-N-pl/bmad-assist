@@ -12,16 +12,11 @@ Tests cover all config API endpoints defined in Story 17.2:
 - POST /api/config/restore - Restore from backup
 """
 
-import asyncio
-import json
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
-
-from bmad_assist.core.config import Config
 
 
 @pytest.fixture(autouse=True)

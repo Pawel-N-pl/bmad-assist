@@ -585,12 +585,12 @@ class TestHelperFunctions:
         assert key[0] == 0
 
     def test_get_file_order_key_prd(self) -> None:
-        """prd files have order 1."""
+        """Prd files have order 1."""
         key = _get_file_order_key("docs/prd.md")
         assert key[0] == 1
 
     def test_get_file_order_key_epic(self) -> None:
-        """epic files have high order."""
+        """Epic files have high order."""
         key = _get_file_order_key("docs/epics/epic-2.md")
         epic_order = key[0]
         # Epics should be last in defined patterns
@@ -707,7 +707,7 @@ class TestEdgeCasesExtended:
         assert context_el.text == "\n\nRaw context content\n\n"
 
     def test_datetime_raises_compiler_error(self) -> None:
-        """datetime objects raise CompilerError."""
+        """Datetime objects raise CompilerError."""
         from datetime import datetime
 
         compiled = create_test_compiled_workflow(variables={"dt": datetime.now()})

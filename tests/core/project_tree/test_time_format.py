@@ -2,8 +2,6 @@
 
 import time
 
-import pytest
-
 from bmad_assist.core.project_tree.time_format import format_relative_time
 
 

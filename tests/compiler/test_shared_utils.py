@@ -6,10 +6,7 @@ Tests cover:
 - Enhanced load_workflow_template() with embedded template support
 """
 
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -56,13 +53,12 @@ class TestContextSnapshotAC3:
             file_contents={"file1": "content1"},
         )
 
-        with pytest.raises(ValueError, match="test error"):
-            with context_snapshot(context):
-                context.resolved_variables["key"] = "modified"
-                context.resolved_variables["new_key"] = "new_value"
-                context.discovered_files["file2"] = Path("/b")
-                context.file_contents["file2"] = "content2"
-                raise ValueError("test error")
+        with pytest.raises(ValueError, match="test error"), context_snapshot(context):
+            context.resolved_variables["key"] = "modified"
+            context.resolved_variables["new_key"] = "new_value"
+            context.discovered_files["file2"] = Path("/b")
+            context.file_contents["file2"] = "content2"
+            raise ValueError("test error")
 
         # Changes should be rolled back
         assert context.resolved_variables["key"] == "original"
@@ -80,11 +76,10 @@ class TestContextSnapshotAC3:
             resolved_variables={"epic_num": 10, "story_num": 5},
         )
 
-        with pytest.raises(RuntimeError):
-            with context_snapshot(context):
-                context.resolved_variables["epic_num"] = 99
-                context.resolved_variables["extra"] = "data"
-                raise RuntimeError("rollback trigger")
+        with pytest.raises(RuntimeError), context_snapshot(context):
+            context.resolved_variables["epic_num"] = 99
+            context.resolved_variables["extra"] = "data"
+            raise RuntimeError("rollback trigger")
 
         assert context.resolved_variables["epic_num"] == 10
         assert context.resolved_variables["story_num"] == 5
@@ -101,11 +96,10 @@ class TestContextSnapshotAC3:
             discovered_files={"existing": original_path},
         )
 
-        with pytest.raises(RuntimeError):
-            with context_snapshot(context):
-                context.discovered_files["existing"] = Path("/modified")
-                context.discovered_files["new"] = Path("/new")
-                raise RuntimeError("rollback trigger")
+        with pytest.raises(RuntimeError), context_snapshot(context):
+            context.discovered_files["existing"] = Path("/modified")
+            context.discovered_files["new"] = Path("/new")
+            raise RuntimeError("rollback trigger")
 
         assert context.discovered_files["existing"] == original_path
         assert "new" not in context.discovered_files
@@ -120,11 +114,10 @@ class TestContextSnapshotAC3:
             file_contents={"file.py": "# original code"},
         )
 
-        with pytest.raises(RuntimeError):
-            with context_snapshot(context):
-                context.file_contents["file.py"] = "# modified code"
-                context.file_contents["new_file.py"] = "# new code"
-                raise RuntimeError("rollback trigger")
+        with pytest.raises(RuntimeError), context_snapshot(context):
+            context.file_contents["file.py"] = "# modified code"
+            context.file_contents["new_file.py"] = "# new code"
+            raise RuntimeError("rollback trigger")
 
         assert context.file_contents["file.py"] == "# original code"
         assert "new_file.py" not in context.file_contents
@@ -154,10 +147,9 @@ class TestContextSnapshotAC3:
         assert context.discovered_files == {}
         assert context.file_contents == {}
 
-        with pytest.raises(RuntimeError):
-            with context_snapshot(context):
-                context.resolved_variables["new"] = "value"
-                raise RuntimeError("trigger")
+        with pytest.raises(RuntimeError), context_snapshot(context):
+            context.resolved_variables["new"] = "value"
+            raise RuntimeError("trigger")
 
         assert context.resolved_variables == {}
 

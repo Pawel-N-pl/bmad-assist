@@ -15,11 +15,10 @@ import pytest
 
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, WorkflowIR
 from bmad_assist.compiler.workflows.security_review import (
-    SecurityReviewCompiler,
     _CHARS_PER_TOKEN,
+    SecurityReviewCompiler,
 )
 from bmad_assist.core.exceptions import CompilerError
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

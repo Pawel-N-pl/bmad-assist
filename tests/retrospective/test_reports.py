@@ -6,8 +6,6 @@ Bug Fix: Retrospective Report Persistence
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.retrospective.reports import (
     extract_retrospective_report,
     save_retrospective_report,
@@ -305,7 +303,7 @@ class TestRetrospectiveHandlerIntegration:
 
         from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
         from bmad_assist.core.loop.types import PhaseResult
-        from bmad_assist.core.paths import init_paths, _reset_paths
+        from bmad_assist.core.paths import _reset_paths, init_paths
         from bmad_assist.core.state import Phase, State
 
         # Setup paths singleton for test
@@ -359,7 +357,7 @@ Test content
 
         from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
         from bmad_assist.core.loop.types import PhaseResult
-        from bmad_assist.core.paths import init_paths, _reset_paths
+        from bmad_assist.core.paths import _reset_paths, init_paths
         from bmad_assist.core.state import Phase, State
 
         _reset_paths()
@@ -403,7 +401,7 @@ Test content
 
         from bmad_assist.core.loop.handlers.retrospective import RetrospectiveHandler
         from bmad_assist.core.loop.types import PhaseResult
-        from bmad_assist.core.paths import init_paths, _reset_paths
+        from bmad_assist.core.paths import _reset_paths, init_paths
         from bmad_assist.core.state import Phase, State
 
         _reset_paths()

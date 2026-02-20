@@ -13,7 +13,6 @@ from bmad_assist.core.config import (
     MasterProviderConfig,
     MultiProviderConfig,
     ProjectPathsConfig,
-    ProviderConfig,
     get_config_schema,
     get_field_security,
     get_field_widget,

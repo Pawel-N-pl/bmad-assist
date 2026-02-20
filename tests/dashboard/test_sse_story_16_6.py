@@ -11,10 +11,10 @@ These tests extend the existing test_sse.py infrastructure.
 
 import asyncio
 import json
+
 import pytest
 
-from bmad_assist.dashboard.sse import EventType, SSEBroadcaster
-
+from bmad_assist.dashboard.sse import SSEBroadcaster
 
 # =============================================================================
 # Task 6.1: Test broadcast_output() with provider field (AC: 1, 2)

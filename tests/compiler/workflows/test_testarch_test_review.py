@@ -5,7 +5,7 @@ test quality review workflow execution.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -437,8 +437,8 @@ variables:
     def test_limits_test_files_to_max(self, tmp_path: Path) -> None:
         """Test compiler limits test files to MAX_TEST_FILES."""
         from bmad_assist.compiler.workflows.testarch_test_review import (
-            TestarchTestReviewCompiler,
             _MAX_TEST_FILES,
+            TestarchTestReviewCompiler,
         )
 
         # Create more test files than the limit

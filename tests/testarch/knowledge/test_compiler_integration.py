@@ -1,7 +1,8 @@
 """Tests for compiler variables integration."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from bmad_assist.compiler.variables.tea import (
     resolve_knowledge_base,

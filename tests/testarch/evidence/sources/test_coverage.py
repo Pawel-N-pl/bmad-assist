@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.testarch.evidence.models import SourceConfig
 from bmad_assist.testarch.evidence.sources.coverage import (
     DEFAULT_COVERAGE_PATTERNS,

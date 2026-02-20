@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from bmad_assist.testarch.evidence.models import SourceConfig
 from bmad_assist.testarch.evidence.sources.security import (
     ALLOWED_COMMANDS,

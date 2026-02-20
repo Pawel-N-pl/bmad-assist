@@ -1524,7 +1524,6 @@ document_output_language: English
         from bmad_assist.compiler.workflows.validate_story_synthesis import (
             ValidateStorySynthesisCompiler,
         )
-        from bmad_assist.core.exceptions import ParserError
 
         # Create minimal project WITHOUT workflow files
         config_dir = tmp_path / "_bmad" / "bmm"
@@ -1598,10 +1597,6 @@ class TestDeepVerifyFindingsInSynthesis:
         """DV findings from cache are added to synthesis context as [Deep Verify Findings]."""
         from bmad_assist.compiler.workflows.validate_story_synthesis import (
             ValidateStorySynthesisCompiler,
-        )
-        from bmad_assist.deep_verify.core.types import (
-            serialize_validation_result,
-            VerdictDecision,
         )
 
         # Use serialized format (as it comes from cache)

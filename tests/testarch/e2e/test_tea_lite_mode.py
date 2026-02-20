@@ -6,16 +6,14 @@ the automate workflow is enabled while others are blocked.
 """
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import State
 
 # Import shared fixtures from conftest
-from tests.testarch.e2e.conftest import FakeConfig, FakeTestarchConfig
+from tests.testarch.e2e.conftest import FakeConfig
 
 
 class TestTEALiteMode:

@@ -22,7 +22,6 @@ import pytest
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import Phase, State
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -38,7 +37,7 @@ def mock_config() -> MagicMock:
     config.testarch.eligibility = None
     config.benchmarking = MagicMock()
     config.benchmarking.enabled = False
-    
+
     # Provider config
     config.providers = MagicMock()
     config.providers.master = MagicMock()
@@ -190,7 +189,7 @@ class TestModeAuto:
 
             # Mock _check_mode to behave correctly or let it run
             # It will return ("auto", True) if we don't mock it, which is correct
-            
+
             result = handler.execute(state_story_1_1)
 
         assert result.success is True

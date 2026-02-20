@@ -38,7 +38,6 @@ from bmad_assist.experiments.metrics import (
 )
 from bmad_assist.experiments.runner import ExperimentStatus
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
