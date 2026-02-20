@@ -409,6 +409,30 @@ def validate_resume_state(
         # this epic is also incomplete (e.g., Story X.0 added by hardening).
         try:
             epic_stories = epic_stories_loader(current_epic)
+            
+            # Inject stories from sprint_status that belong to this epic (like Story X.0)
+            prefix = f"{current_epic}."
+            sprint_epic_stories = [
+                s_id for s_id in sprint_status.stories.keys()
+                if s_id.startswith(prefix)
+            ]
+            for s_id in sprint_epic_stories:
+                if s_id not in epic_stories:
+                    epic_stories.append(s_id)
+                    
+            # Sort logically so X.0 comes before X.1
+            import re
+            def story_sort_key(s_id: str) -> tuple[str, int]:
+                m = re.search(r'^(.+?)[-.](\d+)$', str(s_id))
+                if m:
+                    epic_val = m.group(1)
+                    # Use formatted string for epic to ensure numeric epics sort correctly
+                    epic_sort = f"{int(epic_val):04d}" if epic_val.isdigit() else epic_val
+                    return (epic_sort, int(m.group(2)))
+                return (str(s_id), 9999)
+            
+            epic_stories.sort(key=story_sort_key)
+            
         except Exception:
             break  # Cannot load stories — keep current position
 
