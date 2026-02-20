@@ -187,6 +187,7 @@ def validate_resume_state(
 
     stories_skipped: list[str] = []
     epics_skipped: list[EpicId] = []
+    rewound = False  # Track if we rewound to an earlier story
 
     # Find sprint-status location (uses paths singleton for external paths support)
     try:
@@ -442,6 +443,7 @@ def validate_resume_state(
                         "updated_at": now,
                     }
                 )
+                rewound = True
 
         break
 
@@ -452,7 +454,7 @@ def validate_resume_state(
         state=current_state,
         stories_skipped=stories_skipped,
         epics_skipped=epics_skipped,
-        advanced=bool(stories_skipped or epics_skipped),
+        advanced=bool(stories_skipped or epics_skipped or rewound),
         project_complete=False,
     )
 
