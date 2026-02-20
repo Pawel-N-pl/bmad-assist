@@ -413,7 +413,7 @@ def validate_resume_state(
             # Inject stories from sprint_status that belong to this epic (like Story X.0)
             prefix = f"{current_epic}."
             sprint_epic_stories = [
-                s_id for s_id in sprint_status.stories.keys()
+                s_id for s_id in sprint_status.entries.keys()
                 if s_id.startswith(prefix)
             ]
             for s_id in sprint_epic_stories:

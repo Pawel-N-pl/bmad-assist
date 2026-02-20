@@ -305,8 +305,12 @@ def get_epic_lifecycle_status(
     # Check hardening status
     hardening_enabled = False
     hardening_completed = True  # Default to True if disabled
-
-    if config.loop.epic_teardown and "hardening" in config.loop.epic_teardown:
+    from bmad_assist.core.config.models.loop import LoopConfig
+    if (
+        isinstance(config.loop, LoopConfig)
+        and config.loop.epic_teardown
+        and "hardening" in config.loop.epic_teardown
+    ):
         hardening_enabled = True
         hardening_completed = _check_hardening_completed(epic_id, project_path)
 
