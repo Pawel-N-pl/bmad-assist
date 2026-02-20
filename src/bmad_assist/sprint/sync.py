@@ -151,6 +151,7 @@ PHASE_TO_STATUS: dict[Phase, ValidStatus] = {
     Phase.QA_PLAN_GENERATE: "done",
     Phase.QA_PLAN_EXECUTE: "done",
     Phase.QA_REMEDIATE: "done",
+    Phase.HARDENING: "done",
 }
 """Mapping from workflow Phase to sprint-status ValidStatus.
 

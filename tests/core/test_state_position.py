@@ -290,8 +290,8 @@ class TestAdvanceStatePhaseOrdering:
         assert DEFAULT_LOOP_CONFIG.story == expected_story
 
     def test_default_loop_config_teardown(self) -> None:
-        """AC6: DEFAULT_LOOP_CONFIG.epic_teardown contains only retrospective (no TEA)."""
-        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective"]
+        """AC6: DEFAULT_LOOP_CONFIG.epic_teardown contains retrospective and hardening."""
+        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective", "hardening"]
 
     @pytest.mark.parametrize(
         "current_phase,expected_next",

@@ -635,8 +635,8 @@ Description.
         assert result.duplicates_skipped >= 1
         assert "Duplicate story key" in caplog.text
 
-    def test_priority_order_docs_first(self, tmp_path):
-        """docs/epics/ has priority over _bmad-output/."""
+    def test_priority_order_planning_first(self, tmp_path):
+        """_bmad-output/planning-artifacts/epics/ has priority over docs/epics/."""
         # Create both locations with same epic but different stories
         epics_dir = tmp_path / "docs" / "epics"
         epics_dir.mkdir(parents=True)
@@ -671,9 +671,9 @@ From planning-artifacts.
         )
 
         result = generate_from_epics(tmp_path)
-        # Both epic-1 and 1-1-* should be from docs/epics (first wins)
+        # Both epic-1 and 1-1-* should be from planning-artifacts (first wins)
         story_entry = next(e for e in result.entries if e.key.startswith("1-1-"))
-        assert "primary" in story_entry.key
+        assert "secondary" in story_entry.key
 
     def test_module_epics_scanned(self, tmp_path):
         """Module epics are scanned and have MODULE_STORY type."""
