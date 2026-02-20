@@ -21,6 +21,7 @@ __all__ = [
     "code_review_synthesis_handler",
     "test_review_handler",
     "trace_handler",
+    "tea_nfr_assess_handler",
     "retrospective_handler",
     "hardening_handler",
     "qa_remediate_handler",
