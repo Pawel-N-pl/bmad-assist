@@ -119,21 +119,22 @@ def _is_epic_done_in_sprint(
     epic_id: EpicId,
     sprint_status: SprintStatus,
 ) -> bool:
-    """Check if epic is FULLY done in sprint-status (including retrospective).
+    """Check if epic is FULLY done in sprint-status (including retrospective and hardening).
 
-    An epic is only considered done if BOTH:
+    An epic is only considered done if ALL of:
     1. epic-X entry has status "done"
     2. epic-X-retrospective entry has status "done" (or doesn't exist)
+    3. epic-X-hardening entry has status "done" (or doesn't exist)
 
-    If epic is "done" but retrospective is "backlog"/"in-progress", the epic
-    is NOT considered done - it needs to run its retrospective phase.
+    If epic is "done" but retrospective or hardening is "backlog"/"in-progress",
+    the epic is NOT considered done — it needs to complete those phases.
 
     Args:
         epic_id: Epic ID.
         sprint_status: Parsed sprint-status.
 
     Returns:
-        True if epic AND its retrospective are done, False otherwise.
+        True if epic AND its post-story phases are done, False otherwise.
 
     """
     # Check epic status
@@ -145,12 +146,28 @@ def _is_epic_done_in_sprint(
     retro_key = f"epic-{epic_id}-retrospective"
     retro_entry = sprint_status.entries.get(retro_key)
 
-    if retro_entry is None:
-        # No retrospective entry - assume epic is done (legacy compatibility)
-        return True
+    if retro_entry is not None and retro_entry.status != "done":
+        # Retrospective exists but not done
+        return False
 
-    # Epic is only done if retrospective is also done
-    return retro_entry.status == "done"
+    # Check hardening status dynamically by looking for X-Y-hardening
+    # or the legacy epic-X-hardening key.
+    epic_str = str(epic_id)
+    for key, entry in sprint_status.entries.items():
+        if key.endswith("-hardening"):
+            # Check if this hardening story belongs to this epic
+            # Can be "epic-X-hardening" or "X-Y-hardening"
+            is_this_epic = False
+            if key == f"epic-{epic_str}-hardening":
+                is_this_epic = True
+            elif key.startswith(f"{epic_str}-"):
+                is_this_epic = True
+                
+            if is_this_epic and entry.status != "done":
+                # Hardening exists but not done
+                return False
+
+    return True
 
 
 def validate_resume_state(
@@ -262,11 +279,17 @@ def validate_resume_state(
         # Type narrowing: current_epic is guaranteed non-None from here
         current_epic: EpicId = current_state.current_epic
 
-        # CRITICAL: If we're in RETROSPECTIVE phase, don't skip anything.
-        # The loop needs to execute the retrospective - we shouldn't try to
+        # CRITICAL: If we're in an epic-level phase (RETROSPECTIVE, HARDENING, QA), don't skip anything.
+        # The loop needs to execute it - we shouldn't try to
         # advance past it just because stories are done.
-        if current_state.current_phase == Phase.RETROSPECTIVE:
-            logger.debug("Current phase is RETROSPECTIVE - not skipping, let loop execute it")
+        epic_level_phases = {
+            Phase.RETROSPECTIVE,
+            Phase.QA_PLAN_GENERATE,
+            Phase.QA_PLAN_EXECUTE,
+            Phase.HARDENING,
+        }
+        if current_state.current_phase in epic_level_phases:
+            logger.debug("Current phase is epic-level (%s) - not skipping, let loop execute it", current_state.current_phase.value)
             break
 
         # Check if current epic is done in sprint-status (including retrospective)
@@ -412,24 +435,49 @@ def validate_resume_state(
 
             # Inject stories from sprint_status that belong to this epic (like Story X.0)
             prefix = f"{current_epic}."
-            sprint_epic_stories = [
-                s_id for s_id in sprint_status.entries
-                if s_id.startswith(prefix)
-            ]
+            
+            # Helper to convert sprint keys to state story IDs
+            def key_to_story_id(k: str) -> str | None:
+                if k.startswith(prefix):
+                    return k
+                if k.startswith(f"{current_epic}-") and k.count("-") >= 1:
+                    # Convert "6-8-hardening" to "6.8.hardening"
+                    # But if it's "6-0-retrospective-hardening", convert to "6.0"
+                    parts = k.split("-", 2)
+                    if len(parts) >= 2 and parts[0] == str(current_epic):
+                        return f"{parts[0]}.{parts[1]}"
+                if k == f"epic-{current_epic}-hardening":
+                    return f"{current_epic}.hardening"
+                return None
+
+            sprint_epic_stories = []
+            for s_id in sprint_status.entries:
+                mapped_id = key_to_story_id(s_id)
+                if mapped_id:
+                    sprint_epic_stories.append(mapped_id)
+                    
             for s_id in sprint_epic_stories:
                 if s_id not in epic_stories:
                     epic_stories.append(s_id)
 
             # Sort logically so X.0 comes before X.1
             import re
-            def story_sort_key(s_id: str) -> tuple[str, int]:
-                m = re.search(r'^(.+?)[-.](\d+)$', str(s_id))
+            def story_sort_key(s_id: str) -> tuple[str, float]:
+                s = str(s_id)
+                m = re.search(r'^(.+?)[-.](\d+|hardening)(.*)$', s)
                 if m:
                     epic_val = m.group(1)
                     # Use formatted string for epic to ensure numeric epics sort correctly
                     epic_sort = f"{int(epic_val):04d}" if epic_val.isdigit() else epic_val
-                    return (epic_sort, int(m.group(2)))
-                return (str(s_id), 9999)
+                    
+                    story_val = m.group(2)
+                    if story_val == "hardening":
+                        # Legacy epic-X-hardening goes at the very end
+                        return (epic_sort, 99999.0)
+                    else:
+                        num = float(story_val)
+                        return (epic_sort, num)
+                return (s, 99999.0)
 
             epic_stories.sort(key=story_sort_key)
 

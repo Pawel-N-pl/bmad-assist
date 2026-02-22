@@ -307,6 +307,7 @@ def _parse_sprint_status_key(key: str) -> str | None:
     Sprint-status keys follow format:
     - Numeric: "X-Y-slug" (e.g., "2-1-markdown-parser") -> "2.1"
     - Module: "module-Y-slug" (e.g., "testarch-1-config") -> "testarch.1"
+    - Hardening: "epic-X-hardening" -> "X.hardening" (or returning epic_part)
 
     Args:
         key: Sprint status key (e.g., "2-1-markdown-parser" or "testarch-1-config").
@@ -348,14 +349,12 @@ def _create_epics_from_stories(stories: list[EpicStory]) -> list[EpicDocument]:
 
     """
     from collections import defaultdict
+    import re
 
     epic_stories: dict[EpicId, list[EpicStory]] = defaultdict(list)
     for story in stories:
-        epic_id = (
-            int(story.number.split(".")[0])
-            if story.number.split(".")[0].isdigit()
-            else story.number.split(".")[0]
-        )
+        epic_part = story.number.split(".")[0]
+        epic_id = parse_epic_id(epic_part)
         epic_stories[epic_id].append(story)
 
     epics: list[EpicDocument] = []
@@ -388,6 +387,7 @@ def _load_sprint_status_stories(bmad_path: Path) -> list[EpicStory] | None:
 
     """
     import yaml
+    import re
 
     possible_paths = _get_sprint_status_candidates(bmad_path)
 
@@ -405,23 +405,22 @@ def _load_sprint_status_stories(bmad_path: Path) -> list[EpicStory] | None:
 
             stories: list[EpicStory] = []
             for key, status in dev_status.items():
-                # Skip epic-level entries (e.g., "epic-1: done")
                 if key.startswith("epic-") or key.endswith("-retrospective"):
                     continue
+                else:
+                    # Parse story key (e.g., "1-2-project-name" or "22-3-title")
+                    # Format: epic-story-title (all hyphens)
+                    parts = key.split("-", 2)  # ["1", "2", "project-name"] or max 3 parts
 
-                # Parse story key (e.g., "1-2-project-name" or "22-3-title")
-                # Format: epic-story-title (all hyphens)
-                parts = key.split("-", 2)  # ["1", "2", "project-name"] or max 3 parts
+                    if len(parts) < 3:
+                        continue  # Invalid format, skip
 
-                if len(parts) < 3:
-                    continue  # Invalid format, skip
+                    epic_part = parts[0]
+                    story_part = parts[1]
+                    title_part = parts[2] if len(parts) > 2 else key
 
-                epic_part = parts[0]
-                story_part = parts[1]
-                title_part = parts[2] if len(parts) > 2 else key
-
-                story_number = f"{epic_part}.{story_part}"
-                title = title_part.replace("-", " ")  # Convert hyphens to spaces for title
+                    story_number = f"{epic_part}.{story_part}"
+                    title = title_part.replace("-", " ")  # Convert hyphens to spaces for title
 
                 if not isinstance(status, str):
                     continue

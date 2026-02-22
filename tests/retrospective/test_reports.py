@@ -6,10 +6,98 @@ Bug Fix: Retrospective Report Persistence
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from bmad_assist.retrospective.reports import (
     extract_retrospective_report,
     save_retrospective_report,
+    extract_hardening_plan,
+    create_hardening_story,
 )
+
+
+class TestExtractHardeningPlan:
+    """Tests for extract_hardening_plan() function."""
+
+    def test_extracts_valid_plan(self):
+        """Extracts plan with epic_id and action items."""
+        raw_output = """
+Some thinking...
+<!-- HARDENING_PLAN_START -->
+<hardening_plan>
+  <epic_id>5</epic_id>
+  <action_items>
+    <item>Refactor core</item>
+    <item>Update docs</item>
+  </action_items>
+</hardening_plan>
+<!-- HARDENING_PLAN_END -->
+"""
+        plan = extract_hardening_plan(raw_output)
+        assert plan["epic_id"] == "5"
+        assert plan["action_items"] == ["Refactor core", "Update docs"]
+
+    def test_fallback_to_next_epic_id_legacy(self):
+        """Extracts plan using legacy next_epic_id key."""
+        raw_output = """
+<!-- HARDENING_PLAN_START -->
+<hardening_plan>
+  <next_epic_id>6</next_epic_id>
+  <action_items>
+    <item>Fix bug</item>
+  </action_items>
+</hardening_plan>
+<!-- HARDENING_PLAN_END -->
+"""
+        plan = extract_hardening_plan(raw_output)
+        assert plan["epic_id"] == "6"
+        assert plan["action_items"] == ["Fix bug"]
+
+    def test_returns_none_on_invalid_xml(self):
+        """Returns None if XML is malformed."""
+        raw_output = "<!-- HARDENING_PLAN_START --><hardening_plan><broken>"
+        assert extract_hardening_plan(raw_output) is None
+
+
+class TestCreateHardeningStory:
+    """Tests for create_hardening_story() function."""
+
+    @pytest.fixture(autouse=True)
+    def setup_paths(self, tmp_path):
+        from bmad_assist.core.paths import _reset_paths, init_paths
+        _reset_paths()
+        init_paths(tmp_path)
+        yield
+        _reset_paths()
+
+    def test_creates_story_file_with_correct_naming(self, tmp_path):
+        """Creates epic-{N}-hardening.md in implementation-artifacts/hardening/."""
+        plan = {
+            "epic_id": "5",
+            "action_items": ["Action 1", "Action 2"]
+        }
+        
+        file_path = create_hardening_story(plan)
+        
+        assert file_path is not None
+        assert file_path.name == "epic-5-hardening.md"
+        assert "implementation-artifacts/hardening" in str(file_path)
+        
+        content = file_path.read_text()
+        assert "# Epic 5: Retrospective Hardening" in content
+        assert "Story 5.hardening" in content
+        assert "Action 1" in content
+        assert "Action 2" in content
+
+    def test_handles_legacy_next_epic_id_key(self, tmp_path):
+        """Handles legacy next_epic_id key if epic_id missing."""
+        plan = {
+            "next_epic_id": "6",
+            "action_items": ["Legacy action"]
+        }
+        file_path = create_hardening_story(plan)
+        assert file_path.name == "epic-6-hardening.md"
+
 
 
 class TestExtractRetrospectiveReport:

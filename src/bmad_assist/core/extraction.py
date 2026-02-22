@@ -30,6 +30,7 @@ __all__ = [
     "SYNTHESIS_MARKERS",
     "CODE_REVIEW_SYNTHESIS_MARKERS",
     "HARDENING_PLAN_MARKERS",
+    "HARDENING_TRIAGE_MARKERS",
 ]
 
 
@@ -141,6 +142,16 @@ HARDENING_PLAN_MARKERS = ReportMarkers(
         r"<hardening_plan>",
     ],
     name="hardening-plan",
+)
+
+HARDENING_TRIAGE_MARKERS = ReportMarkers(
+    start_marker="<!-- HARDENING_TRIAGE_START -->",
+    end_marker="<!-- HARDENING_TRIAGE_END -->",
+    fallback_patterns=[
+        # JSON object with decision key
+        r'\{\s*"decision"\s*:',
+    ],
+    name="hardening-triage",
 )
 
 

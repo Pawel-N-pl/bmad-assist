@@ -80,7 +80,7 @@ def extract_hardening_plan(raw_output: str) -> dict[str, Any] | None:
         raw_output: Raw LLM output.
 
     Returns:
-        Dict with keys 'next_epic_id' and 'action_items' (list of strings),
+        Dict with keys 'epic_id' and 'action_items' (list of strings),
         or None if no valid plan found.
 
     """
@@ -97,13 +97,14 @@ def extract_hardening_plan(raw_output: str) -> dict[str, Any] | None:
             xml_content = match.group(0)
             root = ET.fromstring(xml_content)
 
-            next_epic_id = root.findtext("next_epic_id")
+            # Support both 'epic_id' (new) and 'next_epic_id' (legacy) keys
+            epic_id = root.findtext("epic_id") or root.findtext("next_epic_id")
             action_items_tags = root.findall(".//item")
             action_items = [item.text.strip() for item in action_items_tags if item.text and item.text.strip()]
 
-            if next_epic_id and action_items:
+            if epic_id and action_items:
                 return {
-                    "next_epic_id": next_epic_id.strip(),
+                    "epic_id": epic_id.strip(),
                     "action_items": action_items,
                 }
     except ET.ParseError as e:
@@ -113,45 +114,48 @@ def extract_hardening_plan(raw_output: str) -> dict[str, Any] | None:
 
 
 def create_hardening_story(plan: dict[str, Any]) -> Path | None:
-    """Create a hardening story (Story 0) for the next epic.
+    """Create a hardening story for the current epic.
 
-    Location: _bmad-output/planning-artifacts/epics/epic-{id}-0-hardening.md
+    Location: _bmad-output/implementation-artifacts/hardening/epic-{N}-hardening.md
 
     Args:
-        plan: Plan dict from extract_hardening_plan.
+        plan: Plan dict from extract_hardening_plan (must contain 'epic_id').
 
     Returns:
         Path to created story file, or None if failed.
 
     """
-    next_epic_id = plan["next_epic_id"]
+    epic_id = plan.get("epic_id") or plan.get("next_epic_id")  # legacy compat
     action_items = plan["action_items"]
 
+    if not epic_id:
+        logger.error("No epic_id in hardening plan")
+        return None
+
     paths = get_paths()
-    # Prefer planning artifacts for new generated content
-    target_dir = paths.planning_artifacts / "epics"
+    target_dir = paths.implementation_artifacts / "hardening"
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         logger.error("Failed to create target directory %s: %s", target_dir, e)
         return None
 
-    filename = f"epic-{next_epic_id}-0-hardening.md"
+    filename = f"epic-{epic_id}-hardening.md"
     file_path = target_dir / filename
 
     # Format action items as checkboxes
     items_md = "\n".join(f"- [ ] {item}" for item in action_items)
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
-    content = f"""# Epic {next_epic_id}: Retrospective Hardening
+    content = f"""# Epic {epic_id}: Retrospective Hardening
 
 ## Stories
 
-### Story {next_epic_id}.0: Retrospective Hardening
+### Story {epic_id}.hardening: Retrospective Hardening
 
 **As a** team member,
 **I want** to implement critical retrospective action items,
-**So that** the next epic starts on a solid foundation.
+**So that** accumulated technical debt is resolved within this epic.
 
 **Status:** backlog
 
@@ -159,8 +163,8 @@ def create_hardening_story(plan: dict[str, Any]) -> Path | None:
 {items_md}
 
 #### Description
-This story was automatically generated from the retrospective of the previous epic.
-It contains critical "Must-Do" action items that should be addressed before starting new feature work.
+This story was automatically generated from the retrospective of the current epic.
+It contains critical "Must-Do" action items that should be addressed before closing the epic.
 
 #### Development Notes
 - Created on {now}

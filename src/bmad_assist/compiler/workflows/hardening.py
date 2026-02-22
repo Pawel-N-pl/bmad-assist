@@ -67,7 +67,6 @@ class HardeningCompiler:
         """
         return {
             "epic_num": None,  # Required - current epic whose retro we consume
-            "next_epic_id": None,  # Computed - next epic for the hardening story
             "date": None,
         }
 
@@ -169,14 +168,6 @@ class HardeningCompiler:
             sprint_status_path = find_sprint_status_file(context)
 
             resolved = resolve_variables(context, invocation_params, sprint_status_path, None)
-
-            # Compute next_epic_id for the hardening story
-            epic_num = resolved.get("epic_num")
-            if epic_num is not None:
-                try:
-                    resolved["next_epic_id"] = int(epic_num) + 1
-                except (ValueError, TypeError):
-                    resolved["next_epic_id"] = epic_num
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Resolved %d variables", len(resolved))
@@ -316,15 +307,16 @@ class HardeningCompiler:
 
         """
         base_description = workflow_ir.raw_config.get(
-            "description", "Generate Story 0 (Hardening) from retrospective action items"
+            "description",
+            "Triage retrospective action items: fix trivial items directly or create hardening story",
         )
 
         epic_num = resolved.get("epic_num", "?")
 
         mission = (
             f"{base_description}\n\n"
-            f"Target: Epic {epic_num} Hardening Story\n"
-            f"Synthesize action items from retrospective into a concrete backlog story."
+            f"Target: Epic {epic_num} Hardening Triage\n"
+            f"Assess action items and decide: no_action / direct_fix / story_needed."
         )
 
         return mission

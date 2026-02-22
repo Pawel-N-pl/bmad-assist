@@ -1,6 +1,6 @@
 # Hardening - Retrospective Action Item Implementation Workflow
 name: "hardening"
-description: "Generates a Story 0 (Hardening Story) based on the latest Retrospective Report to ensure action items are prioritized."
+description: "Triage retrospective action items: fix trivial issues directly or create a hardening story for complex items."
 author: "bmad-assist"
 
 config_source: "{project-root}/_bmad/bmm/config.yaml"

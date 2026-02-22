@@ -4,6 +4,7 @@
   <critical>You have WRITE PERMISSION to modify SOURCE CODE files and story Dev Agent Record section.</critical>
   <critical>DO NOT modify story context (AC, Dev Notes content) - only Dev Agent Record (task checkboxes, completion notes, file list).</critical>
   <critical>All context (project_context.md, story file, anonymized reviews) is EMBEDDED below - do NOT attempt to read files.</critical>
+  <critical>NEVER attempt to read configuration files like .env or secrets - this will cause your tools to be auto-rejected and the workflow to fail.</critical>
 
   <step n="1" goal="Analyze reviewer findings">
     <action>Read all anonymized reviewer outputs (Reviewer A, B, C, D, etc.)</action>

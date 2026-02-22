@@ -199,7 +199,10 @@ class BaseHandler(ABC):
             Story number like "2", or None if invalid.
 
         """
-        if story_id and "." in story_id:
+        if not story_id:
+            return None
+            
+        if "." in story_id:
             return story_id.split(".")[1]
         return None
 
