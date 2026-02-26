@@ -924,7 +924,7 @@ def _run_loop_body(
 
                 # Determine if the epic was just resumed (consistency with main success path)
                 is_epic_resumed = (
-                    not is_project_complete 
+                    not is_project_complete
                     and new_state.current_epic == state.current_epic
                 )
 
@@ -1194,7 +1194,7 @@ def _run_loop_body(
                 # If advanced_state.current_epic is the same as state.current_epic and we didn't complete the project,
                 # it means the epic is not actually completed.
                 is_epic_resumed = (
-                    not is_project_complete 
+                    not is_project_complete
                     and advanced_state.current_epic == state.current_epic
                 )
 
@@ -1232,17 +1232,17 @@ def _run_loop_body(
 
                 # Continue with next epic OR resumed epic
                 state = advanced_state
-                
+
                 if not is_epic_resumed:
                     # Reset timing for new epic
                     start_epic_timing(state)
                 start_story_timing(state)
-                
+
                 if is_epic_resumed:
                     logger.info("Resumed epic %s after teardown added new stories", state.current_epic)
                 else:
                     logger.info("Advanced to epic %s after teardown", state.current_epic)
-                
+
                 if _single_phase_exit is not None:
                     save_state(state, state_path)
                     return _single_phase_exit
@@ -1332,7 +1332,7 @@ def _run_loop_body(
 
             # Determine if the epic was just resumed (epic-scope consistency)
             is_epic_resumed = (
-                not is_project_complete 
+                not is_project_complete
                 and new_state.current_epic == state.current_epic
             )
 
@@ -1455,7 +1455,7 @@ def _run_loop_body(
 
                 # Determine if the epic was just resumed (unexpected teardown path)
                 is_epic_resumed = (
-                    not is_project_complete 
+                    not is_project_complete
                     and new_state.current_epic == state.current_epic
                 )
 
