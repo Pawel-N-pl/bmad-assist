@@ -1064,6 +1064,39 @@ def _run_loop_body(
         # CRITICAL: This check MUST happen before get_next_phase() because story completion
         # determines whether we advance to RETROSPECTIVE (epic complete) or next story.
         if current_phase == Phase.CODE_REVIEW_SYNTHESIS and result.success:
+            # Rework loop: If verdict requires rework and feature is enabled, loop back to DEV_STORY
+            # Evidence score verdicts: REJECT (>=6.0), MAJOR_REWORK (4.0-5.9), PASS, EXCELLENT
+            verdict = result.outputs.get("verdict", "UNKNOWN") if result.outputs else "UNKNOWN"
+            rework_verdicts = {"REJECT", "MAJOR_REWORK"}
+            if (
+                verdict in rework_verdicts
+                and loop_config.code_review_rework
+                and state.code_review_rework_count < loop_config.max_rework_attempts
+            ):
+                rework_attempt = state.code_review_rework_count + 1
+                logger.info(
+                    "Code review %s (attempt %d/%d), looping back to DEV_STORY",
+                    verdict,
+                    rework_attempt,
+                    loop_config.max_rework_attempts,
+                )
+                now = datetime.now(UTC).replace(tzinfo=None)
+                state = state.model_copy(
+                    update={
+                        "current_phase": Phase.DEV_STORY,
+                        "code_review_rework_count": rework_attempt,
+                        "updated_at": now,
+                    }
+                )
+                save_state(state, state_path)
+                continue
+            elif verdict in rework_verdicts and loop_config.code_review_rework:
+                logger.warning(
+                    "Code review %s but max rework attempts (%d) reached, continuing",
+                    verdict,
+                    loop_config.max_rework_attempts,
+                )
+
             # Archive multi-LLM artifacts (idempotent - safe if LLM already ran it)
             _run_archive_artifacts(project_path)
 

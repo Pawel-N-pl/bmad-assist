@@ -12,6 +12,10 @@
   <critical>Read EVERY file in the File List - verify implementation against story requirements</critical>
   <critical>Tasks marked complete but not done = CRITICAL finding</critical>
   <critical>Acceptance Criteria not implemented = HIGH severity finding</critical>
+  <critical>MANDATORY OUTPUT: Your review MUST end with an "## Evidence Score Summary" table
+    using emoji severity markers (🔴 CRITICAL +3, 🟠 IMPORTANT +1, 🟡 MINOR +0.3, 🟢 CLEAN PASS -0.5)
+    followed by "### Evidence Score: [total]" and a verdict. See step 4j for exact format.
+    Reviews without this table are DISCARDED by the synthesis agent.</critical>
 
   <step n="1" goal="Load story and discover changes">
     <action>Use provided {{story_path}} or ask user which story file to review</action>
@@ -224,9 +228,11 @@
     </substep>
 
     <substep n="4j" title="Calculate Evidence Score">
-      <critical>🔥 CRITICAL: You MUST calculate and output the Evidence Score for synthesis!</critical>
+      <critical>🔥 CRITICAL: You MUST calculate and output the Evidence Score table below!
+        The synthesis agent CANNOT parse your review without this exact format.
+        If you skip this, your entire review is WASTED — it will be discarded.</critical>
 
-      <action>Map each finding to Evidence Score severity:
+      <action>Map each finding from steps 3-4 to Evidence Score severity:
         - **🔴 CRITICAL** (+3 points): Security vulnerabilities, data corruption, blocking bugs, task completion lies
         - **🟠 IMPORTANT** (+1 point): SOLID violations, performance issues, missing tests, AC gaps
         - **🟡 MINOR** (+0.3 points): Style violations, documentation issues, minor refactoring
@@ -237,25 +243,32 @@
         - Categories: SOLID, Hidden Bugs, Abstraction, Lying Tests, Performance, Tech Debt, Style, Type Safety, Security
       </action>
 
-      <action>Calculate Evidence Score:
-        {{evidence_score}} = SUM(finding_scores) + (clean_pass_count × -0.5)
-
+      <action>Calculate: total = SUM(finding_scores) + (clean_pass_count × -0.5)
         Example: 2 CRITICAL (+6) + 3 IMPORTANT (+3) + 4 CLEAN PASSES (-2) = 7.0
       </action>
 
-      <action>Determine Evidence Verdict:
-        - **EXEMPLARY** (score ≤ -3): Many clean passes, minimal issues
-        - **APPROVED** (score &lt; 3): Acceptable quality, minor issues only
-        - **MAJOR REWORK** (3 ≤ score &lt; 7): Significant issues require attention
-        - **REJECT** (score ≥ 7): Critical problems, needs complete rewrite
+      <action>Determine verdict:
+        - **EXEMPLARY** (score ≤ -3) | **APPROVED** (score &lt; 3) | **MAJOR REWORK** (3 ≤ score &lt; 7) | **REJECT** (score ≥ 7)
       </action>
 
-      <action>Store for output:
-        - {{evidence_findings}}: List of findings with severity_icon, severity, description, source, score
-        - {{clean_pass_count}}: Number of clean categories
-        - {{evidence_score}}: Calculated total score
-        - {{evidence_verdict}}: EXEMPLARY/APPROVED/MAJOR REWORK/REJECT
-      </action>
+      <critical>OUTPUT THIS EXACT TABLE NOW (replace placeholders with your calculated values):
+
+## Evidence Score Summary
+
+| Severity | Description | Source | Score |
+|----------|-------------|--------|-------|
+| 🔴 CRITICAL | [description of finding] | `[file:line]` | +3 |
+| 🟠 IMPORTANT | [description of finding] | `[file:line]` | +1 |
+| 🟡 MINOR | [description of finding] | `[file:line]` | +0.3 |
+| 🟢 CLEAN PASS | [count] |
+
+### Evidence Score: [calculated_total]
+
+| Score | Verdict |
+|-------|---------|
+| **[calculated_total]** | **[verdict]** |
+
+One row per finding. Include ALL findings from your review. This table is MANDATORY.</critical>
     </substep>
   </step>
 

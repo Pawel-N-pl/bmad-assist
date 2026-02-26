@@ -95,6 +95,13 @@
         d. Log partial fix failure in synthesis report
     </action>
 
+    <action>After all fixes are applied, run the project's lint command (detect from package.json scripts,
+      e.g., "lint", "lint:boundaries") and fix ALL errors found — including in files modified by previous stories.
+      Common fixes: add missing imports (e.g., React), remove unused variables/imports,
+      fix import ordering, replace `any` with proper types.
+      Re-run lint after fixes to confirm zero errors remain.
+      This ensures the pre-commit hook will pass when auto-commit runs.</action>
+
     <action>Atomic commit guidance (for user reference):
       - Commit message format: fix(component): brief description (synthesis-{story_id})
       - Group fixes by severity and affected component
@@ -220,6 +227,48 @@
 &lt;!-- CODE_REVIEW_SYNTHESIS_END --&gt;
     </output-format>
 
+  </step>
+
+  <step n="6.5" goal="Write Senior Developer Review section to story file for dev_story rework detection">
+    <critical>This section enables dev_story to detect that a code review has occurred and extract action items.</critical>
+    <critical>APPEND this section to the story file - do NOT replace existing content.</critical>
+
+    <action>Determine the evidence verdict from the [Evidence Score] section:
+      - REJECT: Evidence score exceeds reject threshold
+      - PASS: Evidence score is below accept threshold
+      - UNCERTAIN: Evidence score is between thresholds
+    </action>
+
+    <action>Map evidence verdict to review outcome:
+      - PASS → "Approved"
+      - REJECT → "Changes Requested"
+      - UNCERTAIN → "Approved with Reservations"
+    </action>
+
+    <action>Append to story file "## Senior Developer Review (AI)" section:
+      ```
+      ## Senior Developer Review (AI)
+
+      ### Review: {current_date}
+      - **Reviewer:** AI Code Review Synthesis
+      - **Evidence Score:** {evidence_score} → {evidence_verdict}
+      - **Issues Found:** {total_verified_issues}
+      - **Issues Fixed:** {fixes_applied_count}
+      - **Action Items Created:** {remaining_unfixed_count}
+      ```
+    </action>
+
+    <check if="there are verified issues that were NOT fixed in step 4 (deferred, disputed, or partially fixed)">
+      <action>Find the "## Tasks / Subtasks" section in the story file</action>
+      <action>Append a "#### Review Follow-ups (AI)" subsection with checkbox tasks:
+        ```
+        #### Review Follow-ups (AI)
+        - [ ] [AI-Review] {severity}: {brief description of unfixed issue} ({file path})
+        ```
+        One line per unfixed/deferred issue, prefixed with [AI-Review] tag.
+        Order by severity: Critical first, then High, Medium, Low.
+      </action>
+    </check>
   </step>
 
   <edge-cases>

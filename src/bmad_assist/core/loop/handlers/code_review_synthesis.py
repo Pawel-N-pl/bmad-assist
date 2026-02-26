@@ -525,11 +525,19 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     reviewer_count=len(reviewers_used),
                 )
 
+                # Include evidence score verdict in outputs for rework loop decision
+                verdict = (
+                    evidence_score_data.get("verdict", "UNKNOWN")
+                    if evidence_score_data
+                    else "UNKNOWN"
+                )
+
                 phase_result = PhaseResult.ok(
                     {
                         "response": result.stdout,
                         "model": result.model,
                         "duration_ms": result.duration_ms,
+                        "verdict": verdict,
                     }
                 )
 

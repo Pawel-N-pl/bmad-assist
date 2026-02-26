@@ -278,6 +278,7 @@ def advance_to_next_epic(
                     "current_story": last_story,
                     "current_phase": first_teardown_phase,
                     "epic_setup_complete": False,  # Reset for new epic
+                    "code_review_rework_count": 0,  # Reset rework counter
                     "updated_at": now,
                 }
             )
@@ -299,6 +300,7 @@ def advance_to_next_epic(
             "current_story": first_incomplete,
             "current_phase": Phase.CREATE_STORY,
             "epic_setup_complete": False,  # Reset for new epic
+            "code_review_rework_count": 0,  # Reset rework counter
             "updated_at": now,
         }
     )

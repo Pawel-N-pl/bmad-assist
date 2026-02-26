@@ -273,6 +273,8 @@ class State(BaseModel):
     qa_category: str = "A"  # Test category for QA phases: "A", "B", or "all"
     # Configurable loop architecture: track epic setup completion
     epic_setup_complete: bool = False  # Reset to False on epic change
+    # Code review rework loop: tracks rework attempts per story
+    code_review_rework_count: int = 0  # Reset to 0 on story change
 
 
 def save_state(state: State, path: str | Path) -> None:

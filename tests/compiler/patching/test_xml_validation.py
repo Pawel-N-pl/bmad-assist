@@ -83,6 +83,28 @@ class TestValidateInstructionsXml:
         """)
         assert _validate_instructions_xml(content) is None
 
+    def test_markdown_with_html_comment_returns_none(self) -> None:
+        """Markdown starting with HTML comment should skip validation.
+
+        TEA workflows use .md files that start with <!-- Powered by BMAD-CORE™ -->.
+        The HTML comment starts with '<', which previously bypassed the markdown
+        detection and triggered XML parsing on the '#' header at line 3.
+        """
+        content = textwrap.dedent("""\
+            <instructions-xml>
+            <!-- Powered by BMAD-CORE™ -->
+
+            # Test Design and Risk Assessment
+
+            **Workflow ID**: `_bmad/tea/testarch/test-design`
+
+            ---
+
+            ## Overview
+            </instructions-xml>
+        """)
+        assert _validate_instructions_xml(content) is None
+
     def test_xml_with_entities_valid(self) -> None:
         """XML with proper entities (&lt;, &amp;) should pass validation."""
         content = textwrap.dedent("""\

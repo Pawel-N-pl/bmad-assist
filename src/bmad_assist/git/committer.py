@@ -283,6 +283,290 @@ def commit_changes(project_path: Path, message: str) -> bool:
     return True
 
 
+def _run_precommit_fix(project_path: Path) -> None:
+    """Fix lint and typecheck errors that would fail the pre-commit hook.
+
+    Detects which checks the pre-commit hook runs (ESLint, typecheck)
+    and fixes errors for each. Uses eslint --fix for auto-fixable issues,
+    then invokes an LLM for remaining errors in both categories.
+
+    Best-effort: logs warnings on failure but never blocks the commit flow.
+
+    Args:
+        project_path: Path to project root.
+
+    """
+    package_json = project_path / "package.json"
+    if not package_json.exists():
+        return
+
+    # Detect pre-commit checks from .husky/pre-commit
+    checks = _detect_precommit_checks(project_path)
+
+    # Fix ESLint errors
+    if "eslint" in checks:
+        # Layer 1: eslint --fix for auto-fixable issues
+        eslint_output = _run_eslint_fix(project_path)
+
+        # Layer 2: If errors remain, invoke LLM to fix them
+        if eslint_output:
+            _run_llm_lint_fix(project_path, eslint_output)
+
+            # Layer 3: Second eslint --fix pass to clean up import ordering
+            # The LLM may add imports (e.g., React) in the wrong position —
+            # eslint --fix handles import/order automatically.
+            remaining = _run_eslint_fix(project_path)
+            if remaining:
+                error_lines = [
+                    line for line in remaining.split("\n") if "error" in line.lower()
+                ]
+                logger.warning(
+                    "Lint fix: %d errors remain after all fix layers",
+                    len(error_lines),
+                )
+
+    # Fix TypeScript errors
+    if "typecheck" in checks:
+        tsc_output = _run_typecheck(project_path)
+        if tsc_output:
+            _run_llm_typecheck_fix(project_path, tsc_output)
+
+
+def _detect_precommit_checks(project_path: Path) -> set[str]:
+    """Detect which checks the pre-commit hook runs.
+
+    Reads .husky/pre-commit and identifies known check types.
+
+    Returns:
+        Set of check identifiers: "eslint", "typecheck".
+
+    """
+    checks: set[str] = set()
+    husky_file = project_path / ".husky" / "pre-commit"
+
+    if not husky_file.exists():
+        # No husky config — fall back to checking package.json scripts
+        checks.add("eslint")  # Default: always try eslint
+        return checks
+
+    try:
+        content = husky_file.read_text(encoding="utf-8")
+        if "lint" in content:
+            checks.add("eslint")
+        if "typecheck" in content or "tsc" in content:
+            checks.add("typecheck")
+    except OSError:
+        checks.add("eslint")  # Safe default
+
+    return checks
+
+
+def _run_typecheck(project_path: Path) -> str | None:
+    """Run typecheck and return error output, or None if clean.
+
+    Detects the typecheck command from package.json scripts.
+
+    Returns:
+        TypeScript error output, or None if clean or unavailable.
+
+    """
+    try:
+        result = subprocess.run(
+            ["npx", "turbo", "run", "typecheck"],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if result.returncode == 0:
+            logger.info("Typecheck passed (zero errors)")
+            return None
+
+        output = result.stdout or result.stderr or ""
+        # Extract only the TS error lines (e.g., "error TS4111:")
+        error_lines = [
+            line for line in output.split("\n") if "error TS" in line
+        ]
+        if not error_lines:
+            logger.info("Typecheck failed but no TS errors found in output")
+            return None
+
+        logger.info(
+            "Typecheck: %d TypeScript errors found, invoking LLM",
+            len(error_lines),
+        )
+        return output
+
+    except subprocess.TimeoutExpired:
+        logger.warning("Typecheck timed out after 180s, skipping")
+        return None
+    except FileNotFoundError:
+        logger.debug("npx not found, skipping typecheck")
+        return None
+    except Exception as e:
+        logger.warning("Typecheck failed (non-blocking): %s", e)
+        return None
+
+
+def _run_llm_typecheck_fix(project_path: Path, tsc_output: str) -> None:
+    """Invoke a lightweight LLM to fix TypeScript errors.
+
+    Uses the Claude SDK with Sonnet to fix errors that tsc reports.
+    Common patterns: index signature access (TS4111), missing types,
+    incompatible assignments.
+
+    Best-effort: never blocks the commit flow on failure.
+
+    Args:
+        project_path: Path to project root.
+        tsc_output: TypeScript compiler error output.
+
+    """
+    try:
+        from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
+    except ImportError:
+        logger.debug("Claude SDK not available, skipping LLM typecheck fix")
+        return
+
+    # Extract just the error lines to keep the prompt focused
+    error_lines = [
+        line.strip() for line in tsc_output.split("\n") if "error TS" in line
+    ]
+    errors_text = "\n".join(error_lines)
+
+    prompt = (
+        "Fix ALL TypeScript errors shown below. For each error:\n"
+        "- `TS4111` (index signature access): Change `obj.prop` to `obj['prop']` "
+        "when accessing properties from an index signature. "
+        "Example: `product.metadata?.fatimaNote` → `product.metadata?.['fatimaNote']`\n"
+        "- `TS2322` (type mismatch): Fix the type assignment to match the expected type\n"
+        "- `TS2339` (property does not exist): Add the missing property to the type "
+        "or use bracket notation with a type assertion\n"
+        "- `TS7006` (implicit any): Add explicit type annotations\n\n"
+        "Use the Read tool to examine each file, then Edit tool to fix. "
+        "Do NOT modify any logic — only fix type errors.\n"
+        "Do NOT create new files or add comments.\n\n"
+        "TypeScript errors:\n```\n" + errors_text + "\n```"
+    )
+
+    try:
+        provider = ClaudeSDKProvider()
+        result = provider.invoke(
+            prompt,
+            model="sonnet",
+            timeout=180,
+            cwd=project_path,
+            allowed_tools=["Read", "Edit", "Glob", "Grep"],
+        )
+
+        if result.exit_code == 0:
+            logger.info("LLM typecheck fix completed successfully")
+        else:
+            logger.warning(
+                "LLM typecheck fix returned exit_code=%d: %s",
+                result.exit_code,
+                (result.stderr or "")[:200],
+            )
+    except Exception as e:
+        logger.warning("LLM typecheck fix failed (non-blocking): %s", e)
+
+
+def _run_eslint_fix(project_path: Path) -> str | None:
+    """Run eslint --fix and return remaining error output, or None if clean.
+
+    Returns:
+        ESLint stderr/stdout with remaining errors, or None if all clean or eslint unavailable.
+
+    """
+    try:
+        result = subprocess.run(
+            ["npx", "eslint", "--fix", "."],
+            cwd=project_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            logger.info("Lint auto-fix completed successfully (zero errors)")
+            return None
+
+        # Errors remain — return the output for LLM processing
+        output = result.stdout or result.stderr or ""
+        error_lines = [
+            line for line in output.split("\n") if "error" in line.lower()
+        ]
+        logger.info(
+            "Lint auto-fix: %d errors remain after --fix, invoking LLM",
+            len(error_lines),
+        )
+        return output
+
+    except subprocess.TimeoutExpired:
+        logger.warning("Lint auto-fix timed out after 120s, skipping")
+        return None
+    except FileNotFoundError:
+        logger.debug("npx not found, skipping lint auto-fix")
+        return None
+    except Exception as e:
+        logger.warning("Lint auto-fix failed (non-blocking): %s", e)
+        return None
+
+
+def _run_llm_lint_fix(project_path: Path, eslint_output: str) -> None:
+    """Invoke a lightweight LLM to fix remaining lint errors.
+
+    Uses the Claude SDK with Sonnet to fix errors that eslint --fix cannot
+    handle automatically (missing imports, unused variables, type annotations).
+
+    Best-effort: never blocks the commit flow on failure.
+
+    Args:
+        project_path: Path to project root.
+        eslint_output: ESLint error output to fix.
+
+    """
+    try:
+        from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
+    except ImportError:
+        logger.debug("Claude SDK not available, skipping LLM lint fix")
+        return
+
+    # Build a focused prompt with just the eslint errors
+    prompt = (
+        "Fix ALL ESLint errors shown below. For each error:\n"
+        "- `no-undef` for React: Add `import React from 'react'` at the top of the file\n"
+        "- `@typescript-eslint/no-unused-vars`: Remove the unused import/variable, "
+        "or prefix with `_` if it's a function parameter\n"
+        "- `@typescript-eslint/no-explicit-any`: Replace `any` with the correct type, "
+        "or `unknown` if the type is unclear\n"
+        "- `import/order`: Move the import to the correct position\n\n"
+        "Use the Edit tool to fix each file. Do NOT modify any logic — only fix lint errors.\n"
+        "Do NOT create new files or add comments.\n\n"
+        "ESLint output:\n```\n" + eslint_output + "\n```"
+    )
+
+    try:
+        provider = ClaudeSDKProvider()
+        result = provider.invoke(
+            prompt,
+            model="sonnet",
+            timeout=180,
+            cwd=project_path,
+            allowed_tools=["Read", "Edit", "Glob", "Grep"],
+        )
+
+        if result.exit_code == 0:
+            logger.info("LLM lint fix completed successfully")
+        else:
+            logger.warning(
+                "LLM lint fix returned exit_code=%d: %s",
+                result.exit_code,
+                (result.stderr or "")[:200],
+            )
+    except Exception as e:
+        logger.warning("LLM lint fix failed (non-blocking): %s", e)
+
+
 def auto_commit_phase(
     phase: Phase | None,
     story_id: str | None,
@@ -336,6 +620,12 @@ def auto_commit_phase(
     # Stage all changes
     if not stage_all_changes(project_path):
         return False
+
+    # Auto-fix pre-commit hook issues (ESLint + typecheck)
+    _run_precommit_fix(project_path)
+
+    # Re-stage after lint fixes (eslint --fix may have modified files)
+    stage_all_changes(project_path)
 
     # Generate commit message
     message = generate_commit_message(

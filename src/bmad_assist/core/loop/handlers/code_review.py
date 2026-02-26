@@ -95,6 +95,20 @@ class CodeReviewHandler(BaseHandler):
                 story_num,
             )
 
+            # Pre-compile workflow patches BEFORE entering the async event loop.
+            # Patch compilation invokes the Claude SDK which needs its own event loop.
+            # If we let it auto-compile inside run_async_with_timeout(), it hits
+            # "Cannot run the event loop while another loop is running".
+            try:
+                from bmad_assist.compiler.patching import ensure_template_compiled
+                from bmad_assist.core.io import get_original_cwd
+
+                cwd = get_original_cwd()
+                for wf in ("code-review", "security-review"):
+                    ensure_template_compiled(wf, self.project_path, cwd=cwd)
+            except Exception as e:
+                logger.debug("Pre-compilation skipped for %s: %s", wf, e)
+
             # Run async orchestrator
             # CRITICAL: Use run_async_with_timeout() instead of asyncio.run()
             # to prevent hanging on executor shutdown if threads don't terminate

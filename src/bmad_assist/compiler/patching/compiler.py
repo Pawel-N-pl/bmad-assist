@@ -72,7 +72,10 @@ def _validate_instructions_xml(compiled_content: str) -> str | None:
         return None  # Empty instructions
 
     # Skip validation for markdown content
-    if not instructions_xml.lstrip().startswith("<"):
+    # HTML comments (<!-- ... -->) at the start of .md files make lstrip().startswith("<")
+    # return True, so strip those first before checking for real XML
+    stripped = re.sub(r"<!--.*?-->", "", instructions_xml, flags=re.DOTALL).lstrip()
+    if not stripped.startswith("<"):
         return None
 
     try:

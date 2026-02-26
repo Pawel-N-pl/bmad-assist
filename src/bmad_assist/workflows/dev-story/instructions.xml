@@ -263,7 +263,12 @@
     <action>Determine how to run tests for this repo (infer test framework from project structure)</action>
     <action>Run all existing tests to ensure no regressions</action>
     <action>Run the new tests to verify implementation correctness</action>
-    <action>Run linting and code quality checks if configured in project</action>
+    <action>Run linting and code quality checks if configured in project.
+      Detect the lint command from package.json scripts (e.g., "lint", "lint:boundaries").
+      Run it and fix ALL errors found — including in files modified by previous stories.
+      Common fixes: add missing imports (e.g., React), remove unused variables/imports,
+      fix import ordering, replace `any` with proper types.
+      Re-run lint after fixes to confirm zero errors remain.</action>
     <action>Validate implementation meets ALL story acceptance criteria; enforce quantitative thresholds explicitly</action>
     <action if="regression tests fail">STOP and fix before continuing - identify breaking changes immediately</action>
     <action if="new tests fail">STOP and fix before continuing - ensure implementation correctness</action>

@@ -220,6 +220,7 @@ def advance_to_next_story(state: State, epic_stories: list[str]) -> State | None
             "current_story": next_story,
             "current_phase": Phase.CREATE_STORY,
             "updated_at": now,
+            "code_review_rework_count": 0,
         }
     )
 
@@ -295,6 +296,11 @@ def handle_story_completion(
         logger.info(
             "Epic %s stories complete, retrospective needed",
             state.current_epic,
+        )
+        # Reset rework counter since we're done with this story
+        now = datetime.now(UTC).replace(tzinfo=None)
+        state_with_completion = state_with_completion.model_copy(
+            update={"code_review_rework_count": 0, "updated_at": now}
         )
         persist_story_completion(state_with_completion, state_path)
         return state_with_completion, True

@@ -71,6 +71,16 @@ class LoopConfig(BaseModel):
         default_factory=list,
         description="Phases to run once at the end of each epic",
     )
+    code_review_rework: bool = Field(
+        default=False,
+        description="Loop back to dev_story when code review synthesis verdict is REJECT or MAJOR_REWORK",
+    )
+    max_rework_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description="Maximum rework cycles before continuing despite negative verdict (1-5)",
+    )
 
     @field_validator("epic_setup", "story", "epic_teardown", mode="before")
     @classmethod

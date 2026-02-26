@@ -350,7 +350,7 @@ class ClaudeSDKProvider(BaseProvider):
         # take 10-30s. We use asyncio.wait() (not wait_for) to avoid cancelling
         # the coroutine — asyncio.wait_for cancellation breaks anyio's cancel
         # scopes ("exit cancel scope in different task" error).
-        init_timeout = 5  # seconds — normal init takes ~2s, if stuck won't unstick
+        init_timeout = 30  # seconds — patched from 5s; MCP servers + CLAUDE.md loading needs more time
 
         client = ClaudeSDKClient(options=options)
         try:
