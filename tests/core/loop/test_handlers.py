@@ -41,6 +41,7 @@ class TestWorkflowHandlers:
             Phase.CODE_REVIEW_SYNTHESIS: "code_review_synthesis_handler",
             Phase.TEST_REVIEW: "test_review_handler",
             Phase.RETROSPECTIVE: "retrospective_handler",
+            Phase.HARDENING: "hardening_handler",
         }
 
         for phase, expected_name in expected_handlers.items():
@@ -108,6 +109,16 @@ class TestHandlerStubs:
 
 class TestGetHandler:
     """AC6: get_handler() returns correct handler."""
+
+    @pytest.fixture(autouse=True)
+    def reset_handlers(self) -> None:
+        """Reset global handler state to ensure tests use stubs."""
+        from bmad_assist.core.loop import dispatch
+        dispatch._handlers_initialized = False
+        dispatch._handler_instances = {}
+        yield
+        dispatch._handlers_initialized = False
+        dispatch._handler_instances = {}
 
     def test_get_handler_returns_correct_function(self) -> None:
         """AC6: get_handler dispatches correctly."""

@@ -8,7 +8,6 @@ LLM response parsing.
 from __future__ import annotations
 
 import json
-import re
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -17,8 +16,6 @@ import pytest
 from bmad_assist.core.exceptions import ProviderError
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
-    Evidence,
-    Finding,
     MethodId,
     PatternId,
     Severity,
@@ -27,7 +24,6 @@ from bmad_assist.deep_verify.methods.temporal_consistency import (
     TEMPORAL_CATEGORIES,
     TEMPORAL_CONSISTENCY_SYSTEM_PROMPT,
     ImpactLevel,
-    TemporalAnalysisResponse,
     TemporalCategory,
     TemporalConsistencyMethod,
     TemporalDefinition,

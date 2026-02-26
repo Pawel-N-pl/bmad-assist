@@ -10,14 +10,9 @@ import pytest
 
 from bmad_assist.compiler.source_context import (
     GitDiffFile,
-    ScoredFile,
     SourceContextService,
-    _extract_file_list_section,
-    extract_file_paths_from_section,
     extract_file_paths_from_story,
-    get_git_diff_files,
     is_binary_file,
-    safe_read_file,
 )
 from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.config import (

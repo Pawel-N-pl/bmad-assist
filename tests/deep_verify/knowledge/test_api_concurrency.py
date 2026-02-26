@@ -10,13 +10,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bmad_assist.deep_verify.core.types import Severity
 from bmad_assist.deep_verify.knowledge import KnowledgeCategory, KnowledgeLoader
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    pass
 
 
 # =============================================================================

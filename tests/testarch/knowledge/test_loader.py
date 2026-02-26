@@ -1,14 +1,15 @@
 """Tests for KnowledgeBaseLoader class."""
 
-import pytest
 from pathlib import Path
 
+import pytest
+
 from bmad_assist.testarch.knowledge.loader import (
-    KnowledgeBaseLoader,
-    get_knowledge_loader,
-    clear_all_loaders,
     DEFAULT_INDEX_PATH,
     FALLBACK_INDEX_PATH,
+    KnowledgeBaseLoader,
+    clear_all_loaders,
+    get_knowledge_loader,
 )
 
 

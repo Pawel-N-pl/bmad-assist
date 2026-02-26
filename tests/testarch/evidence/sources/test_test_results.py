@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.testarch.evidence.models import SourceConfig
 from bmad_assist.testarch.evidence.sources.test_results import (
     DEFAULT_TEST_RESULTS_PATTERNS,

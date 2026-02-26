@@ -42,7 +42,7 @@ def _print_phase_banner(phase: str, epic: EpicId | None, story: int | str | None
 
     # Print to stdout (Rich console with styling)
     try:
-        console.print(banner, style="bold bright_white")
+        console.print(banner, style="bold cyan")
     except Exception:
         # Fallback to plain print
         print(banner)

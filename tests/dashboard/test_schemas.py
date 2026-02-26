@@ -7,8 +7,8 @@ Story 22.9: SSE sidebar tree updates - Task 6 (tests).
 import pytest
 from pydantic import ValidationError
 
+from bmad_assist.core.loop.dashboard_events import generate_run_id
 from bmad_assist.dashboard.schemas import (
-    DashboardEvent,
     StoryStatusData,
     StoryStatusEvent,
     StoryTransitionData,
@@ -19,7 +19,6 @@ from bmad_assist.dashboard.schemas import (
     create_story_transition,
     create_workflow_status,
 )
-from bmad_assist.core.loop.dashboard_events import generate_run_id
 
 
 class TestGenerateRunId:

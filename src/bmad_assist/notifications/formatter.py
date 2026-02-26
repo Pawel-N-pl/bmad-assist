@@ -72,6 +72,22 @@ HIGH_PRIORITY_ICON = "❌"
 # Success checkmark
 SUCCESS_ICON = "✓"
 
+# Epic setup and teardown phases that show ONLY epic number, no story
+EPIC_LEVEL_PHASES = frozenset({
+    "tea_framework",
+    "tea_ci",
+    "tea_test_design",
+    "tea_automate",
+    "trace",
+    "tea_nfr_assess",
+    "retrospective",
+    "hardening",
+    "qa_plan_generate",
+    "qa_plan_execute",
+    "qa_remediate",
+})
+
+
 
 def _truncate_message(text: str, max_len: int = MAX_ERROR_LENGTH) -> str:
     """Truncate message to max length, preserving Unicode.
@@ -317,10 +333,10 @@ def _format_header(event: EventType, payload: EventPayload) -> str:
     # Get status icon
     status = _get_status_icon(event, payload)
 
-    # Story standalone-03 AC5: Retrospective shows ONLY epic number, no story
-    # Check if this is a RETROSPECTIVE phase (regardless of event type)
-    phase_str = str(phase).upper() if phase else ""
-    if phase_str == "RETROSPECTIVE" or workflow_name == "retrospective":
+    # Story standalone-03 AC5: Epic-level phases show ONLY epic number, no story
+    # Check if this is an epic setup or teardown phase
+    phase_str = str(phase).lower() if phase else ""
+    if phase_str in EPIC_LEVEL_PHASES or workflow_name in EPIC_LEVEL_PHASES:
         epic = getattr(payload, "epic", "Unknown")
         story_id = str(epic)  # Epic only, no story number
     else:

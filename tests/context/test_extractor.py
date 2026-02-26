@@ -1,6 +1,5 @@
 """Tests for the extraction pipeline."""
 
-import pytest
 
 from bmad_assist.context.extractor import extract_context
 

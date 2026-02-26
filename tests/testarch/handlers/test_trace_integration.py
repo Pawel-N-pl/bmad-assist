@@ -1,5 +1,4 @@
-"""
-Tests for TraceHandler compiler integration.
+"""Tests for TraceHandler compiler integration.
 
 Tests the integration between TraceHandler and the TraceCompiler,
 verifying that _invoke_trace_workflow correctly:
@@ -10,7 +9,6 @@ verifying that _invoke_trace_workflow correctly:
 5. Returns PhaseResult with trace_file path and gate_decision
 """
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

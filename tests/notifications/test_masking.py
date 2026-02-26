@@ -240,8 +240,8 @@ class TestCircularImport:
         """BaseHandler and notifications can be imported without cycle."""
         # This import order might fail if lazy import in execute() doesn't work
         # Import both modules in sequence - should not raise ImportError
-        from bmad_assist.notifications import dispatcher
         from bmad_assist.core.loop.handlers.base import BaseHandler
+        from bmad_assist.notifications import dispatcher
 
         assert BaseHandler is not None
         assert dispatcher is not None

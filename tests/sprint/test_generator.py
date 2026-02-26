@@ -16,12 +16,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.bmad.parser import EpicDocument, EpicStory
-from bmad_assist.core.exceptions import ParserError
 from bmad_assist.sprint import EntryType
 from bmad_assist.sprint.generator import (
     GeneratedEntries,

@@ -29,6 +29,8 @@ __all__ = [
     "RETROSPECTIVE_MARKERS",
     "SYNTHESIS_MARKERS",
     "CODE_REVIEW_SYNTHESIS_MARKERS",
+    "HARDENING_PLAN_MARKERS",
+    "HARDENING_TRIAGE_MARKERS",
 ]
 
 
@@ -130,6 +132,29 @@ CODE_REVIEW_SYNTHESIS_MARKERS = ReportMarkers(
         r"^##\s*Changes\s+Applied",
     ],
     name="code-review-synthesis",
+)
+
+HARDENING_PLAN_MARKERS = ReportMarkers(
+    start_marker="<!-- HARDENING_PLAN_START -->",
+    end_marker="<!-- HARDENING_PLAN_END -->",
+    fallback_patterns=[
+        # XML start tag
+        r"<hardening_plan>",
+    ],
+    name="hardening-plan",
+)
+
+HARDENING_TRIAGE_MARKERS = ReportMarkers(
+    start_marker="<!-- HARDENING_TRIAGE_START -->",
+    end_marker="<!-- HARDENING_TRIAGE_END -->",
+    fallback_patterns=[
+        # Legacy JSON object with decision key
+        r'\{\s*"decision"\s*:',
+        # Boolean triage schema keys
+        r'\{\s*"has_direct_fixes"\s*:',
+        r'\{\s*"story_needed"\s*:',
+    ],
+    name="hardening-triage",
 )
 
 

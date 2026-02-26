@@ -8,15 +8,15 @@ Tests for:
 - Engagement model integration with handlers
 """
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from bmad_assist.testarch.engagement import (
     STANDALONE_WORKFLOWS,
     WORKFLOW_MODE_FIELDS,
     should_run_workflow,
 )
-
 
 # =============================================================================
 # Test STANDALONE_WORKFLOWS constant
@@ -294,8 +294,9 @@ class TestTestarchConfigEngagementModel:
 
     def test_rejects_invalid_value(self) -> None:
         """engagement_model rejects invalid values."""
-        from bmad_assist.testarch.config import TestarchConfig
         from pydantic import ValidationError
+
+        from bmad_assist.testarch.config import TestarchConfig
 
         with pytest.raises(ValidationError) as exc_info:
             TestarchConfig(engagement_model="invalid")  # type: ignore[arg-type]
@@ -308,8 +309,9 @@ class TestEngagementModelConsistencyValidation:
 
     def test_warns_when_off_but_atdd_mode_on(self, caplog: pytest.LogCaptureFixture) -> None:
         """Logs warning when engagement_model='off' but atdd_mode='on'."""
-        from bmad_assist.testarch.config import TestarchConfig
         import logging
+
+        from bmad_assist.testarch.config import TestarchConfig
 
         with caplog.at_level(logging.WARNING):
             TestarchConfig(engagement_model="off", atdd_mode="on")
@@ -319,8 +321,9 @@ class TestEngagementModelConsistencyValidation:
 
     def test_no_warning_for_lite_mode(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning for engagement_model='lite' (only 'off' triggers warnings)."""
-        from bmad_assist.testarch.config import TestarchConfig
         import logging
+
+        from bmad_assist.testarch.config import TestarchConfig
 
         with caplog.at_level(logging.WARNING):
             TestarchConfig(engagement_model="lite", trace_on_epic_complete="on")
@@ -330,8 +333,9 @@ class TestEngagementModelConsistencyValidation:
 
     def test_no_warning_for_consistent_config(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning when engagement_model and mode fields are consistent."""
-        from bmad_assist.testarch.config import TestarchConfig
         import logging
+
+        from bmad_assist.testarch.config import TestarchConfig
 
         with caplog.at_level(logging.WARNING):
             TestarchConfig(engagement_model="integrated", atdd_mode="on")
@@ -449,8 +453,8 @@ class TestHandlerSkipsWhenEngagementOff:
 
     def test_atdd_skips_when_engagement_off(self, mock_config_engagement_off: MagicMock, tmp_path) -> None:
         """ATDDHandler skips when engagement_model='off'."""
+        from bmad_assist.core.state import Phase, State
         from bmad_assist.testarch.handlers import ATDDHandler
-        from bmad_assist.core.state import State, Phase
 
         handler = ATDDHandler(mock_config_engagement_off, tmp_path)
         state = State(current_epic=1, current_story="1.1", current_phase=Phase.ATDD)
@@ -463,8 +467,8 @@ class TestHandlerSkipsWhenEngagementOff:
 
     def test_trace_skips_when_engagement_off(self, mock_config_engagement_off: MagicMock, tmp_path) -> None:
         """TraceHandler skips when engagement_model='off'."""
+        from bmad_assist.core.state import Phase, State
         from bmad_assist.testarch.handlers import TraceHandler
-        from bmad_assist.core.state import State, Phase
 
         handler = TraceHandler(mock_config_engagement_off, tmp_path)
         state = State(current_epic=1, current_story="1.1", current_phase=Phase.TRACE)
@@ -504,8 +508,8 @@ class TestHandlerSkipsIntegratedWhenEngagementLite:
 
     def test_atdd_skips_when_engagement_lite(self, mock_config_engagement_lite: MagicMock, tmp_path) -> None:
         """ATDDHandler (integrated) skips when engagement_model='lite'."""
+        from bmad_assist.core.state import Phase, State
         from bmad_assist.testarch.handlers import ATDDHandler
-        from bmad_assist.core.state import State, Phase
 
         handler = ATDDHandler(mock_config_engagement_lite, tmp_path)
         state = State(current_epic=1, current_story="1.1", current_phase=Phase.ATDD)
@@ -518,8 +522,8 @@ class TestHandlerSkipsIntegratedWhenEngagementLite:
 
     def test_trace_skips_when_engagement_lite(self, mock_config_engagement_lite: MagicMock, tmp_path) -> None:
         """TraceHandler (integrated) skips when engagement_model='lite'."""
+        from bmad_assist.core.state import Phase, State
         from bmad_assist.testarch.handlers import TraceHandler
-        from bmad_assist.core.state import State, Phase
 
         handler = TraceHandler(mock_config_engagement_lite, tmp_path)
         state = State(current_epic=1, current_story="1.1", current_phase=Phase.TRACE)
@@ -532,8 +536,8 @@ class TestHandlerSkipsIntegratedWhenEngagementLite:
 
     def test_test_review_skips_when_engagement_lite(self, mock_config_engagement_lite: MagicMock, tmp_path) -> None:
         """TestReviewHandler (integrated) skips when engagement_model='lite'."""
+        from bmad_assist.core.state import Phase, State
         from bmad_assist.testarch.handlers import TestReviewHandler
-        from bmad_assist.core.state import State, Phase
 
         handler = TestReviewHandler(mock_config_engagement_lite, tmp_path)
         state = State(current_epic=1, current_story="1.1", current_phase=Phase.TEST_REVIEW)

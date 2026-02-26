@@ -6,16 +6,14 @@ outside the development loop with direct CLI or programmatic invocation.
 """
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import State
 
 # Import shared fixtures from conftest
-from tests.testarch.e2e.conftest import FakeConfig, FakeTestarchConfig
+from tests.testarch.e2e.conftest import FakeConfig
 
 
 class TestTEASoloMode:
@@ -63,7 +61,7 @@ instructions: "{{installed_path}}/instructions.xml"
         _, _ = setup_solo_project
         config = FakeConfig(engagement_model="solo")
 
-        from bmad_assist.testarch.engagement import should_run_workflow, STANDALONE_WORKFLOWS
+        from bmad_assist.testarch.engagement import should_run_workflow
 
         # Only standalone workflows should be enabled in solo mode
         # STANDALONE_WORKFLOWS = {"framework", "ci", "automate", "test-design", "nfr-assess"}

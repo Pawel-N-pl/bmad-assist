@@ -13,7 +13,6 @@ from bmad_assist.bmad.sharding.loaders import (
 )
 from bmad_assist.bmad.sharding.security import DuplicateEpicError
 
-
 # Use the pre-built fixtures
 FIXTURES_PATH = Path(__file__).parent.parent.parent / "fixtures" / "sharding"
 

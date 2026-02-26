@@ -1,9 +1,7 @@
 """Integration tests for project tree service."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from bmad_assist.core.project_tree.service import ProjectTreeService
 

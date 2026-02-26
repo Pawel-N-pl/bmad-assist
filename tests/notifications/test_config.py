@@ -3,7 +3,6 @@
 Story 15.4: Test NotificationConfig and ProviderConfigItem with env var substitution.
 """
 
-import os
 
 import pytest
 
@@ -138,10 +137,10 @@ class TestNotificationConfig:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Test unknown event types log warning and are skipped."""
+        import logging
+
         from bmad_assist.notifications.config import NotificationConfig
         from bmad_assist.notifications.events import EventType
-
-        import logging
 
         caplog.set_level(logging.WARNING)
 

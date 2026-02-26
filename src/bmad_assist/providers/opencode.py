@@ -606,18 +606,19 @@ class OpenCodeProvider(BaseProvider):
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             stderr_content = "".join(stderr_chunks)
 
-            if returncode != 0:
-                exit_status = ExitStatus.from_code(returncode)
+            if returncode != 0 or (returncode == 0 and not stderr_content.strip() and not response_text_parts):
+                exit_status = ExitStatus.from_code(returncode) if returncode != 0 else ExitStatus.ERROR
                 stderr_truncated = (
                     stderr_content[:STDERR_TRUNCATE_LENGTH] if stderr_content else "(empty)"
                 )
 
                 logger.error(
-                    "OpenCode CLI failed: exit_code=%d, status=%s, model=%s, stderr=%s",
+                    "OpenCode CLI failed: exit_code=%d, status=%s, model=%s, stderr=%s, empty_stdout=%s",
                     returncode,
-                    exit_status.name,
+                    exit_status.name if hasattr(exit_status, "name") else "ERROR",
                     effective_model,
                     stderr_truncated,
+                    returncode == 0 and not response_text_parts,
                 )
 
                 if exit_status == ExitStatus.SIGNAL:
@@ -636,12 +637,17 @@ class OpenCodeProvider(BaseProvider):
                         f"OpenCode CLI failed with exit code {returncode} "
                         f"(permission denied): {stderr_truncated}"
                     )
+                elif returncode == 0 and not response_text_parts:
+                    message = (
+                        f"OpenCode CLI failed with exit code {returncode} "
+                        f"(no output generated, possible tool auto-rejection anomaly): {stderr_truncated}"
+                    )
                 else:
                     message = f"OpenCode CLI failed with exit code {returncode}: {stderr_truncated}"
 
                 error = ProviderExitCodeError(
                     message,
-                    exit_code=returncode,
+                    exit_code=returncode if returncode != 0 else -1, # Force negative exit code for empty output anomaly
                     exit_status=exit_status,
                     stderr=stderr_content,
                     command=tuple(command),

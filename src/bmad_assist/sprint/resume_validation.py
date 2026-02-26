@@ -119,21 +119,22 @@ def _is_epic_done_in_sprint(
     epic_id: EpicId,
     sprint_status: SprintStatus,
 ) -> bool:
-    """Check if epic is FULLY done in sprint-status (including retrospective).
+    """Check if epic is FULLY done in sprint-status (including retrospective and hardening).
 
-    An epic is only considered done if BOTH:
+    An epic is only considered done if ALL of:
     1. epic-X entry has status "done"
     2. epic-X-retrospective entry has status "done" (or doesn't exist)
+    3. epic-X-hardening entry has status "done" (or doesn't exist)
 
-    If epic is "done" but retrospective is "backlog"/"in-progress", the epic
-    is NOT considered done - it needs to run its retrospective phase.
+    If epic is "done" but retrospective or hardening is "backlog"/"in-progress",
+    the epic is NOT considered done — it needs to complete those phases.
 
     Args:
         epic_id: Epic ID.
         sprint_status: Parsed sprint-status.
 
     Returns:
-        True if epic AND its retrospective are done, False otherwise.
+        True if epic AND its post-story phases are done, False otherwise.
 
     """
     # Check epic status
@@ -145,12 +146,26 @@ def _is_epic_done_in_sprint(
     retro_key = f"epic-{epic_id}-retrospective"
     retro_entry = sprint_status.entries.get(retro_key)
 
-    if retro_entry is None:
-        # No retrospective entry - assume epic is done (legacy compatibility)
-        return True
+    if retro_entry is not None and retro_entry.status != "done":
+        # Retrospective exists but not done
+        return False
 
-    # Epic is only done if retrospective is also done
-    return retro_entry.status == "done"
+    # Check hardening status dynamically by looking for X-Y-hardening
+    # or the legacy epic-X-hardening key.
+    epic_str = str(epic_id)
+    for key, entry in sprint_status.entries.items():
+        if key.endswith("-hardening"):
+            # Check if this hardening story belongs to this epic
+            # Can be "epic-X-hardening" or "X-Y-hardening"
+            is_this_epic = False
+            if key == f"epic-{epic_str}-hardening" or key.startswith(f"{epic_str}-"):
+                is_this_epic = True
+
+            if is_this_epic and entry.status != "done":
+                # Hardening exists but not done
+                return False
+
+    return True
 
 
 def validate_resume_state(
@@ -187,6 +202,7 @@ def validate_resume_state(
 
     stories_skipped: list[str] = []
     epics_skipped: list[EpicId] = []
+    rewound = False  # Track if we rewound to an earlier story
 
     # Find sprint-status location (uses paths singleton for external paths support)
     try:
@@ -261,11 +277,17 @@ def validate_resume_state(
         # Type narrowing: current_epic is guaranteed non-None from here
         current_epic: EpicId = current_state.current_epic
 
-        # CRITICAL: If we're in RETROSPECTIVE phase, don't skip anything.
-        # The loop needs to execute the retrospective - we shouldn't try to
+        # CRITICAL: If we're in an epic-level phase (RETROSPECTIVE, HARDENING, QA), don't skip anything.
+        # The loop needs to execute it - we shouldn't try to
         # advance past it just because stories are done.
-        if current_state.current_phase == Phase.RETROSPECTIVE:
-            logger.debug("Current phase is RETROSPECTIVE - not skipping, let loop execute it")
+        epic_level_phases = {
+            Phase.RETROSPECTIVE,
+            Phase.QA_PLAN_GENERATE,
+            Phase.QA_PLAN_EXECUTE,
+            Phase.HARDENING,
+        }
+        if current_state.current_phase in epic_level_phases:
+            logger.debug("Current phase is epic-level (%s) - not skipping, let loop execute it", current_state.current_phase.value)
             break
 
         # Check if current epic is done in sprint-status (including retrospective)
@@ -404,7 +426,94 @@ def validate_resume_state(
             # Continue loop to check if new story is also done
             continue
 
-        # Current position is not done - we're at the right place
+        # Current position is not done — but check if an EARLIER story in
+        # this epic is also incomplete (e.g., Story X.0 added by hardening).
+        try:
+            epic_stories = epic_stories_loader(current_epic)
+
+            # Inject stories from sprint_status that belong to this epic (like Story X.0)
+            # Helper to convert sprint keys to state story IDs
+            def key_to_story_id(k: str, epic_id: EpicId = current_epic) -> str | None:
+                pfx = f"{epic_id}."
+                if k.startswith(pfx):
+                    return k
+                if k.startswith(f"{epic_id}-") and k.count("-") >= 1:
+                    # Convert "6-8-hardening" to "6.8.hardening"
+                    # But if it's "6-0-retrospective-hardening", convert to "6.0"
+                    parts = k.split("-", 2)
+                    if len(parts) >= 2 and parts[0] == str(epic_id):
+                        return f"{parts[0]}.{parts[1]}"
+                if k == f"epic-{epic_id}-hardening":
+                    return f"{epic_id}.hardening"
+                return None
+
+            sprint_epic_stories = []
+            for s_id in sprint_status.entries:
+                mapped_id = key_to_story_id(s_id)
+                if mapped_id:
+                    sprint_epic_stories.append(mapped_id)
+
+            for s_id in sprint_epic_stories:
+                if s_id not in epic_stories:
+                    epic_stories.append(s_id)
+
+            # Sort logically so X.0 comes before X.1
+            import re
+            def story_sort_key(s_id: str) -> tuple[str, float]:
+                s = str(s_id)
+                m = re.search(r'^(.+?)[-.](\d+|hardening)(.*)$', s)
+                if m:
+                    epic_val = m.group(1)
+                    # Use formatted string for epic to ensure numeric epics sort correctly
+                    epic_sort = f"{int(epic_val):04d}" if epic_val.isdigit() else epic_val
+
+                    story_val = m.group(2)
+                    if story_val == "hardening":
+                        # Legacy epic-X-hardening goes at the very end
+                        return (epic_sort, 99999.0)
+                    else:
+                        num = float(story_val)
+                        return (epic_sort, num)
+                return (s, 99999.0)
+
+            epic_stories.sort(key=story_sort_key)
+
+        except Exception:
+            break  # Cannot load stories — keep current position
+
+        if epic_stories and current_state.current_story:
+            # Find first incomplete story in the full list
+            first_incomplete = None
+            for s in epic_stories:
+                if s in current_state.completed_stories:
+                    continue
+                if _is_story_done_in_sprint(s, sprint_status):
+                    continue
+                first_incomplete = s
+                break
+
+            if (
+                first_incomplete
+                and first_incomplete != current_state.current_story
+                and current_state.current_story in epic_stories
+                and epic_stories.index(first_incomplete)
+                < epic_stories.index(current_state.current_story)
+            ):
+                # Earlier story needs work — rewind
+                logger.info(
+                    "Earlier story %s is incomplete (before %s), rewinding",
+                    first_incomplete,
+                    current_state.current_story,
+                )
+                current_state = current_state.model_copy(
+                    update={
+                        "current_story": first_incomplete,
+                        "current_phase": Phase.CREATE_STORY,
+                        "updated_at": now,
+                    }
+                )
+                rewound = True
+
         break
 
     if iterations >= max_iterations:
@@ -414,7 +523,7 @@ def validate_resume_state(
         state=current_state,
         stories_skipped=stories_skipped,
         epics_skipped=epics_skipped,
-        advanced=bool(stories_skipped or epics_skipped),
+        advanced=bool(stories_skipped or epics_skipped or rewound),
         project_complete=False,
     )
 

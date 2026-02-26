@@ -3,7 +3,6 @@
 Story 15.4: Test notifications integration with Config.
 """
 
-import pytest
 
 
 class TestConfigNotificationsField:
@@ -11,7 +10,7 @@ class TestConfigNotificationsField:
 
     def test_config_with_notifications_section(self) -> None:
         """Test Config loads with notifications section present."""
-        from bmad_assist.core.config import load_config, _reset_config
+        from bmad_assist.core.config import _reset_config, load_config
         from bmad_assist.notifications.config import NotificationConfig
 
         _reset_config()
@@ -42,7 +41,7 @@ class TestConfigNotificationsField:
 
     def test_config_without_notifications_section(self) -> None:
         """Test Config loads without notifications (defaults to None)."""
-        from bmad_assist.core.config import load_config, _reset_config
+        from bmad_assist.core.config import _reset_config, load_config
 
         _reset_config()
 
@@ -60,7 +59,7 @@ class TestConfigNotificationsField:
 
     def test_config_with_disabled_notifications(self) -> None:
         """Test Config with notifications.enabled = false."""
-        from bmad_assist.core.config import load_config, _reset_config
+        from bmad_assist.core.config import _reset_config, load_config
 
         _reset_config()
 
@@ -84,7 +83,7 @@ class TestConfigNotificationsField:
 
     def test_config_notifications_with_multiple_providers(self) -> None:
         """Test Config with both telegram and discord providers."""
-        from bmad_assist.core.config import load_config, _reset_config
+        from bmad_assist.core.config import _reset_config, load_config
 
         _reset_config()
 

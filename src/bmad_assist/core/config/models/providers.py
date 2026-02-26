@@ -23,6 +23,7 @@ SINGLE_LLM_PHASES: frozenset[str] = frozenset(
         "dev_story",
         "code_review_synthesis",
         "retrospective",
+        "hardening",
         # Testarch phases
         "atdd",
         "test_review",

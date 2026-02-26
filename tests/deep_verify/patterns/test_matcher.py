@@ -1,6 +1,5 @@
 """Tests for PatternMatcher class."""
 
-import re
 
 import pytest
 
@@ -15,7 +14,6 @@ from bmad_assist.deep_verify.patterns.matcher import (
     MatchContext,
     PatternMatcher,
 )
-from bmad_assist.deep_verify.patterns.types import MatchedSignal
 
 
 class TestMatchContext:
@@ -448,7 +446,7 @@ class TestPatternMatcherMatchedSignals:
         assert len(results) == 1
         result = results[0]
         assert len(result.matched_signals) == 2
-        
+
         # Check signal types
         signal_types = [ms.signal.type for ms in result.matched_signals]
         assert "exact" in signal_types
@@ -469,7 +467,7 @@ class TestPatternMatcherMatchedSignals:
         text = "line 1 has first\nline 2 has second"
         results = matcher.match(text)
         assert len(results) == 1
-        
+
         line_numbers = [ms.line_number for ms in results[0].matched_signals]
         assert 1 in line_numbers
         assert 2 in line_numbers
@@ -571,7 +569,7 @@ class TestPatternMatcherWithRealPatterns:
             severity=Severity.CRITICAL,
         )
         matcher = PatternMatcher([pattern], threshold=0.25)
-        
+
         code = """
         if len(items) > 0 {
             items = append(items, newItem)
@@ -595,7 +593,7 @@ class TestPatternMatcherWithRealPatterns:
         )
         # Use lower threshold since pattern has 4 signals and 1 matches = 0.25
         matcher = PatternMatcher([pattern], threshold=0.2)
-        
+
         code = "TODO: remove auth bypass before production"
         results = matcher.match(code)
         assert len(results) == 1
@@ -615,7 +613,7 @@ class TestPatternMatcherWithRealPatterns:
             severity=Severity.ERROR,
         )
         matcher = PatternMatcher([pattern], threshold=0.25)
-        
+
         code = "if recordExists(id) { insertRecord(id, data) }"
         results = matcher.match(code)
         assert len(results) >= 1  # May match multiple signals

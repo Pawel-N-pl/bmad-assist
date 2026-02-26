@@ -9,15 +9,15 @@ Tests for:
 """
 
 import logging
+
 import pytest
 from pydantic import ValidationError
 
 from bmad_assist.core.config.models.loop import (
-    LoopConfig,
     DEFAULT_LOOP_CONFIG,
     TEA_FULL_LOOP_CONFIG,
+    LoopConfig,
 )
-
 
 # =============================================================================
 # Test DEFAULT_LOOP_CONFIG
@@ -56,8 +56,8 @@ class TestDefaultLoopConfig:
         assert DEFAULT_LOOP_CONFIG.story == expected_core
 
     def test_epic_teardown_includes_retrospective(self) -> None:
-        """DEFAULT_LOOP_CONFIG epic_teardown includes only 'retrospective'."""
-        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective"]
+        """DEFAULT_LOOP_CONFIG epic_teardown includes 'retrospective' and 'hardening'."""
+        assert DEFAULT_LOOP_CONFIG.epic_teardown == ["retrospective", "hardening"]
 
     def test_epic_teardown_no_trace(self) -> None:
         """DEFAULT_LOOP_CONFIG epic_teardown excludes 'trace' (TEA phase)."""
@@ -144,7 +144,7 @@ class TestTeaFullLoopConfig:
         assert "retrospective" in TEA_FULL_LOOP_CONFIG.epic_teardown
 
     def test_trace_before_retrospective(self) -> None:
-        """trace comes before retrospective in TEA epic_teardown."""
+        """Trace comes before retrospective in TEA epic_teardown."""
         teardown = TEA_FULL_LOOP_CONFIG.epic_teardown
         trace_idx = teardown.index("trace")
         retro_idx = teardown.index("retrospective")

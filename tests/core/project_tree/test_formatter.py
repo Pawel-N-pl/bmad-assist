@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.core.project_tree.formatter import TreeFormatter
 from bmad_assist.core.project_tree.types import TreeEntry
 

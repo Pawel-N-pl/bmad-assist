@@ -12,14 +12,11 @@ This module tests the Deep Verify CLI command functionality including:
 from __future__ import annotations
 
 import json
-import sys
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
 from bmad_assist.cli import app
@@ -613,7 +610,6 @@ class TestHelperFunctions:
 
     def test_read_artifact_text_from_stdin(self) -> None:
         """Test reading artifact from stdin indicator."""
-        from bmad_assist.commands.verify import _read_artifact_text
         # When file is "-", it reads from sys.stdin
         # We can't easily test this without patching stdin, so just check the function exists
 
@@ -665,8 +661,9 @@ class TestOutputFormatters:
 
     def test_format_text_output(self, mock_verdict_reject: Verdict, capsys: Any) -> None:
         """Test text output formatter."""
-        from bmad_assist.commands.verify import _format_text_output
         from rich.console import Console
+
+        from bmad_assist.commands.verify import _format_text_output
 
         console = Console(force_terminal=False)
         with patch("bmad_assist.commands.verify.console", console):

@@ -1,11 +1,10 @@
 """Tests for fragment caching."""
 
-import pytest
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from bmad_assist.testarch.knowledge.cache import FragmentCache, CacheEntry
-from bmad_assist.testarch.knowledge.models import KnowledgeFragment, KnowledgeIndex
+from bmad_assist.testarch.knowledge.cache import CacheEntry, FragmentCache
+from bmad_assist.testarch.knowledge.models import KnowledgeIndex
 
 
 class TestCacheEntry:

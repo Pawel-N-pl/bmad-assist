@@ -43,7 +43,8 @@ class TestGetNextPhase:
 
     def test_get_next_phase_returns_test_review_for_code_review_synthesis_with_tea_loop(self) -> None:
         """AC7: CODE_REVIEW_SYNTHESIS -> TEST_REVIEW when using TEA_FULL_LOOP_CONFIG."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from bmad_assist.core.config.loop_config import set_loop_config
         from bmad_assist.core.config.models.loop import TEA_FULL_LOOP_CONFIG
         from bmad_assist.core.loop import Phase, get_next_phase
@@ -64,9 +65,10 @@ class TestGetNextPhase:
 
     def test_get_next_phase_returns_none_for_test_review_with_tea_loop(self) -> None:
         """AC7: TEST_REVIEW is last in TEA_FULL_LOOP_CONFIG.story, returns None."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from bmad_assist.core.config.loop_config import set_loop_config
-        from bmad_assist.core.config.models.loop import TEA_FULL_LOOP_CONFIG, DEFAULT_LOOP_CONFIG
+        from bmad_assist.core.config.models.loop import DEFAULT_LOOP_CONFIG, TEA_FULL_LOOP_CONFIG
         from bmad_assist.core.loop import Phase, get_next_phase
 
         # Use TEA_FULL_LOOP_CONFIG which has TEST_REVIEW

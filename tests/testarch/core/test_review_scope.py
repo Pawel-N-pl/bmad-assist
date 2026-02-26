@@ -4,9 +4,7 @@ Tests the resolve_review_scope() function that determines
 review scope based on context.
 """
 
-from pathlib import Path
 
-import pytest
 
 from tests.testarch.core.conftest import MockCompilerContext
 

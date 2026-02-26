@@ -283,6 +283,7 @@ def run_loop(
     epic_stories_loader: Callable[[EpicId], list[str]],
     cancel_ctx: CancellationContext | None = None,
     skip_signal_handlers: bool = False,
+    single_phase: bool = False,
 ) -> LoopExitReason:
     """Execute the main BMAD development loop.
 
@@ -394,7 +395,8 @@ def run_loop(
         with _running_lock(project_path):
             try:
                 exit_reason = _run_loop_body(
-                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx
+                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx,
+                    single_phase=single_phase,
                 )
                 # Update run_log with final status
                 run_log.status = RunStatus.COMPLETED
@@ -463,6 +465,7 @@ def _run_loop_body(
     epic_stories_loader: Callable[[EpicId], list[str]],
     run_log: RunLog | None = None,
     cancel_ctx: CancellationContext | None = None,
+    single_phase: bool = False,
 ) -> LoopExitReason:
     """Execute the main loop body with signal handling active.
 
@@ -681,7 +684,12 @@ def _run_loop_body(
 
     # Epic setup: run before first story if not already complete
     # Per ADR-007: This also handles resume-after-setup-crash by restarting all setup phases
-    if not state.epic_setup_complete and loop_config.epic_setup:
+    # SKIP setup when current phase is an epic_teardown phase (e.g., hardening via --phase override)
+    _teardown_phase_set = (
+        {Phase(p) for p in loop_config.epic_teardown} if loop_config.epic_teardown else set()
+    )
+    _is_starting_at_teardown = state.current_phase in _teardown_phase_set
+    if not state.epic_setup_complete and loop_config.epic_setup and not _is_starting_at_teardown:
         # Save the current phase before setup — on resume, state may have a mid-story phase
         # (e.g., dev_story) that should be preserved after setup completes.
         saved_phase = state.current_phase
@@ -727,10 +735,12 @@ def _run_loop_body(
         save_state(state, state_path)
 
         # CLI Observability: Print phase banner (visible regardless of log level)
+        # For teardown phases, don't show story (they are epic-scoped, not story-scoped)
+        _banner_story = state.current_story if state.current_phase not in _teardown_phase_set else None
         _print_phase_banner(
             phase=state.current_phase.name if state.current_phase else "UNKNOWN",
             epic=state.current_epic,
-            story=state.current_story,
+            story=_banner_story,
         )
 
         # CLI Observability: Record phase START in run log (crash diagnostics)
@@ -849,6 +859,24 @@ def _run_loop_body(
                 phase_status="completed" if result.success else "failed",
             )
 
+        # Single-phase mode: set deferred exit flag after the specified phase completes.
+        # We do NOT exit immediately — the normal post-phase processing (teardown handling,
+        # epic advancement, sprint sync, etc.) must run first so state is properly advanced.
+        _single_phase_exit: LoopExitReason | None = None
+        if single_phase:
+            if result.success:
+                logger.info(
+                    "Single-phase mode: %s completed successfully, will exit after post-processing",
+                    state.current_phase.name if state.current_phase else "UNKNOWN",
+                )
+                _single_phase_exit = LoopExitReason.COMPLETED
+            else:
+                logger.warning(
+                    "Single-phase mode: %s failed, will exit after post-processing",
+                    state.current_phase.name if state.current_phase else "UNKNOWN",
+                )
+                _single_phase_exit = LoopExitReason.GUARDIAN_HALT
+
         # AC5: Handle phase failures
         if not result.success:
             logger.warning(
@@ -894,14 +922,21 @@ def _run_loop_body(
                     state, epic_list, epic_stories_loader, state_path
                 )
 
-                # Dispatch epic_completed event (even on teardown failure)
-                _dispatch_event(
-                    "epic_completed",
-                    project_path,
-                    state,
-                    duration_ms=epic_duration_ms,
-                    stories_completed=epic_stories_count,
+                # Determine if the epic was just resumed (consistency with main success path)
+                is_epic_resumed = (
+                    not is_project_complete 
+                    and new_state.current_epic == state.current_epic
                 )
+
+                if not is_epic_resumed:
+                    # Dispatch epic_completed event (even on teardown failure)
+                    _dispatch_event(
+                        "epic_completed",
+                        project_path,
+                        state,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
+                    )
 
                 if is_project_complete:
                     project_duration_ms = get_project_duration_ms(state)
@@ -929,6 +964,9 @@ def _run_loop_body(
                     "Advanced to epic %s after teardown failure",
                     state.current_epic,
                 )
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue
 
             # Story phase failure - goes through normal guardian flow
@@ -965,6 +1003,8 @@ def _run_loop_body(
             # AC5: MVP guardian ALWAYS returns "continue" - proceed to next phase
             # Note: In MVP, failures don't block loop (acknowledged risk - NFR4 deferred to Epic 8)
             # Code Review Fix: Skip AC6 save below - already saved above before guardian
+            if _single_phase_exit is not None:
+                return _single_phase_exit
             continue
 
         # AC6: Save state after each phase completion (SUCCESS PATH ONLY)
@@ -1129,7 +1169,7 @@ def _run_loop_body(
 
             if is_epic_complete:
                 # Run all epic teardown phases (retrospective, qa_plan_*, etc.)
-                logger.info("Epic %s stories complete, running teardown phases", state.current_epic)
+                logger.info("Epic %s stories complete, running teardown phases", new_state.current_epic)
                 state, _teardown_result = _execute_epic_teardown(
                     new_state, state_path, project_path
                 )
@@ -1150,17 +1190,26 @@ def _run_loop_body(
                     state, epic_list, epic_stories_loader, state_path
                 )
 
-                # Story standalone-03 AC6: Dispatch epic_completed event
-                _dispatch_event(
-                    "epic_completed",
-                    project_path,
-                    state,
-                    duration_ms=epic_duration_ms,
-                    stories_completed=epic_stories_count,
+                # Determine if the epic was just resumed (e.g. by new stories from hardening)
+                # If advanced_state.current_epic is the same as state.current_epic and we didn't complete the project,
+                # it means the epic is not actually completed.
+                is_epic_resumed = (
+                    not is_project_complete 
+                    and advanced_state.current_epic == state.current_epic
                 )
 
+                if not is_epic_resumed:
+                    # Story standalone-03 AC6: Dispatch epic_completed event
+                    _dispatch_event(
+                        "epic_completed",
+                        project_path,
+                        state,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
+                    )
+
                 # Interactive continuation prompt at epic boundary (only if NOT project complete)
-                if not is_project_complete and not checkpoint_and_prompt(
+                if not is_project_complete and not is_epic_resumed and not checkpoint_and_prompt(
                     advanced_state, state_path, f"Epic {state.current_epic} complete. Continue?"
                 ):
                     return LoopExitReason.COMPLETED  # Graceful exit - state already saved
@@ -1181,12 +1230,22 @@ def _run_loop_body(
                     logger.info("Project complete after epic %s teardown", state.current_epic)
                     return LoopExitReason.COMPLETED
 
-                # Continue with next epic
+                # Continue with next epic OR resumed epic
                 state = advanced_state
-                # Reset timing for new epic
-                start_epic_timing(state)
+                
+                if not is_epic_resumed:
+                    # Reset timing for new epic
+                    start_epic_timing(state)
                 start_story_timing(state)
-                logger.info("Advanced to epic %s after teardown", state.current_epic)
+                
+                if is_epic_resumed:
+                    logger.info("Resumed epic %s after teardown added new stories", state.current_epic)
+                else:
+                    logger.info("Advanced to epic %s after teardown", state.current_epic)
+                
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue  # Next iteration will run epic_setup for new epic
             else:
                 # AC3: Not last story - advance to next story
@@ -1255,6 +1314,9 @@ def _run_loop_body(
                         phase_status="in-progress",
                     )
 
+            if _single_phase_exit is not None:
+                save_state(state, state_path)
+                return _single_phase_exit
             continue
 
         # AC4: QA_PLAN_EXECUTE success → handle epic completion
@@ -1268,14 +1330,21 @@ def _run_loop_body(
                 state, epic_list, epic_stories_loader, state_path
             )
 
-            # Story standalone-03 AC6: Dispatch epic_completed event
-            _dispatch_event(
-                "epic_completed",
-                project_path,
-                state,
-                duration_ms=epic_duration_ms,
-                stories_completed=epic_stories_count,
+            # Determine if the epic was just resumed (epic-scope consistency)
+            is_epic_resumed = (
+                not is_project_complete 
+                and new_state.current_epic == state.current_epic
             )
+
+            if not is_epic_resumed:
+                # Story standalone-03 AC6: Dispatch epic_completed event
+                _dispatch_event(
+                    "epic_completed",
+                    project_path,
+                    state,
+                    duration_ms=epic_duration_ms,
+                    stories_completed=epic_stories_count,
+                )
 
             if is_project_complete:
                 # Story standalone-03 AC7: Dispatch project_completed event
@@ -1329,6 +1398,9 @@ def _run_loop_body(
                 story_title=story_title,
             )
 
+            if _single_phase_exit is not None:
+                save_state(state, state_path)
+                return _single_phase_exit
             continue
 
         # Code Review Fix: Honor PhaseResult.next_phase override from handlers
@@ -1381,14 +1453,21 @@ def _run_loop_body(
                     state, epic_list, epic_stories_loader, state_path
                 )
 
-                # Dispatch epic_completed event
-                _dispatch_event(
-                    "epic_completed",
-                    project_path,
-                    state,
-                    duration_ms=epic_duration_ms,
-                    stories_completed=epic_stories_count,
+                # Determine if the epic was just resumed (unexpected teardown path)
+                is_epic_resumed = (
+                    not is_project_complete 
+                    and new_state.current_epic == state.current_epic
                 )
+
+                if not is_epic_resumed:
+                    # Dispatch epic_completed event
+                    _dispatch_event(
+                        "epic_completed",
+                        project_path,
+                        state,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
+                    )
 
                 if is_project_complete:
                     project_duration_ms = get_project_duration_ms(state)
@@ -1437,6 +1516,9 @@ def _run_loop_body(
                     story_title=story_title,
                 )
 
+                if _single_phase_exit is not None:
+                    save_state(state, state_path)
+                    return _single_phase_exit
                 continue
 
             # Other phases returning None is unexpected - raise error
@@ -1466,3 +1548,8 @@ def _run_loop_body(
                 phase=next_phase.name,
                 phase_status="in-progress",
             )
+
+        # Single-phase mode: exit after post-phase processing is complete
+        if _single_phase_exit is not None:
+            save_state(state, state_path)
+            return _single_phase_exit

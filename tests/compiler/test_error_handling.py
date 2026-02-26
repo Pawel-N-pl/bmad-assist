@@ -14,7 +14,6 @@ Tests for Story 10.8 - Fail-Fast Error Handling:
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -22,7 +21,6 @@ from bmad_assist.compiler.core import get_workflow_compiler
 from bmad_assist.compiler.discovery import (
     LoadStrategy,
     _apply_load_strategy,
-    discover_files,
     extract_section,
 )
 from bmad_assist.compiler.output import GeneratedOutput, generate_output
@@ -31,7 +29,7 @@ from bmad_assist.compiler.parser import (
     parse_workflow_config,
     parse_workflow_instructions,
 )
-from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext, WorkflowIR
+from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variables import _validate_config_path, resolve_variables
 from bmad_assist.core.exceptions import (
     AmbiguousFileError,
@@ -40,7 +38,6 @@ from bmad_assist.core.exceptions import (
     ParserError,
     VariableError,
 )
-
 
 # ============================================================================
 # Test Fixtures

@@ -16,14 +16,12 @@ Key test patterns:
 """
 
 import asyncio
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.dashboard.sse import SSEBroadcaster
-
 
 # =============================================================================
 # Fixtures for EOF handling tests

@@ -1,15 +1,15 @@
 """Tests for bmad_assist.core.paths module."""
 
 import os
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from bmad_assist.core.paths import (
     ProjectPaths,
+    _reset_paths,
     get_paths,
     init_paths,
-    _reset_paths,
 )
 
 

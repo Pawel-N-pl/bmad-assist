@@ -26,7 +26,13 @@ from bmad_assist.core.exceptions import (
     ProviderExitCodeError,
     ProviderTimeoutError,
 )
-from bmad_assist.providers import BaseProvider, KimiProvider, ProviderResult, get_provider, list_providers
+from bmad_assist.providers import (
+    BaseProvider,
+    KimiProvider,
+    ProviderResult,
+    get_provider,
+    list_providers,
+)
 from bmad_assist.providers.kimi import (
     DEFAULT_TIMEOUT,
     KIMI_PERMANENT_PATTERNS,
@@ -39,6 +45,7 @@ from bmad_assist.providers.kimi import (
     _is_kimi_transient_error,
     _truncate_prompt,
 )
+
 from .conftest import (
     create_kimi_mock_process,
     make_kimi_json_output,

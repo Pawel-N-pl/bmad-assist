@@ -9,7 +9,6 @@ Tests cover:
 - Legacy format fallback when run-scoped not found
 """
 
-import threading as _threading
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -30,7 +29,6 @@ from bmad_assist.core.io import (
     init_run_prompts_dir,
     save_prompt,
 )
-
 
 # =============================================================================
 # Fixtures

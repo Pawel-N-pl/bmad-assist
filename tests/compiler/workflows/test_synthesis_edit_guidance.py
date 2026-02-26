@@ -7,12 +7,11 @@ for using Read tool before Edit tool to avoid old_string mismatches.
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from bmad_assist.compiler.parser import parse_workflow
-from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
+from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.validation.anonymizer import AnonymizedValidation
 
 

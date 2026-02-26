@@ -55,6 +55,7 @@ EPIC_LEVEL_WORKFLOWS = {
     "testarch-framework",
     "testarch-nfr-assess",
     "testarch-test-design",
+    "hardening",
 }
 
 # Tri-modal workflows that support --mode flag

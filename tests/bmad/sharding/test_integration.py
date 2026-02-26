@@ -10,15 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from bmad_assist.bmad.state_reader import read_project_state
 from bmad_assist.bmad.sharding import (
     DuplicateEpicError,
-    SecurityError,
     load_sharded_content,
     load_sharded_epics,
     resolve_doc_path,
 )
-
+from bmad_assist.bmad.state_reader import read_project_state
 
 # Fixtures path
 FIXTURES_PATH = Path(__file__).parent.parent.parent / "fixtures" / "sharding"

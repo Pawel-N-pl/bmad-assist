@@ -135,12 +135,12 @@ class TestTimeoutsConfigRetries:
     """Tests for TimeoutsConfig.get_retries() method."""
 
     def test_retries_default_is_none(self) -> None:
-        """retries defaults to None (no retry on timeout)."""
+        """Retries defaults to None (no retry on timeout)."""
         tc = TimeoutsConfig()
         assert tc.retries is None
 
     def test_retries_can_be_set(self) -> None:
-        """retries can be set to specific values."""
+        """Retries can be set to specific values."""
         tc = TimeoutsConfig(retries=3)
         assert tc.retries == 3
 
@@ -162,7 +162,7 @@ class TestTimeoutsConfigRetries:
         assert tc.get_retries("validate_story") is None
 
     def test_retries_minimum_validation(self) -> None:
-        """retries must be >= 0."""
+        """Retries must be >= 0."""
         with pytest.raises(ValueError):
             TimeoutsConfig(retries=-1)
 

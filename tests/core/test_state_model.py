@@ -21,7 +21,6 @@ from pydantic import ValidationError
 
 from bmad_assist.core.state import Phase, State
 
-
 # =============================================================================
 # AC2: Phase enum defines workflow phases
 # =============================================================================
@@ -31,8 +30,8 @@ class TestPhaseEnum:
     """Test Phase enum values and ordering (AC2)."""
 
     def test_phase_enum_has_eighteen_values(self) -> None:
-        """Phase enum contains exactly 18 workflow phases (including TEA handlers + QA)."""
-        assert len(Phase) == 18
+        """Phase enum contains exactly 19 workflow phases (including TEA handlers + QA)."""
+        assert len(Phase) == 19
 
     def test_phase_enum_values_in_order(self) -> None:
         """Phase enum values match expected order."""
@@ -52,6 +51,7 @@ class TestPhaseEnum:
             ("TEA_AUTOMATE", "tea_automate"),
             ("TEA_NFR_ASSESS", "tea_nfr_assess"),
             ("RETROSPECTIVE", "retrospective"),
+            ("HARDENING", "hardening"),
             ("QA_PLAN_GENERATE", "qa_plan_generate"),
             ("QA_PLAN_EXECUTE", "qa_plan_execute"),
             ("QA_REMEDIATE", "qa_remediate"),

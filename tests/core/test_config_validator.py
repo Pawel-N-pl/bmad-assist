@@ -21,7 +21,6 @@ from bmad_assist.core.config_validator import (
     validate_config_file,
 )
 
-
 # =============================================================================
 # Test: ValidationResult dataclass
 # =============================================================================

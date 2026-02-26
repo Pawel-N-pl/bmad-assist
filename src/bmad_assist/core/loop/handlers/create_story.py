@@ -68,10 +68,16 @@ def _find_story_file(state: State) -> Path | None:
     if state.current_epic is None or state.current_story is None:
         return None
 
-    # Extract story number from story ID (e.g., "3.2" -> "2")
-    if "." not in state.current_story:
+    import re
+    hardening_pattern = re.compile(r"^epic-(.+)-hardening$")
+    match = hardening_pattern.match(state.current_story)
+
+    if match:
+        story_num = "hardening"
+    elif "." in state.current_story:
+        story_num = state.current_story.split(".")[-1]
+    else:
         return None
-    story_num = state.current_story.split(".")[-1]
 
     paths = get_paths()
     stories_dir = paths.stories_dir
@@ -80,6 +86,10 @@ def _find_story_file(state: State) -> Path | None:
         return None
 
     pattern = f"{state.current_epic}-{story_num}-*.md"
+    # also handle 'epic-X-hardening.md' which is exact
+    if match:
+        pattern = f"epic-{state.current_epic}-hardening.md"
+
     matches = sorted(stories_dir.glob(pattern))
     return matches[0] if matches else None
 
@@ -154,19 +164,28 @@ def _write_rescued_story(state: State, content: str, title: str | None) -> Path:
         Path to the written story file.
 
     """
+    import re
+
     from bmad_assist.core.io import atomic_write
     from bmad_assist.sprint.generator import generate_story_slug
 
     paths = get_paths()
     stories_dir = paths.stories_dir
 
-    slug = generate_story_slug(title) if title else "untitled"
-    story_num = (
-        state.current_story.split(".")[-1]
-        if state.current_story and "." in state.current_story
-        else "1"
-    )
-    filename = f"{state.current_epic}-{story_num}-{slug}.md"
+    hardening_pattern = re.compile(r"^epic-(.+)-hardening$")
+    match = hardening_pattern.match(state.current_story or "")
+
+    if match:
+        filename = f"{state.current_story}.md"
+    else:
+        slug = generate_story_slug(title) if title else "untitled"
+        story_num = (
+            state.current_story.split(".")[-1]
+            if state.current_story and "." in state.current_story
+            else "1"
+        )
+        filename = f"{state.current_epic}-{story_num}-{slug}.md"
+
     story_path = stories_dir / filename
 
     atomic_write(story_path, content)

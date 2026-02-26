@@ -21,7 +21,6 @@ import pytest
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import Phase, State
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================

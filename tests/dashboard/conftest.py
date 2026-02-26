@@ -12,6 +12,9 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+# Mock types for Task/TaskQueue fixtures (module doesn't exist yet)
+from unittest.mock import MagicMock
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -19,10 +22,6 @@ from httpx import ASGITransport, AsyncClient
 # from bmad_assist.dashboard.queue import Task, TaskQueue
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.dashboard.sse import SSEBroadcaster
-
-# Mock types for Task/TaskQueue fixtures (module doesn't exist yet)
-from typing import Any
-from unittest.mock import MagicMock
 
 
 class Task(MagicMock):

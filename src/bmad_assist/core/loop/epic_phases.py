@@ -172,16 +172,24 @@ def _execute_epic_teardown(
         logger.debug("No epic_teardown phases configured, skipping")
         return state, None
 
+    teardown_phases = loop_config.epic_teardown
+    from bmad_assist.core.state import EpicLifecycle
+
+    if state.epic_lifecycle == EpicLifecycle.QA_RELEASE and "hardening" in teardown_phases:
+        idx = teardown_phases.index("hardening")
+        teardown_phases = teardown_phases[idx + 1:]
+        logger.info("Resuming teardown from QA_RELEASE lifecycle: skipping phases up to hardening")
+
     logger.info(
         "Running %d epic teardown phases for epic %s: %s",
-        len(loop_config.epic_teardown),
+        len(teardown_phases),
         state.current_epic,
-        loop_config.epic_teardown,
+        teardown_phases,
     )
 
     last_result: PhaseResult | None = None
 
-    for phase_name in loop_config.epic_teardown:
+    for phase_name in teardown_phases:
         # Set current phase for this teardown phase
         now = datetime.now(UTC).replace(tzinfo=None)
         state = state.model_copy(
@@ -229,6 +237,10 @@ def _execute_epic_teardown(
             continue
 
         logger.info("Epic teardown phase %s completed successfully", phase_name)
+
+        if state.epic_lifecycle == EpicLifecycle.HARDENING:
+            logger.info("Epic lifecycle transitioned to HARDENING. Suspending teardown to execute hardening story.")
+            break
 
     logger.info("Epic teardown complete for epic %s", state.current_epic)
     return state, last_result

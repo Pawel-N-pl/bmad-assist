@@ -13,25 +13,19 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from bmad_assist.code_review.orchestrator import (
-    CodeReviewError,
-    CodeReviewPhaseResult,
-    InsufficientReviewsError,
-    _save_code_review_report,
     _save_code_review_mapping,
+    _save_code_review_report,
     load_reviews_for_synthesis,
-    run_code_review_phase,
     save_reviews_for_synthesis,
 )
-from bmad_assist.core.config import Config, MultiProviderConfig, ProviderConfig
-from bmad_assist.core.types import EpicId
 from bmad_assist.validation.anonymizer import (
-    AnonymizedValidation,
     AnonymizationMapping,
+    AnonymizedValidation,
     ValidationOutput,
 )
 from bmad_assist.validation.evidence_score import (
@@ -39,7 +33,6 @@ from bmad_assist.validation.evidence_score import (
     Severity,
     Verdict,
 )
-
 
 # ============================================================================
 # AC #1 & #2: Individual validator report saving with role_id
@@ -509,17 +502,16 @@ class TestErrorHandlingAndLogging:
             )
 
             # This should log a warning and re-raise OSError
-            with caplog.at_level(logging.WARNING):
-                with pytest.raises(OSError):
-                    _save_code_review_report(
-                        output=output,
-                        epic=22,
-                        story=7,
-                        reviews_dir=reviews_dir,
-                        role_id="a",
-                        session_id="test-session-error",
-                        anonymized_id="Validator A",
-                    )
+            with caplog.at_level(logging.WARNING), pytest.raises(OSError):
+                _save_code_review_report(
+                    output=output,
+                    epic=22,
+                    story=7,
+                    reviews_dir=reviews_dir,
+                    role_id="a",
+                    session_id="test-session-error",
+                    anonymized_id="Validator A",
+                )
 
             # Verify warning was logged
             assert any(

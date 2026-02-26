@@ -23,7 +23,7 @@ from bmad_assist.deep_verify.knowledge import (
 from bmad_assist.deep_verify.knowledge.loader import KnowledgeBaseYaml
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    pass
 
 
 # =============================================================================

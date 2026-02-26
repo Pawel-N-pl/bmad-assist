@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -145,24 +145,23 @@ class TestRunningLockBasic:
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
         # Mock init_run_prompts_dir to avoid directory creation
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                # Lock file should exist
-                assert lock_path.exists()
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            # Lock file should exist
+            assert lock_path.exists()
 
-                # Lock file should contain valid PID
-                content = lock_path.read_text().strip().split("\n")
-                assert len(content) >= 2
-                assert content[0].strip().isdigit()
-                pid_from_lock = int(content[0].strip())
+            # Lock file should contain valid PID
+            content = lock_path.read_text().strip().split("\n")
+            assert len(content) >= 2
+            assert content[0].strip().isdigit()
+            pid_from_lock = int(content[0].strip())
 
-                # PID should match current process
-                assert pid_from_lock == os.getpid()
+            # PID should match current process
+            assert pid_from_lock == os.getpid()
 
-                # Second line should be valid ISO timestamp
-                timestamp_str = content[1].strip()
-                # Should be parseable as ISO datetime
-                datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            # Second line should be valid ISO timestamp
+            timestamp_str = content[1].strip()
+            # Should be parseable as ISO datetime
+            datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
 
     def test_lock_file_removed_on_normal_exit(self, tmp_path: Path) -> None:
         """AC 3.2: Lock file removed on normal exit (no exception)."""
@@ -170,10 +169,9 @@ class TestRunningLockBasic:
 
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                # Lock file exists during context
-                assert lock_path.exists()
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            # Lock file exists during context
+            assert lock_path.exists()
 
         # Lock file should be removed after exit
         assert not lock_path.exists()
@@ -184,11 +182,10 @@ class TestRunningLockBasic:
 
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with pytest.raises(ValueError):
-                with _running_lock(tmp_path):
-                    assert lock_path.exists()
-                    raise ValueError("Test exception")
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), pytest.raises(ValueError):
+            with _running_lock(tmp_path):
+                assert lock_path.exists()
+                raise ValueError("Test exception")
 
         # Lock file should be removed despite exception
         assert not lock_path.exists()
@@ -218,24 +215,23 @@ class TestRunningLockBasic:
 
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                content = lock_path.read_text()
-                lines = content.strip().split("\n")
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            content = lock_path.read_text()
+            lines = content.strip().split("\n")
 
-                # Should have exactly 2 lines
-                assert len(lines) >= 2
+            # Should have exactly 2 lines
+            assert len(lines) >= 2
 
-                # First line: PID (decimal integer)
-                pid = int(lines[0].strip())
-                assert pid == os.getpid()
+            # First line: PID (decimal integer)
+            pid = int(lines[0].strip())
+            assert pid == os.getpid()
 
-                # Second line: ISO 8601 timestamp
-                timestamp_str = lines[1].strip()
-                # Should be parseable as datetime
-                parsed_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
-                # Should be recent (within last minute)
-                assert (datetime.now(timezone.utc) - parsed_time).total_seconds() < 60
+            # Second line: ISO 8601 timestamp
+            timestamp_str = lines[1].strip()
+            # Should be parseable as datetime
+            parsed_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+            # Should be recent (within last minute)
+            assert (datetime.now(UTC) - parsed_time).total_seconds() < 60
 
     def test_subsequent_run_works_after_lock_cleanup(self, tmp_path: Path) -> None:
         """AC 3.6: Subsequent run works immediately after lock cleanup."""
@@ -244,17 +240,15 @@ class TestRunningLockBasic:
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
         # First run
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                pass
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            pass
 
         # Lock should be cleaned up
         assert not lock_path.exists()
 
         # Second run should work immediately (no "lock exists" error)
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                assert lock_path.exists()
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            assert lock_path.exists()
 
         # Lock cleaned up again
         assert not lock_path.exists()
@@ -305,9 +299,8 @@ class TestRunningLockEdgeCases:
 
         lock_path = tmp_path / ".bmad-assist" / "running.lock"
 
-        with patch("bmad_assist.core.io.init_run_prompts_dir"):
-            with _running_lock(tmp_path):
-                assert lock_path.exists()
+        with patch("bmad_assist.core.io.init_run_prompts_dir"), _running_lock(tmp_path):
+            assert lock_path.exists()
 
         # Lock cleanup happens regardless of state save failures
         assert not lock_path.exists()

@@ -32,7 +32,6 @@ from bmad_assist.core.exceptions import BmadAssistError, CompilerError
 from bmad_assist.security.config import SecurityAgentConfig
 from bmad_assist.security.report import SecurityFinding, SecurityReport
 
-
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -355,9 +354,6 @@ class TestSecurityReportCacheSave:
                 if isinstance(security_result, BaseException):
                     pass  # Would emit failure
                 elif isinstance(security_result, SecurityReport):
-                    from bmad_assist.security.integration import (
-                        save_security_findings_for_synthesis,
-                    )
 
                     mock_save(
                         report=security_result,

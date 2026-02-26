@@ -10,11 +10,15 @@ Pattern follows validation/reports.py extraction strategy.
 """
 
 from bmad_assist.retrospective.reports import (
+    create_hardening_story,
+    extract_hardening_plan,
     extract_retrospective_report,
     save_retrospective_report,
 )
 
 __all__ = [
+    "create_hardening_story",
+    "extract_hardening_plan",
     "extract_retrospective_report",
     "save_retrospective_report",
 ]

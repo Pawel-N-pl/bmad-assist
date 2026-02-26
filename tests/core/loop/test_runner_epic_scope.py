@@ -17,7 +17,6 @@ from bmad_assist.core.config import LoopConfig
 from bmad_assist.core.loop.types import LoopExitReason, PhaseResult
 from bmad_assist.core.state import Phase, State
 
-
 # Common loop config for tests
 DEFAULT_TEST_LOOP_CONFIG = LoopConfig(
     epic_setup=[],
@@ -698,8 +697,8 @@ class TestFullEpicCycle:
 
     def test_epic_setup_complete_flag_is_set(self, tmp_path: Path) -> None:
         """epic_setup_complete=True after successful setup."""
-        from bmad_assist.core.loop.runner import _execute_epic_setup
         from bmad_assist.core.config import LoopConfig
+        from bmad_assist.core.loop.runner import _execute_epic_setup
 
         state = State(
             current_epic=1,

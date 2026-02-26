@@ -4,12 +4,11 @@ Story 11.7: Validation Phase Loop Integration
 Tests for ValidateStoryHandler and ValidateStorySynthesisHandler.
 """
 
-import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,10 +19,8 @@ from bmad_assist.core.config import (
     MultiProviderConfig,
     ProviderConfig,
 )
-from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.state import Phase, State
-from bmad_assist.providers.base import BaseProvider, ProviderResult
-
+from bmad_assist.providers.base import ProviderResult
 
 # =============================================================================
 # Fixtures
@@ -486,16 +483,13 @@ class TestValidationHandlerIntegration:
         project_with_story: Path,
     ) -> None:
         """Session ID from validate handler is found by synthesis handler."""
-        from bmad_assist.core.loop.handlers.validate_story import (
-            ValidateStoryHandler,
-        )
         from bmad_assist.core.loop.handlers.validate_story_synthesis import (
             ValidateStorySynthesisHandler,
         )
+        from bmad_assist.validation import AnonymizedValidation
         from bmad_assist.validation.orchestrator import (
             save_validations_for_synthesis,
         )
-        from bmad_assist.validation import AnonymizedValidation
 
         # Simulate what validate handler does - save validations
         validations = [

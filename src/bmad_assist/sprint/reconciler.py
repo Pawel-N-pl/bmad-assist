@@ -411,6 +411,7 @@ def _should_preserve_entry(entry_type: EntryType) -> bool:
         EntryType.MODULE_STORY,
         EntryType.UNKNOWN,
         EntryType.RETROSPECTIVE,
+        EntryType.HARDENING,
     )
 
 

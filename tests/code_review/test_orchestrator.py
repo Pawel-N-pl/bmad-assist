@@ -9,7 +9,6 @@ Tests cover:
 """
 
 import asyncio
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,12 +17,11 @@ import pytest
 from bmad_assist.benchmarking import (
     CollectorContext,
     DeterministicMetrics,
-    EvaluatorRole,
     LLMEvaluationRecord,
 )
 from bmad_assist.code_review.orchestrator import (
-    CODE_REVIEW_WORKFLOW_ID,
     CODE_REVIEW_SYNTHESIS_WORKFLOW_ID,
+    CODE_REVIEW_WORKFLOW_ID,
     CodeReviewError,
     CodeReviewPhaseResult,
     InsufficientReviewsError,
@@ -36,8 +34,6 @@ from bmad_assist.core.config import (
     MultiProviderConfig,
     ProviderConfig,
 )
-from bmad_assist.validation.anonymizer import AnonymizedValidation
-
 
 # ============================================================================
 # Fixtures

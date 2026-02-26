@@ -11,15 +11,13 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from bmad_assist.core.state import State, Phase
+from bmad_assist.core.state import Phase, State
 from bmad_assist.dashboard.server import DashboardServer
-
 
 # =============================================================================
 # Task 2 Tests: Resume functionality backend
@@ -341,8 +339,9 @@ class TestStateConsistency:
 
     def test_state_validation_detects_missing_fields(self, tmp_path: Path) -> None:
         """Test that state validation detects missing required fields (AC #6)."""
-        from bmad_assist.core.loop.pause import validate_state_for_pause
         import yaml
+
+        from bmad_assist.core.loop.pause import validate_state_for_pause
 
         # Create state with missing fields
         state_path = tmp_path / ".bmad-assist" / "state.yaml"
@@ -441,8 +440,9 @@ class TestSSEPauseResumeEvents:
         server.sse_broadcaster.broadcast_event = AsyncMock()  # type: ignore[method-assign]
 
         # Simulate subprocess emitting LOOP_PAUSED via stdout marker
-        from bmad_assist.core.loop.dashboard_events import DASHBOARD_EVENT_MARKER
         import json
+
+        from bmad_assist.core.loop.dashboard_events import DASHBOARD_EVENT_MARKER
 
         event_data = {
             "type": "LOOP_PAUSED",

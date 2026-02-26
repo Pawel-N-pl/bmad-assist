@@ -1257,8 +1257,11 @@ Dana (QA Engineer): "That's a lot of commitments. We need to actually follow thr
 Bob (Scrum Master): "Agreed. Which is why we'll review these action items in our next standup."
 
 ═══════════════════════════════════════════════════════════
+═══════════════════════════════════════════════════════════
 🎯 NEXT STEPS:
 ═══════════════════════════════════════════════════════════
+
+
 
 1. Execute Preparation Sprint (Est: {{prep_days}} days)
 2. Complete Critical Path items before Epic {{next_epic_num}}

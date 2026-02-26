@@ -314,11 +314,13 @@ def _handle_pending_phases(
     assert next_phase is not None  # Type narrowing
 
     if force_restart:
-        story = epic_stories[0]
         _warning(
-            f"Epic {epic} {lifecycle.describe()}. --force specified, restarting from {story.number}"
+            f"Epic {epic} {lifecycle.describe()}. --force specified, forcing next phase: {next_phase.value}"
         )
-        return story.number, "backlog"
+        story_key = lifecycle.last_story
+        assert story_key is not None
+        _save_phase_state(config, project_path, epic, story_key, next_phase)
+        return None
 
     if is_non_interactive():
         # Auto-start next pending phase
@@ -374,6 +376,9 @@ def _interactive_phase_selection(
     if not lifecycle.retro_completed:
         options.append("[bold](r)[/bold]un retrospective")
         valid_choices.append("r")
+    if lifecycle.hardening_enabled and not lifecycle.hardening_completed:
+        options.append("[bold](h)[/bold]arden epic")
+        valid_choices.append("h")
     # QA options only when --qa flag is enabled
     if qa_mode:
         if lifecycle.retro_completed and not lifecycle.qa_plan_generated:
@@ -393,6 +398,8 @@ def _interactive_phase_selection(
 
     if choice == "r":
         target_phase = Phase.RETROSPECTIVE
+    elif choice == "h":
+        target_phase = Phase.HARDENING
     elif choice == "g":
         target_phase = Phase.QA_PLAN_GENERATE
     elif choice == "e":

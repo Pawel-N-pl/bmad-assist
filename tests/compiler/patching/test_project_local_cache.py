@@ -8,7 +8,7 @@ Tests verify that:
 5. Cache invalidation via SHA-256 hashes
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -41,6 +41,7 @@ class TestGlobalPatchProjectCache:
         Returns:
             Dict with 'project', 'global_home', 'patch_file', 'workflow_yaml',
             'instructions_xml' paths.
+
         """
         # Create project directory
         project = tmp_path / "my-project"
@@ -159,7 +160,7 @@ class TestCacheLookupPriority:
 
         # Create caches in both locations with same hashes
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -201,7 +202,7 @@ class TestCacheLookupPriority:
         cache = TemplateCache()
 
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -255,7 +256,7 @@ class TestMultiProjectIsolation:
 
         # Create caches for each project
         meta_a = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml_a)},
             patch_hash=compute_file_hash(patch_file),
@@ -263,7 +264,7 @@ class TestMultiProjectIsolation:
         cache.save("test-workflow", "<project-a-compiled/>", meta_a, project_a)
 
         meta_b = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml_b)},
             patch_hash=compute_file_hash(patch_file),
@@ -314,7 +315,7 @@ transforms:
 
         cache = TemplateCache()
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -359,7 +360,7 @@ class TestCacheInvalidation:
 
         # Create cache with original hash
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -401,7 +402,7 @@ class TestCacheInvalidation:
 
         # Create cache with original hash
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -446,7 +447,7 @@ class TestCacheInvalidation:
 
         # Create cache with both source files
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={
                 "workflow.yaml": compute_file_hash(workflow_yaml),
@@ -485,7 +486,7 @@ class TestCacheInvalidation:
 
         # Create cache
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={"workflow.yaml": compute_file_hash(workflow_yaml)},
             patch_hash=compute_file_hash(patch_file),
@@ -537,7 +538,7 @@ transforms:
         # Create valid project cache
         cache = TemplateCache()
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={
                 "workflow.yaml": compute_file_hash(workflow_yaml),
@@ -590,7 +591,7 @@ transforms:
         # Create valid global cache only
         cache = TemplateCache()
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={
                 "workflow.yaml": compute_file_hash(workflow_yaml),
@@ -623,6 +624,7 @@ class TestCompilePatchIntegration:
 
         Returns:
             Dict with 'project', 'global_home', 'patch_file' paths.
+
         """
         project = tmp_path / "my-project"
         global_home = tmp_path / "home"
@@ -748,7 +750,7 @@ template: template.md
         # Manually create a valid project cache
         cache = TemplateCache()
         meta = CacheMeta(
-            compiled_at=datetime.now(timezone.utc).isoformat(),
+            compiled_at=datetime.now(UTC).isoformat(),
             bmad_version="0.1.0",
             source_hashes={
                 "workflow.yaml": compute_file_hash(workflow_yaml),

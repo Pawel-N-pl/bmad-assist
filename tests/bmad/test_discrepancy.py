@@ -23,7 +23,6 @@ import pytest
 
 from bmad_assist.bmad.discrepancy import (
     Discrepancy,
-    StateComparable,
     _build_story_status_map,
     detect_discrepancies,
 )

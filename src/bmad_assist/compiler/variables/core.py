@@ -355,7 +355,7 @@ def resolve_variables(
             date_override = date_val
 
         story_vars = _compute_story_variables(
-            int(epic_num),
+            epic_num,
             int(story_num),
             sprint_status_path,
             epics_path,

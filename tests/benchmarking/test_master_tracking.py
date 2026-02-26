@@ -16,7 +16,6 @@ from bmad_assist.benchmarking.master_tracking import (
 )
 from bmad_assist.benchmarking.schema import EvaluatorRole
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================

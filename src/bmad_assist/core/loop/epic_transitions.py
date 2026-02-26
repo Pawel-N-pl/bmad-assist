@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from bmad_assist.core.exceptions import StateError
-from bmad_assist.core.state import Phase, State, save_state
+from bmad_assist.core.state import EpicLifecycle, Phase, State, save_state
 from bmad_assist.core.types import EpicId
 
 logger = logging.getLogger(__name__)
@@ -278,6 +278,7 @@ def advance_to_next_epic(
                     "current_story": last_story,
                     "current_phase": first_teardown_phase,
                     "epic_setup_complete": False,  # Reset for new epic
+                    "epic_lifecycle": EpicLifecycle.DEVELOPMENT,
                     "updated_at": now,
                 }
             )
@@ -299,6 +300,7 @@ def advance_to_next_epic(
             "current_story": first_incomplete,
             "current_phase": Phase.CREATE_STORY,
             "epic_setup_complete": False,  # Reset for new epic
+            "epic_lifecycle": EpicLifecycle.DEVELOPMENT,
             "updated_at": now,
         }
     )
@@ -371,6 +373,45 @@ def handle_epic_completion(
         False
 
     """
+    if state.current_epic is None:
+        raise StateError("Cannot handle epic completion: no current epic set")
+
+    # Step 0: Check if teardown phases injected new stories before marking complete
+    current_stories = epic_stories_loader(state.current_epic)
+    incomplete_stories = [s for s in current_stories if s not in state.completed_stories]
+
+    if incomplete_stories:
+        logger.info(
+            "Found %d incomplete stories for epic %s (likely injected during teardown). Resuming epic.",
+            len(incomplete_stories),
+            state.current_epic,
+        )
+
+        first_incomplete = incomplete_stories[0]
+
+        # Get first story phase from config
+        from bmad_assist.core.config import get_loop_config
+        loop_config = get_loop_config()
+        first_story_phase = Phase(loop_config.story[0])
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        # Ensure the epic is no longer marked as completed if it was previously
+        completed_epics = [e for e in state.completed_epics if e != state.current_epic]
+
+        # Return state advanced to the new story, without marking epic as complete
+        new_state = state.model_copy(
+            update={
+                "current_story": first_incomplete,
+                "current_phase": first_story_phase,
+                "completed_epics": completed_epics,
+                "updated_at": now,
+            }
+        )
+
+        persist_epic_completion(new_state, state_path)
+        return new_state, False
+
     # Step 1: Mark epic as completed
     state_with_completion = complete_epic(state)
 

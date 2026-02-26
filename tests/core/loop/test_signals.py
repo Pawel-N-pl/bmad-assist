@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bmad_assist.core import loop
 from bmad_assist.core.loop import (
     LoopExitReason,
     Phase,
@@ -27,7 +26,6 @@ from bmad_assist.core.loop import (
     shutdown_requested,
     unregister_signal_handlers,
 )
-
 
 # =============================================================================
 # Fixtures

@@ -18,13 +18,11 @@ from pathlib import Path
 from textwrap import dedent
 
 import pytest
-import yaml
 
 from bmad_assist.core.exceptions import ParserError
 from bmad_assist.sprint import (
     EntryType,
     FormatVariant,
-    SprintStatus,
     detect_format,
     parse_sprint_status,
 )

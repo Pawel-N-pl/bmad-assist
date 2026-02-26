@@ -8,10 +8,8 @@ preexisting broken imports that caused 52 test failures.
 """
 
 import importlib
-import sys
 
 import pytest
-
 
 # All public packages that should be importable
 PACKAGES = [
@@ -128,12 +126,12 @@ class TestSmokeImports:
         """Verify no circular import issues by importing all at once."""
         # Import all in sequence - circular imports would fail here
         from bmad_assist import core  # noqa: F401
-        from bmad_assist.core import config, state  # noqa: F401
-        from bmad_assist.providers import registry  # noqa: F401
-        from bmad_assist.compiler import core as compiler_core  # noqa: F401
-        from bmad_assist.validation import orchestrator  # noqa: F401
         from bmad_assist.benchmarking import schema  # noqa: F401
         from bmad_assist.code_review import orchestrator as cr_orch  # noqa: F401
+        from bmad_assist.compiler import core as compiler_core  # noqa: F401
+        from bmad_assist.core import config, state  # noqa: F401
+        from bmad_assist.providers import registry  # noqa: F401
+        from bmad_assist.validation import orchestrator  # noqa: F401
 
         # If we get here, no circular imports
         assert True

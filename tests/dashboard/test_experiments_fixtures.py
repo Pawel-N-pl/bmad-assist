@@ -12,7 +12,7 @@ Tests verify the fixtures API endpoints for the dashboard:
 
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -23,14 +23,12 @@ from bmad_assist.dashboard.experiments import (
     FixtureRunInfo,
     FixtureStats,
     FixtureSummary,
-    FixturesListResponse,
     clear_fixtures_cache,
     discover_fixtures,
     get_fixture_run_stats,
 )
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.experiments import ExperimentStatus, FixtureEntry
-
 
 # =============================================================================
 # Fixtures

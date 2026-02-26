@@ -9,9 +9,7 @@ Tests cover:
 """
 
 import logging
-import os
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -343,7 +341,7 @@ name: test
         settings_dir.mkdir()
         (settings_dir / "settings.json").write_text("{}")
 
-        content = f"""\
+        content = """\
 name: project-var-config
 description: "Config using project variable"
 
@@ -351,7 +349,7 @@ providers:
   master:
     provider: claude
     model: opus
-    settings: ${{project}}/.bmad-assist/settings.json
+    settings: ${project}/.bmad-assist/settings.json
   multi: []
 """
         path = write_config(content, "project-var-config.yaml")
@@ -428,13 +426,13 @@ providers:
         project_root: Path,
     ) -> None:
         """Test missing settings file raises ConfigError."""
-        content = f"""\
+        content = """\
 name: test-config
 providers:
   master:
     provider: claude
     model: opus
-    settings: ${{project}}/nonexistent/settings.json
+    settings: ${project}/nonexistent/settings.json
   multi: []
 """
         path = write_config(content, "test-config.yaml")
@@ -793,7 +791,7 @@ class TestKnownProviders:
     def test_known_providers_contains_expected(self) -> None:
         """Test KNOWN_PROVIDERS contains expected providers."""
         expected = {"claude", "claude-subprocess", "codex", "gemini"}
-        assert KNOWN_PROVIDERS == expected
+        assert expected == KNOWN_PROVIDERS
 
 
 class TestDefaultTemplates:

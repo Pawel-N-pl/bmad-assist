@@ -17,13 +17,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-import yaml
 
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.experiments.comparison import (
-    COMPARISON_METRICS,
     MAX_COMPARISON_RUNS,
-    METRIC_DISPLAY_NAMES,
     ComparisonDiff,
     ComparisonGenerator,
     ComparisonReport,
@@ -44,16 +41,13 @@ from bmad_assist.experiments.manifest import (
     ManifestManager,
     ManifestPhaseResult,
     ManifestResolved,
-    ManifestResults,
     ResolvedConfig,
     ResolvedFixture,
     ResolvedLoop,
     ResolvedPatchSet,
-    RunManifest,
 )
 from bmad_assist.experiments.metrics import MetricsCollector, RunMetrics
 from bmad_assist.experiments.runner import ExperimentStatus
-
 
 # =============================================================================
 # Test Fixtures

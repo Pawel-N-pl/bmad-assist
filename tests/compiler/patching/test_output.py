@@ -1,8 +1,6 @@
 """Tests for output generator."""
 
-from datetime import datetime, timezone
 
-import pytest
 
 from bmad_assist.compiler.patching.output import (
     TemplateMetadata,

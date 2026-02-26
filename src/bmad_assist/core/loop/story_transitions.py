@@ -291,13 +291,23 @@ def handle_story_completion(
     is_last = is_last_story_in_epic(state_with_completion, epic_stories)
 
     if is_last:
+        from bmad_assist.core.state import EpicLifecycle
+
+        new_lifecycle = state_with_completion.epic_lifecycle
+        if new_lifecycle == EpicLifecycle.DEVELOPMENT:
+            new_lifecycle = EpicLifecycle.TEARDOWN
+        elif new_lifecycle == EpicLifecycle.HARDENING:
+            new_lifecycle = EpicLifecycle.QA_RELEASE
+
+        final_state = state_with_completion.model_copy(update={"epic_lifecycle": new_lifecycle})
+
         # Epic complete - log and persist completed state
         logger.info(
             "Epic %s stories complete, retrospective needed",
-            state.current_epic,
+            final_state.current_epic,
         )
-        persist_story_completion(state_with_completion, state_path)
-        return state_with_completion, True
+        persist_story_completion(final_state, state_path)
+        return final_state, True
 
     # Step 3: Not last story - advance to next
     advanced_state = advance_to_next_story(state_with_completion, epic_stories)

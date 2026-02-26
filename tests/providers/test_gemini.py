@@ -19,7 +19,6 @@ Tests cover:
 
 import concurrent.futures
 from pathlib import Path
-from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,7 +34,8 @@ from bmad_assist.providers.gemini import (
     PROMPT_TRUNCATE_LENGTH,
     _truncate_prompt,
 )
-from .conftest import create_gemini_mock_process, make_gemini_json_output
+
+from .conftest import create_gemini_mock_process
 
 
 class TestGeminiProviderStructure:

@@ -4,8 +4,6 @@ Tests the base tri-modal compiler and all new testarch workflow compilers.
 """
 
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -174,10 +172,10 @@ class TestTriModalCompilerWithRealWorkflow:
 
     def test_compile_basic_workflow(self, tmp_path: Path) -> None:
         """Should compile a basic tri-modal workflow."""
+        from bmad_assist.compiler.types import WorkflowIR
         from bmad_assist.compiler.workflows.testarch_automate import (
             TestarchAutomateCompiler,
         )
-        from bmad_assist.compiler.types import WorkflowIR
 
         # Create workflow directory with step files
         workflow_dir = tmp_path / "_bmad/bmm/workflows/testarch/automate"
@@ -235,10 +233,10 @@ class TestTriModalCompilerWithRealWorkflow:
 
     def test_compile_with_mode_validate(self, tmp_path: Path) -> None:
         """Should compile in validate mode."""
+        from bmad_assist.compiler.types import WorkflowIR
         from bmad_assist.compiler.workflows.testarch_automate import (
             TestarchAutomateCompiler,
         )
-        from bmad_assist.compiler.types import WorkflowIR
 
         # Create workflow directory with validate steps
         workflow_dir = tmp_path / "_bmad/bmm/workflows/testarch/automate"

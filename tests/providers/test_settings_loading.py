@@ -53,7 +53,7 @@ class TestResolveSettingsFile:
         """AC1: Absolute path is used directly, ignoring base_dir."""
         absolute_path = "/etc/provider-settings.json"
         result = resolve_settings_file(absolute_path, tmp_path)
-        assert result == Path(absolute_path)
+        assert result == Path(absolute_path).resolve()
 
     def test_tilde_expansion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC8: Tilde (~) is expanded to user home directory."""
@@ -165,8 +165,8 @@ class TestValidateSettingsFile:
         assert len(record.args) == 3
         # Verify the arguments are passed separately (structured logging)
         assert str(missing_file) in str(record.args[0])
-        assert "test-provider" == record.args[1]
-        assert "test-model" == record.args[2]
+        assert record.args[1] == "test-provider"
+        assert record.args[2] == "test-model"
 
 
 class TestClaudeSubprocessProviderSettingsIntegration:

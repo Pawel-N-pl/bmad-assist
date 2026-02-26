@@ -22,7 +22,6 @@ from bmad_assist.security.integration import (
 )
 from bmad_assist.security.report import SecurityFinding, SecurityReport
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================

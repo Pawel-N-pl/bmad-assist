@@ -1,7 +1,8 @@
 """Tests for KnowledgeFragment and KnowledgeIndex models."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from bmad_assist.testarch.knowledge.models import KnowledgeFragment, KnowledgeIndex
 

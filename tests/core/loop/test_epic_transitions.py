@@ -460,7 +460,8 @@ class TestHandleEpicCompletion:
             completed_epics=[1],
         )
         epic_list = [1, 2, 3, 4]
-        epic_stories_loader = MagicMock(return_value=["3.1", "3.2", "3.3"])
+        # loader returns stories for next epic, empty for current epic
+        epic_stories_loader = MagicMock(side_effect=lambda epic: ["3.1", "3.2", "3.3"] if epic == 3 else [])
         state_path = Path("/tmp/state.yaml")
 
         with patch("bmad_assist.core.loop.epic_transitions.save_state"):
@@ -471,6 +472,35 @@ class TestHandleEpicCompletion:
         assert 2 in new_state.completed_epics
         assert new_state.current_epic == 3
         assert new_state.current_story == "3.1"
+        assert new_state.current_phase == Phase.CREATE_STORY
+        assert is_project_complete is False
+
+    def test_handle_epic_completion_resumes_epic(self) -> None:
+        """AC5: Resumes epic if teardown phase injected new incomplete stories."""
+        from bmad_assist.core.loop import handle_epic_completion
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=2,
+            current_story="2.4",
+            current_phase=Phase.RETROSPECTIVE,
+            completed_stories=["2.1", "2.2", "2.3", "2.4"],
+            completed_epics=[1],
+        )
+        epic_list = [1, 2, 3, 4]
+
+        # Loader returns a new story "epic-2-hardening" not in completed_stories
+        epic_stories_loader = MagicMock(side_effect=lambda epic: ["2.1", "2.2", "2.3", "2.4", "epic-2-hardening"] if epic == 2 else [])
+        state_path = Path("/tmp/state.yaml")
+
+        with patch("bmad_assist.core.loop.epic_transitions.save_state"):
+            new_state, is_project_complete = handle_epic_completion(
+                state, epic_list, epic_stories_loader, state_path
+            )
+
+        assert 2 not in new_state.completed_epics  # Should NOT be completed
+        assert new_state.current_epic == 2
+        assert new_state.current_story == "epic-2-hardening"
         assert new_state.current_phase == Phase.CREATE_STORY
         assert is_project_complete is False
 
@@ -486,7 +516,7 @@ class TestHandleEpicCompletion:
             completed_epics=[1, 2, 3],
         )
         epic_list = [1, 2, 3, 4]
-        epic_stories_loader = MagicMock()
+        epic_stories_loader = MagicMock(return_value=[])
         state_path = Path("/tmp/state.yaml")
 
         with patch("bmad_assist.core.loop.epic_transitions.save_state"):
@@ -496,7 +526,8 @@ class TestHandleEpicCompletion:
 
         assert 4 in new_state.completed_epics
         assert is_project_complete is True
-        epic_stories_loader.assert_not_called()  # No next epic to load
+        # Called once for current epic check
+        assert epic_stories_loader.call_count == 1
 
     def test_handle_epic_completion_persists_state_once(self) -> None:
         """AC5: Persists FINAL state only (single atomic persist pattern)."""
@@ -505,7 +536,7 @@ class TestHandleEpicCompletion:
 
         state = State(current_epic=2, current_story="2.4", completed_epics=[1])
         epic_list = [1, 2, 3, 4]
-        epic_stories_loader = MagicMock(return_value=["3.1"])
+        epic_stories_loader = MagicMock(side_effect=lambda epic: ["3.1"] if epic == 3 else [])
         state_path = Path("/tmp/state.yaml")
 
         with patch("bmad_assist.core.loop.epic_transitions.save_state") as mock_save:

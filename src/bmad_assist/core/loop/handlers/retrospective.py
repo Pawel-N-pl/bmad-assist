@@ -22,7 +22,11 @@ from bmad_assist.core.loop.handlers.base import BaseHandler
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.state import State
-from bmad_assist.retrospective import extract_retrospective_report, save_retrospective_report
+from bmad_assist.retrospective import (
+    extract_retrospective_report,
+    save_retrospective_report,
+)
+from bmad_assist.sprint import parse_sprint_status, write_sprint_status
 
 if TYPE_CHECKING:
     pass
@@ -123,6 +127,26 @@ class RetrospectiveHandler(BaseHandler):
             result.outputs["report_file"] = str(report_path)
 
             logger.info("Retrospective report saved: %s", report_path)
+
+            # Update sprint-status.yaml to mark retrospective as done
+            # This prevents the runner from prompting to re-run it
+            sprint_status_path = paths.implementation_artifacts / "sprint-status.yaml"
+            if sprint_status_path.exists():
+                try:
+                    status = parse_sprint_status(sprint_status_path)
+                    retro_key = f"epic-{state.current_epic}-retrospective"
+
+                    if retro_key in status.entries:
+                        # Only update if not already done to avoid unnecessary writes
+                        if status.entries[retro_key].status != "done":
+                            status.entries[retro_key].status = "done"
+                            write_sprint_status(status, sprint_status_path)
+                            logger.info("Updated sprint status for %s to done", retro_key)
+                    else:
+                        logger.warning("Retrospective key %s not found in sprint status", retro_key)
+
+                except Exception as e:
+                    logger.error("Failed to update sprint status for %s: %s", retro_key, e)
 
         except Exception as e:
             # Non-blocking: log error but don't fail the retrospective

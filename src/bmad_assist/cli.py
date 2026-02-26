@@ -115,6 +115,52 @@ def _load_epic_data(
             stories_by_epic[epic_id] = []
         stories_by_epic[epic_id].append(story.number)
 
+    # Also ensure ANY epic mentioned in the sprint status (that isn't fully "done" including teardown)
+    # gets injected here, otherwise `run_loop` will error out with "No epics found in project" when
+    # trying to resume hardening stories.
+    for epic in project_state.epics:
+        if not epic.title:
+            continue
+
+        # We parse the pure epic ID
+        if epic.title.lower().startswith("epic "):
+            epic_str = epic.title[5:].strip()
+        else:
+            epic_str = epic.title.strip()
+
+        try:
+            epic_id = parse_epic_id(epic_str)
+            if epic.status != "done":
+                epic_numbers.add(epic_id)
+                # If there are no stories tracked from all_stories, we still need
+                # the current Epic to be tracked as an active object.
+                if epic_id not in stories_by_epic:
+                    stories_by_epic[epic_id] = []
+
+                # The epic is considered in-progress but all standard stories are done.
+                # Look for an injected X.Y-hardening story from sprint-status so the runner
+                # knows WHAT to execute inside the epic rather than assuming it's done.
+                # (e.g. 6.8-hardening).
+
+                from bmad_assist.core.paths import get_paths
+                from bmad_assist.sprint import parse_sprint_status
+                sprint_path = get_paths().find_sprint_status()
+                if sprint_path:
+                    try:
+                        sprint_status = parse_sprint_status(sprint_path)
+                        for key, entry in sprint_status.entries.items():
+                            if entry.status == "done":
+                                continue
+                            if key.startswith(f"{epic_str}-") and key.endswith("-hardening"):
+                                # This is an injected story, add it to stories_by_epic
+                                story_num = key.split("-hardening")[0].replace("-", ".")
+                                if story_num not in stories_by_epic[epic_id]:
+                                    stories_by_epic[epic_id].append(story_num)
+                    except Exception as e:
+                        logger.debug(f"Could not parse sprint status inside _load_epic_data: {e}")
+        except ValueError:
+            continue
+
     epic_list = sorted(epic_numbers, key=epic_sort_key)
 
     logger.info(
@@ -544,8 +590,14 @@ def run(
             raise typer.Exit(code=EXIT_ERROR) from None
 
         def epic_stories_loader(epic: EpicId) -> list[str]:
-            """Return story IDs for given epic number."""
-            return stories_by_epic.get(epic, [])
+            """Return story IDs for given epic number (re-reads state).
+
+            Uses dynamic re-read so stories added at runtime (e.g., hardening
+            Story 0 written to sprint-status during epic teardown) are picked up
+            when the next epic starts.
+            """
+            _, fresh_stories = _load_epic_data(loaded_config, project_path)
+            return fresh_stories.get(epic, [])
 
         # Validate: --story requires --epic
         if story and not epic:
@@ -593,6 +645,17 @@ def run(
                 force,
             )
 
+            # Ensure the overriding epic is in epic_list. If an epic's stories are all "done",
+            # it is naturally filtered out of epic_list by _load_epic_data. When overriding
+            # to run teardown phases (e.g. hardening), we must artificially inject it back
+            # so run_loop doesn't immediately crash with "No epics found".
+            from bmad_assist.core.types import epic_sort_key, parse_epic_id
+            epic_id_parsed = parse_epic_id(epic.strip())
+            if epic_id_parsed not in epic_list:
+                epic_list.append(epic_id_parsed)
+                epic_list.sort(key=epic_sort_key)
+
+
         # Apply phase override if --phase specified (overrides status-derived phase)
         if phase_override:
             override_phase = Phase(phase_override)
@@ -622,7 +685,10 @@ def run(
             raise typer.Exit(code=EXIT_SUCCESS)
 
         # Delegate to main loop
-        exit_reason = run_loop(loaded_config, project_path, epic_list, epic_stories_loader)
+        exit_reason = run_loop(
+            loaded_config, project_path, epic_list, epic_stories_loader,
+            single_phase=bool(phase_override),
+        )
 
         # Story 6.6: Handle exit reasons from run_loop
         if exit_reason == LoopExitReason.INTERRUPTED_SIGINT:

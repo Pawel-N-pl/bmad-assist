@@ -39,6 +39,7 @@ def assert_verdict_matches(actual, expected: GoldenCase) -> None:
 
     Raises:
         AssertionError: If verdict doesn't match within tolerance.
+
     """
     tolerance: GoldenTolerance = expected.tolerance
 
@@ -96,6 +97,7 @@ async def test_golden_verdict(golden_case: GoldenCase) -> None:
 
     Args:
         golden_case: Golden test case with expected output.
+
     """
     # Load the artifact content
     loader = CorpusLoader()

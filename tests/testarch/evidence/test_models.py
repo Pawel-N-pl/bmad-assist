@@ -1,6 +1,6 @@
 """Tests for evidence data models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -429,7 +429,7 @@ class TestEvidenceContext:
 
     def test_full_context(self) -> None:
         """Test full context with all evidence types."""
-        collected_at = datetime.now(timezone.utc).isoformat()
+        collected_at = datetime.now(UTC).isoformat()
         context = EvidenceContext(
             coverage=CoverageEvidence(
                 total_lines=100,
@@ -473,7 +473,7 @@ class TestEvidenceContext:
 
     def test_partial_context(self) -> None:
         """Test partial context with some None evidence."""
-        collected_at = datetime.now(timezone.utc).isoformat()
+        collected_at = datetime.now(UTC).isoformat()
         context = EvidenceContext(
             coverage=CoverageEvidence(
                 total_lines=100,
@@ -494,7 +494,7 @@ class TestEvidenceContext:
 
     def test_empty_context(self) -> None:
         """Test context with all None evidence."""
-        collected_at = datetime.now(timezone.utc).isoformat()
+        collected_at = datetime.now(UTC).isoformat()
         context = EvidenceContext(
             coverage=None,
             test_results=None,
@@ -528,7 +528,7 @@ class TestEvidenceContext:
 
     def test_to_dict(self) -> None:
         """Test to_dict serialization."""
-        collected_at = datetime.now(timezone.utc).isoformat()
+        collected_at = datetime.now(UTC).isoformat()
         context = EvidenceContext(
             coverage=CoverageEvidence(
                 total_lines=100,

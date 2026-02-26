@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from bmad_assist.core.project_tree.gitignore import GitignoreParser
 
 

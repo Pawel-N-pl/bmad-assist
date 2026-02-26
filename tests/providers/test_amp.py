@@ -18,7 +18,6 @@ Tests cover:
 """
 
 from pathlib import Path
-from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,7 +33,8 @@ from bmad_assist.providers.amp import (
     PROMPT_TRUNCATE_LENGTH,
     _truncate_prompt,
 )
-from .conftest import create_amp_mock_process, make_amp_json_output
+
+from .conftest import create_amp_mock_process
 
 
 class TestAmpProviderStructure:

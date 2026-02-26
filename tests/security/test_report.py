@@ -5,7 +5,6 @@ from pydantic import ValidationError
 
 from bmad_assist.security.report import SecurityFinding, SecurityReport
 
-
 # ---------------------------------------------------------------------------
 # Fixtures & helpers
 # ---------------------------------------------------------------------------

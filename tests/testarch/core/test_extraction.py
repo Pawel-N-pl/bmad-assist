@@ -6,7 +6,6 @@ This module tests centralized extraction functions for TEA workflows:
 - extract_gate_decision: Extract gate decision (PASS/CONCERNS/FAIL/WAIVED)
 """
 
-import pytest
 
 
 # =============================================================================
@@ -335,7 +334,7 @@ class TestExtractFrameworkType:
         assert extract_framework_type("cypress initialized") == "cypress"
 
     def test_playwright_priority_over_cypress(self) -> None:
-        """playwright has priority over cypress if both present."""
+        """Playwright has priority over cypress if both present."""
         from bmad_assist.testarch.core.extraction import extract_framework_type
 
         output = "Considered Cypress but chose Playwright for E2E."
@@ -436,14 +435,14 @@ class TestExtractCIPlatform:
         assert extract_ci_platform("GITLAB ci configured") == "gitlab"
 
     def test_priority_order_github_over_gitlab(self) -> None:
-        """github has priority over gitlab if both present."""
+        """Github has priority over gitlab if both present."""
         from bmad_assist.testarch.core.extraction import extract_ci_platform
 
         output = "Both GitHub and GitLab configured for CI/CD"
         assert extract_ci_platform(output) == "github"
 
     def test_priority_order_gitlab_over_circleci(self) -> None:
-        """gitlab has priority over circleci if both present."""
+        """Gitlab has priority over circleci if both present."""
         from bmad_assist.testarch.core.extraction import extract_ci_platform
 
         output = "GitLab and CircleCI configs generated"

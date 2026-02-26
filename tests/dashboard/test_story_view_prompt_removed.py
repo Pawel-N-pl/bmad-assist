@@ -210,7 +210,7 @@ class TestStoryActionsComplete:
         assert "action: 'view-prompt'" not in section
 
     def test_review_has_expected_actions(self, context_menu_content: str) -> None:
-        """review should have: View Story, Open story file, View review."""
+        """Review should have: View Story, Open story file, View review."""
         case_start = context_menu_content.find("case 'review':")
         next_case = context_menu_content.find("case '", case_start + 15)
         section = context_menu_content[case_start:next_case]
@@ -222,7 +222,7 @@ class TestStoryActionsComplete:
         assert "action: 'view-prompt'" not in section
 
     def test_done_has_expected_actions(self, context_menu_content: str) -> None:
-        """done should have: View Story, View review, Re-run."""
+        """Done should have: View Story, View review, Re-run."""
         case_start = context_menu_content.find("case 'done':")
         # Find the return statement that ends this case
         return_stmt = context_menu_content.find("return [", case_start)
@@ -237,7 +237,7 @@ class TestStoryActionsComplete:
         assert "action: 'view-prompt'" not in section
 
     def test_backlog_unchanged(self, context_menu_content: str) -> None:
-        """backlog should still have: View Story, View in epic (never had view-prompt)."""
+        """Backlog should still have: View Story, View in epic (never had view-prompt)."""
         case_start = context_menu_content.find("case 'backlog':")
         next_case = context_menu_content.find("case '", case_start + 15)
         section = context_menu_content[case_start:next_case]

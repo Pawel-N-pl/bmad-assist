@@ -3,8 +3,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bmad_assist.compiler.patching.git_intelligence import (
     _substitute_variables,
     extract_git_intelligence,

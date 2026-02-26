@@ -18,7 +18,6 @@ Tests cover:
 """
 
 from pathlib import Path
-from subprocess import TimeoutExpired
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,7 +33,8 @@ from bmad_assist.providers.opencode import (
     PROMPT_TRUNCATE_LENGTH,
     _truncate_prompt,
 )
-from .conftest import create_opencode_mock_process, make_opencode_json_output
+
+from .conftest import create_opencode_mock_process
 
 
 class TestOpenCodeProviderStructure:

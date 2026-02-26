@@ -14,17 +14,15 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bmad_assist.experiments.ab.analysis import (
     MAX_FILE_CHARS,
     _ArtifactFile,
-    _StoryArtifacts,
     _build_prompt,
     _build_variant_section,
     _collect_variant_artifacts,
     _estimate_chars,
     _read_file_truncated,
+    _StoryArtifacts,
     generate_ab_analysis,
 )
 from bmad_assist.experiments.ab.config import ABTestConfig, ABVariantConfig, StoryRef

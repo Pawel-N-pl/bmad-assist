@@ -16,8 +16,6 @@ import pytest
 from bmad_assist.core.exceptions import ProviderError, ProviderTimeoutError
 from bmad_assist.deep_verify.core.types import (
     ArtifactDomain,
-    Evidence,
-    Finding,
     MethodId,
     PatternId,
     Severity,

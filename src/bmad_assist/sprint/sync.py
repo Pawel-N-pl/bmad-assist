@@ -129,7 +129,7 @@ class SyncResult:
 # Rationale documented in story Dev Notes section
 PHASE_TO_STATUS: dict[Phase, ValidStatus] = {
     # Early phases: story being drafted/validated
-    Phase.CREATE_STORY: "in-progress",
+    Phase.CREATE_STORY: "backlog",
     Phase.VALIDATE_STORY: "in-progress",
     Phase.VALIDATE_STORY_SYNTHESIS: "in-progress",
     # Development phases
@@ -151,6 +151,7 @@ PHASE_TO_STATUS: dict[Phase, ValidStatus] = {
     Phase.QA_PLAN_GENERATE: "done",
     Phase.QA_PLAN_EXECUTE: "done",
     Phase.QA_REMEDIATE: "done",
+    Phase.HARDENING: "done",
 }
 """Mapping from workflow Phase to sprint-status ValidStatus.
 
@@ -321,7 +322,7 @@ def sync_state_to_sprint(
         epic_key = _find_epic_key(state.current_epic, new_entries)
         if epic_key is not None:
             entry = new_entries[epic_key]
-            if entry.status not in ("done", "in-progress"):
+            if entry.status != "in-progress":
                 new_entries[epic_key] = SprintStatusEntry(
                     key=entry.key,
                     status="in-progress",
@@ -333,7 +334,16 @@ def sync_state_to_sprint(
                 synced_epics += 1
 
     # Step 1: Update current story status based on phase (AC2)
-    if state.current_story is not None and state.current_phase is not None:
+    # Exclude epic-level phases: they do not progress a single story's lifecycle.
+    from bmad_assist.core.config import get_loop_config
+
+    loop_config = get_loop_config()
+    is_epic_level = False
+    if state.current_phase is not None:
+        phase_str = state.current_phase.value
+        is_epic_level = phase_str in loop_config.epic_setup or phase_str in loop_config.epic_teardown
+
+    if not is_epic_level and state.current_story is not None and state.current_phase is not None:
         target_status = PHASE_TO_STATUS.get(state.current_phase)
         if target_status is not None:
             story_key = _find_story_key(state.current_story, new_entries, prefix_map)

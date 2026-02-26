@@ -24,7 +24,6 @@ from bmad_assist.core.config import (
 )
 from bmad_assist.providers.base import BaseProvider, ProviderResult
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -603,7 +602,7 @@ class TestInterHandlerDataPassing:
         # Verify v3 format (Story 26.16: cache v3 includes Deep Verify data)
         import json
 
-        with open(cache_file, "r", encoding="utf-8") as f:
+        with open(cache_file, encoding="utf-8") as f:
             data = json.load(f)
 
         assert data.get("cache_version") == 3
@@ -784,7 +783,7 @@ class TestValidationReportPersistenceIntegration:
 
             # Verify frontmatter structure
             for vf in validation_files:
-                with open(vf, "r", encoding="utf-8") as f:
+                with open(vf, encoding="utf-8") as f:
                     post = frontmatter.load(f)
 
                 # Required frontmatter fields per AC1
@@ -905,7 +904,6 @@ class TestStory22_8ValidationSynthesisSaving:
             mock_compile.return_value = mock_compiled
 
             # Mock save_validation_report to fail with OSError
-            import os
 
             mock_save.side_effect = OSError("Permission denied")
 
@@ -1103,7 +1101,7 @@ class TestStory22_8FailedValidatorsInCache:
 
         # Verify cache file contains failed_validators
         cache_file = tmp_path / ".bmad-assist" / "cache" / f"validations-{session_id}.json"
-        with open(cache_file, "r", encoding="utf-8") as f:
+        with open(cache_file, encoding="utf-8") as f:
             data = json.load(f)
 
         assert "failed_validators" in data
@@ -1133,7 +1131,7 @@ class TestStory22_8FailedValidatorsInCache:
         )
 
         cache_file = tmp_path / ".bmad-assist" / "cache" / f"validations-{session_id}.json"
-        with open(cache_file, "r", encoding="utf-8") as f:
+        with open(cache_file, encoding="utf-8") as f:
             data = json.load(f)
 
         # Empty list is omitted (same as None) for cleaner JSON
@@ -1270,7 +1268,7 @@ class TestStory22_8SessionIdInValidationReports:
             # Check at least one report has session_id matching result.session_id
             found_session_id = False
             for vf in validation_files:
-                with open(vf, "r", encoding="utf-8") as f:
+                with open(vf, encoding="utf-8") as f:
                     post = frontmatter.load(f)
                 if post.metadata.get("session_id") == result.session_id:
                     found_session_id = True

@@ -6,7 +6,6 @@ that knowledge fragments are properly loaded, cached, and passed to workflow con
 """
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,7 +13,7 @@ import pytest
 from bmad_assist.core.state import State
 
 # Import shared fixtures from conftest
-from tests.testarch.e2e.conftest import FakeConfig, FakeTestarchConfig
+from tests.testarch.e2e.conftest import FakeConfig
 
 
 class TestKnowledgeBaseLoaderBasics:

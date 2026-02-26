@@ -176,6 +176,7 @@ DEFAULT_LOOP_CONFIG: LoopConfig = LoopConfig(
     ],
     epic_teardown=[
         "retrospective",
+        "hardening",
     ],
 )
 
@@ -204,6 +205,7 @@ TEA_FULL_LOOP_CONFIG: LoopConfig = LoopConfig(
         "trace",  # Requirements traceability matrix
         "tea_nfr_assess",  # NFR assessment (release-level)
         "retrospective",
+        "hardening",
         "qa_plan_generate",  # Generate E2E test plan
         "qa_plan_execute",  # Execute E2E tests
         "qa_remediate",  # Collect issues, auto-fix or escalate

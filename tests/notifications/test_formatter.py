@@ -8,7 +8,6 @@ Tests cover:
 - AC5-AC7: Future Story 21.4 integration (placeholder tests)
 """
 
-import pytest
 
 from bmad_assist.core.state import Phase
 from bmad_assist.notifications.events import (

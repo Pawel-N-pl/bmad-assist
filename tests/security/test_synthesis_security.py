@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bmad_assist.core.config import (
     BenchmarkingConfig,
     Config,
@@ -32,7 +30,6 @@ from bmad_assist.core.loop.handlers.code_review_synthesis import (
 )
 from bmad_assist.security.config import SecurityAgentConfig
 from bmad_assist.security.report import SecurityFinding, SecurityReport
-
 
 # ============================================================================
 # Helpers

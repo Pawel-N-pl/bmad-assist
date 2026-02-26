@@ -8,7 +8,6 @@ Tests verify:
 5. CSS styles for metrics-specific classes
 """
 
-import re
 from pathlib import Path
 
 import pytest

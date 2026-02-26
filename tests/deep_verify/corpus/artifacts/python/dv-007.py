@@ -6,9 +6,9 @@ def process_data_7(data: list[int]) -> int:
 
 class Processor7:
     """Data processor."""
-    
+
     def __init__(self):
         self.data = []
-    
+
     def add(self, item: int) -> None:
         self.data.append(item)

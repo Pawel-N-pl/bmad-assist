@@ -740,8 +740,6 @@ class TestCompositeLLMScoreFormula:
 
     def test_composite_score_formula(self) -> None:
         """Composite LLM score = max(0, (ui + api) / 2 - skip)."""
-        from unittest.mock import MagicMock, patch
-
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
         from bmad_assist.testarch.prompts import ATDDEligibilityOutput
@@ -806,7 +804,6 @@ class TestHybridScoreCalculation:
 
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
-        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
 
         # Custom weights: keyword=0.3, llm=0.7
         config = EligibilityConfig(keyword_weight=0.3, llm_weight=0.7, threshold=0.5)
@@ -1062,8 +1059,6 @@ class TestLLMFallback:
         """pydantic.ValidationError → keyword-only scoring with error type in reasoning."""
         from unittest.mock import MagicMock, patch
 
-        from pydantic import ValidationError
-
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
@@ -1104,7 +1099,7 @@ class TestEdgeCases:
 
     def test_empty_text_invokes_llm(self) -> None:
         """Empty text still invokes LLM (may provide insight)."""
-        from unittest.mock import MagicMock, call, patch
+        from unittest.mock import MagicMock, patch
 
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector

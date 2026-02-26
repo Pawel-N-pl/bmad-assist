@@ -1,9 +1,10 @@
 """Integration tests for external path configuration."""
 
-import pytest
 from pathlib import Path
 
-from bmad_assist.core.paths import ProjectPaths, init_paths, get_paths, _reset_paths
+import pytest
+
+from bmad_assist.core.paths import _reset_paths, get_paths, init_paths
 
 
 @pytest.fixture(autouse=True)

@@ -23,6 +23,7 @@ __all__ = [
     "trace_handler",
     "tea_nfr_assess_handler",
     "retrospective_handler",
+    "hardening_handler",
     "qa_remediate_handler",
     "WORKFLOW_HANDLERS",
 ]
@@ -321,6 +322,25 @@ def retrospective_handler(state: State) -> PhaseResult:
     return PhaseResult.fail(f"Handler for {Phase.RETROSPECTIVE.value} not yet implemented")
 
 
+def hardening_handler(state: State) -> PhaseResult:
+    """Handle the HARDENING phase.
+
+    Runs during epic teardown to process action items from the retrospective
+    and synthesize them into a dedicated Hardening Story for the next epic.
+
+    Args:
+        state: Current loop state after retrospective.
+
+    Returns:
+        PhaseResult with status of Story 0 creation.
+
+    Note:
+        Stub implementation.
+
+    """
+    return PhaseResult.fail(f"Handler for {Phase.HARDENING.value} not yet implemented")
+
+
 def qa_plan_generate_handler(state: State) -> PhaseResult:
     """Handle the QA_PLAN_GENERATE phase (experimental).
 
@@ -403,6 +423,7 @@ WORKFLOW_HANDLERS: dict[Phase, PhaseHandler] = {
     Phase.TRACE: trace_handler,
     Phase.TEA_NFR_ASSESS: tea_nfr_assess_handler,
     Phase.RETROSPECTIVE: retrospective_handler,
+    Phase.HARDENING: hardening_handler,
     Phase.QA_PLAN_GENERATE: qa_plan_generate_handler,
     Phase.QA_PLAN_EXECUTE: qa_plan_execute_handler,
     Phase.QA_REMEDIATE: qa_remediate_handler,

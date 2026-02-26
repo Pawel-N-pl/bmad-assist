@@ -28,7 +28,6 @@ from bmad_assist.dashboard.experiments import (
 from bmad_assist.dashboard.server import DashboardServer
 from bmad_assist.experiments import ExperimentStatus
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================

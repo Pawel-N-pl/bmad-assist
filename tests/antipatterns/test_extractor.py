@@ -1,12 +1,10 @@
 """Tests for antipatterns extraction and file appending."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bmad_assist.antipatterns.extractor import (
-    CODE_ANTIPATTERNS_HEADER,
     ISSUE_WITH_FIX_PATTERN,
     ISSUES_SECTION_PATTERN,
     SEVERITY_HEADER_PATTERN,

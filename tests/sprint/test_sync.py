@@ -26,7 +26,6 @@ from bmad_assist.sprint.models import (
 )
 from bmad_assist.sprint.sync import (
     PHASE_TO_STATUS,
-    SyncCallback,
     SyncResult,
     _find_epic_key,
     _find_story_key,
@@ -36,7 +35,6 @@ from bmad_assist.sprint.sync import (
     sync_state_to_sprint,
     trigger_sync,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -220,9 +218,9 @@ class TestPhaseToStatusMapping:
         mapped_phases = set(PHASE_TO_STATUS.keys())
         assert mapped_phases == all_phases, f"Missing phases: {all_phases - mapped_phases}"
 
-    def test_create_story_maps_to_in_progress(self):
-        """CREATE_STORY maps to in-progress."""
-        assert PHASE_TO_STATUS[Phase.CREATE_STORY] == "in-progress"
+    def test_create_story_maps_to_backlog(self):
+        """CREATE_STORY maps to backlog."""
+        assert PHASE_TO_STATUS[Phase.CREATE_STORY] == "backlog"
 
     def test_validate_story_maps_to_in_progress(self):
         """VALIDATE_STORY maps to in-progress."""

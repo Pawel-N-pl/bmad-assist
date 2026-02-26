@@ -48,7 +48,7 @@ def _print_tea_banner(workflow_id: str, project_name: str | None = None) -> None
         banner = f"[TEA {display_name}]"
         if project_name:
             banner += f" {project_name}"
-        console.print(banner, style="bold bright_white")
+        console.print(banner, style="bold cyan")
     except Exception:
         # Fallback without Rich formatting
         display_name = workflow_id.upper().replace("-", " ")

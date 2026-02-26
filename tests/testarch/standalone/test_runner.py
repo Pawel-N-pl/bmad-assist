@@ -5,7 +5,6 @@ Story 25.13: TEA Standalone Runner & CLI.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
@@ -15,8 +14,7 @@ import pytest
 from bmad_assist.testarch.standalone.runner import StandaloneRunner
 
 if TYPE_CHECKING:
-    from bmad_assist.core.config import Config
-    from bmad_assist.core.loop.types import PhaseResult
+    pass
 
 
 # =============================================================================
@@ -227,8 +225,6 @@ class TestPathsInitialization:
 
     def test_paths_context_resets_on_exit(self, runner: StandaloneRunner) -> None:
         """Test that paths are reset after context exits."""
-        from bmad_assist.core.paths import _paths_instance
-
         # Paths should be None before context
         # (assuming no other test left it initialized)
 
@@ -257,13 +253,12 @@ class TestHandlerExecution:
         mock_handler = MagicMock()
         mock_handler.return_value.execute.return_value = mock_phase_result_ok
 
-        with patch.object(runner, "_standalone_paths_context"):
-            with patch(
-                "bmad_assist.testarch.standalone.runner.StandaloneRunner._save_standalone_report"
-            ) as mock_save:
-                mock_save.return_value = Path("/tmp/report.md")
+        with patch.object(runner, "_standalone_paths_context"), patch(
+            "bmad_assist.testarch.standalone.runner.StandaloneRunner._save_standalone_report"
+        ) as mock_save:
+            mock_save.return_value = Path("/tmp/report.md")
 
-                result = runner._execute_handler(mock_handler, "framework")
+            result = runner._execute_handler(mock_handler, "framework")
 
         assert result["success"] is True
         assert result["output_path"] == Path("/tmp/report.md")
@@ -336,16 +331,15 @@ class TestHandlerExecution:
 
         mock_handler.return_value.execute.side_effect = capture_execute
 
-        with patch.object(runner, "_standalone_paths_context"):
-            with patch(
-                "bmad_assist.testarch.standalone.runner.StandaloneRunner._save_standalone_report"
-            ):
-                # Use a valid State field (test_design_ran_in_epic is a bool field)
-                runner._execute_handler(
-                    mock_handler,
-                    "test-design",
-                    extra_state_fields={"test_design_ran_in_epic": True},
-                )
+        with patch.object(runner, "_standalone_paths_context"), patch(
+            "bmad_assist.testarch.standalone.runner.StandaloneRunner._save_standalone_report"
+        ):
+            # Use a valid State field (test_design_ran_in_epic is a bool field)
+            runner._execute_handler(
+                mock_handler,
+                "test-design",
+                extra_state_fields={"test_design_ran_in_epic": True},
+            )
 
         # Verify the field was actually applied
         assert captured_state is not None

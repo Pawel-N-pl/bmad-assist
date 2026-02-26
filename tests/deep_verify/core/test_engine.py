@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from bmad_assist.deep_verify.config import DeepVerifyConfig, MethodConfig
 from bmad_assist.core.exceptions import ProviderError
+from bmad_assist.deep_verify.config import DeepVerifyConfig, MethodConfig
 from bmad_assist.deep_verify.core import (
     ArtifactDomain,
     DomainConfidence,
@@ -28,7 +28,6 @@ from bmad_assist.deep_verify.core import (
 from bmad_assist.deep_verify.core.engine import DeepVerifyEngine, VerificationContext
 from bmad_assist.deep_verify.core.types import MethodId
 from bmad_assist.deep_verify.methods.base import BaseVerificationMethod
-
 
 # =============================================================================
 # Fixtures
@@ -166,7 +165,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.SECURITY])
-        
+
         # Should have always-run methods + SECURITY specific
         method_ids = [m.method_id for m in methods]
         assert MethodId("#153") in method_ids  # Always run
@@ -181,7 +180,7 @@ class TestMethodSelection:
         )
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.SECURITY])
-        
+
         method_ids = [m.method_id for m in methods]
         assert MethodId("#201") not in method_ids  # Disabled
         assert MethodId("#153") in method_ids  # Still enabled
@@ -198,7 +197,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.API])
-        
+
         pattern_method = next(
             (m for m in methods if m.method_id == MethodId("#153")), None
         )
@@ -210,7 +209,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.CONCURRENCY])
-        
+
         method_ids = [m.method_id for m in methods]
         assert MethodId("#155") in method_ids  # CONCURRENCY specific
         assert MethodId("#205") in method_ids  # CONCURRENCY specific
@@ -220,7 +219,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.API])
-        
+
         method_ids = [m.method_id for m in methods]
         assert MethodId("#155") in method_ids  # API specific
         assert MethodId("#201") in method_ids  # API specific
@@ -231,7 +230,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.MESSAGING])
-        
+
         method_ids = [m.method_id for m in methods]
         assert MethodId("#157") in method_ids  # MESSAGING specific
         assert MethodId("#204") in method_ids  # MESSAGING specific
@@ -242,7 +241,7 @@ class TestMethodSelection:
         config = DeepVerifyConfig()
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.STORAGE])
-        
+
         method_ids = [m.method_id for m in methods]
         assert MethodId("#157") in method_ids  # STORAGE specific
         assert MethodId("#204") in method_ids  # STORAGE specific
@@ -321,34 +320,34 @@ class TestParallelExecution:
     ) -> None:
         """Test that methods run in parallel via asyncio.gather."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Create mock methods that track execution order
         execution_order: list[str] = []
-        
+
         async def slow_method1(text: str, **kwargs: object) -> list[Finding]:
             await asyncio.sleep(0.01)
             execution_order.append("method1")
             return []
-        
+
         async def slow_method2(text: str, **kwargs: object) -> list[Finding]:
             await asyncio.sleep(0.01)
             execution_order.append("method2")
             return []
-        
+
         mock_method1 = Mock(spec=BaseVerificationMethod)
         mock_method1.method_id = MethodId("#153")
         mock_method1.analyze = slow_method1
-        
+
         mock_method2 = Mock(spec=BaseVerificationMethod)
         mock_method2.method_id = MethodId("#154")
         mock_method2.analyze = slow_method2
-        
+
         start = asyncio.get_event_loop().time()
         results = await engine._run_methods_with_errors(
             [mock_method1, mock_method2], "test", None, None
         )
         elapsed = asyncio.get_event_loop().time() - start
-        
+
         # Both methods should complete in ~0.01s (parallel), not ~0.02s (sequential)
         assert elapsed < 0.02
         assert len(execution_order) == 2
@@ -429,7 +428,7 @@ class TestFindingAggregation:
     def test_collect_findings_from_all_methods(self, project_root: Path) -> None:
         """Test that findings are collected from all methods."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         finding1 = Finding(
             id="temp-1",
             severity=Severity.ERROR,
@@ -444,14 +443,14 @@ class TestFindingAggregation:
             description="Test",
             method_id=MethodId("#154"),
         )
-        
+
         findings = engine._deduplicate_findings([finding1, finding2])
         assert len(findings) == 2
 
     def test_deduplicate_by_pattern_id(self, project_root: Path) -> None:
         """Test deduplication by pattern_id match."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         finding1 = Finding(
             id="temp-1",
             severity=Severity.WARNING,
@@ -468,7 +467,7 @@ class TestFindingAggregation:
             method_id=MethodId("#154"),
             pattern_id="CC-001",  # Same pattern
         )
-        
+
         findings = engine._deduplicate_findings([finding1, finding2])
         assert len(findings) == 1
         assert findings[0].severity == Severity.ERROR  # Higher severity kept
@@ -476,7 +475,7 @@ class TestFindingAggregation:
     def test_deduplicate_by_evidence_similarity(self, project_root: Path) -> None:
         """Test deduplication by evidence quote similarity (>80%)."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         finding1 = Finding(
             id="temp-1",
             severity=Severity.WARNING,
@@ -493,7 +492,7 @@ class TestFindingAggregation:
             method_id=MethodId("#154"),
             evidence=[Evidence(quote="def test_function(): pass")],  # Same quote
         )
-        
+
         findings = engine._deduplicate_findings([finding1, finding2])
         assert len(findings) == 1
         assert findings[0].severity == Severity.ERROR
@@ -501,7 +500,7 @@ class TestFindingAggregation:
     def test_keep_highest_severity_duplicate(self, project_root: Path) -> None:
         """Test that highest severity is kept when duplicates found."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         finding1 = Finding(
             id="temp-1",
             severity=Severity.INFO,
@@ -526,7 +525,7 @@ class TestFindingAggregation:
             method_id=MethodId("#155"),
             pattern_id="CC-001",
         )
-        
+
         findings = engine._deduplicate_findings([finding1, finding2, finding3])
         assert len(findings) == 1
         assert findings[0].severity == Severity.CRITICAL
@@ -534,7 +533,7 @@ class TestFindingAggregation:
     def test_reassign_finding_ids_sequentially(self, project_root: Path) -> None:
         """Test that finding IDs are reassigned sequentially (F1, F2, F3...)."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         findings = [
             Finding(
                 id="old-1",
@@ -551,7 +550,7 @@ class TestFindingAggregation:
                 method_id=MethodId("#154"),
             ),
         ]
-        
+
         reassigned = engine._assign_finding_ids(findings)
         assert reassigned[0].id == "F1"
         assert reassigned[1].id == "F2"
@@ -561,7 +560,7 @@ class TestFindingAggregation:
     ) -> None:
         """Test findings sorted by severity (CRITICAL first) before ID assignment."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         findings = [
             Finding(
                 id="temp-1",
@@ -578,7 +577,7 @@ class TestFindingAggregation:
                 method_id=MethodId("#154"),
             ),
         ]
-        
+
         reassigned = engine._assign_finding_ids(findings)
         assert reassigned[0].id == "F1"
         assert reassigned[0].severity == Severity.CRITICAL
@@ -588,7 +587,7 @@ class TestFindingAggregation:
     def test_enforce_max_50_per_method(self, project_root: Path) -> None:
         """Test enforcement of max 50 findings per method."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Create 60 findings from same method
         findings = [
             Finding(
@@ -600,7 +599,7 @@ class TestFindingAggregation:
             )
             for i in range(60)
         ]
-        
+
         limited = engine._apply_finding_limits(findings)
         # Should be limited to 50 per method
         method_153_count = sum(1 for f in limited if f.method_id == MethodId("#153"))
@@ -609,7 +608,7 @@ class TestFindingAggregation:
     def test_enforce_max_200_total(self, project_root: Path) -> None:
         """Test enforcement of max 200 total findings."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Create 250 findings from multiple methods
         findings = []
         for i in range(250):
@@ -623,14 +622,14 @@ class TestFindingAggregation:
                     method_id=method_id,
                 )
             )
-        
+
         limited = engine._apply_finding_limits(findings)
         assert len(limited) <= 200
 
     def test_prioritize_by_severity_when_truncating(self, project_root: Path) -> None:
         """Test that findings prioritized by severity when truncating."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Create findings with mixed severities
         findings = [
             Finding(
@@ -642,7 +641,7 @@ class TestFindingAggregation:
             )
             for i in range(60)
         ]
-        
+
         limited = engine._apply_finding_limits(findings)
         # CRITICAL findings should be preserved
         critical_count = sum(1 for f in limited if f.severity == Severity.CRITICAL)
@@ -660,12 +659,12 @@ class TestScoringIntegration:
     def test_calculate_clean_passes(self, project_root: Path) -> None:
         """Test calculation of domains with zero findings."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         detected_domains = [
             DomainConfidence(domain=ArtifactDomain.SECURITY, confidence=0.9),
             DomainConfidence(domain=ArtifactDomain.API, confidence=0.8),
         ]
-        
+
         # One finding in SECURITY, none in API
         findings = [
             Finding(
@@ -677,7 +676,7 @@ class TestScoringIntegration:
                 domain=ArtifactDomain.SECURITY,
             )
         ]
-        
+
         clean_passes = engine._calculate_clean_passes(findings, detected_domains)
         assert clean_passes == 1  # API has no findings
 
@@ -689,7 +688,7 @@ class TestScoringIntegration:
             accept_threshold=-3.0,
         )
         engine = DeepVerifyEngine(project_root=project_root, config=config)
-        
+
         assert engine._scorer.clean_pass_bonus == -0.5
         assert engine._scorer.reject_threshold == 6.0
         assert engine._scorer.accept_threshold == -3.0
@@ -698,7 +697,7 @@ class TestScoringIntegration:
     async def test_critical_finding_forces_reject(self, project_root: Path) -> None:
         """Test that CRITICAL finding forces REJECT regardless of score."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Mock domain detector to return API domain
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(
@@ -707,7 +706,7 @@ class TestScoringIntegration:
                 reasoning="API detected",
             )
         )
-        
+
         # Mock method to return CRITICAL finding
         async def mock_analyze(text: str, **kwargs: object) -> list[Finding]:
             return [
@@ -719,15 +718,15 @@ class TestScoringIntegration:
                     method_id=MethodId("#153"),
                 )
             ]
-        
+
         mock_method = Mock(spec=BaseVerificationMethod)
         mock_method.method_id = MethodId("#153")
         mock_method.analyze = mock_analyze
-        
+
         # Patch method selector to return our mock
         engine._method_selector = Mock()
         engine._method_selector.select = Mock(return_value=[mock_method])
-        
+
         verdict = await engine.verify("test code")
         assert verdict.decision == VerdictDecision.REJECT
 
@@ -737,7 +736,7 @@ class TestScoringIntegration:
             method_153_pattern_match=MethodConfig(enabled=True, timeout_seconds=45)
         )
         engine = DeepVerifyEngine(project_root=project_root, config=config)
-        
+
         timeout = engine._get_method_timeout(MethodId("#153"))
         assert timeout == 45
 
@@ -747,7 +746,7 @@ class TestScoringIntegration:
         """Test that timeout is None when not configured."""
         config = DeepVerifyConfig()
         engine = DeepVerifyEngine(project_root=project_root, config=config)
-        
+
         timeout = engine._get_method_timeout(MethodId("#153"))
         assert timeout is None
 
@@ -766,13 +765,13 @@ class TestDomainDetectionFallback:
     ) -> None:
         """Test keyword fallback when LLM detection fails."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Make domain detector raise exception
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(side_effect=ProviderError("LLM failed"))
-        
+
         result = await engine._detect_domains("auth token encryption")
-        
+
         # Should use keyword fallback
         assert len(result.domains) > 0
         assert any(d.domain == ArtifactDomain.SECURITY for d in result.domains)
@@ -780,11 +779,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_security(self, project_root: Path) -> None:
         """Test keyword detection for SECURITY domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "authenticate user with token and password"
         )
-        
+
         security_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.SECURITY), None
         )
@@ -794,11 +793,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_api(self, project_root: Path) -> None:
         """Test keyword detection for API domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "http endpoint request response json api"
         )
-        
+
         api_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.API), None
         )
@@ -807,11 +806,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_concurrency(self, project_root: Path) -> None:
         """Test keyword detection for CONCURRENCY domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "async thread lock race concurrent parallel"
         )
-        
+
         concurrency_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.CONCURRENCY), None
         )
@@ -820,11 +819,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_storage(self, project_root: Path) -> None:
         """Test keyword detection for STORAGE domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "database sql query transaction cache persist"
         )
-        
+
         storage_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.STORAGE), None
         )
@@ -833,11 +832,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_messaging(self, project_root: Path) -> None:
         """Test keyword detection for MESSAGING domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "queue message event stream kafka pubsub"
         )
-        
+
         messaging_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.MESSAGING), None
         )
@@ -846,11 +845,11 @@ class TestDomainDetectionFallback:
     def test_keyword_detection_transform(self, project_root: Path) -> None:
         """Test keyword detection for TRANSFORM domain."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         result = engine._keyword_domain_detection(
             "convert transform parse serialize format"
         )
-        
+
         transform_domain = next(
             (d for d in result.domains if d.domain == ArtifactDomain.TRANSFORM), None
         )
@@ -868,7 +867,7 @@ class TestVerdictSummary:
     def test_generate_summary_format(self, project_root: Path) -> None:
         """Test summary format matches expected pattern."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         findings = [
             Finding(
                 id="F1",
@@ -885,19 +884,19 @@ class TestVerdictSummary:
                 method_id=MethodId("#154"),
             ),
         ]
-        
+
         domains = [ArtifactDomain.SECURITY, ArtifactDomain.API]
-        
+
         mock_method1 = Mock(spec=BaseVerificationMethod)
         mock_method1.method_id = MethodId("#153")
         mock_method2 = Mock(spec=BaseVerificationMethod)
         mock_method2.method_id = MethodId("#154")
         methods = [mock_method1, mock_method2]
-        
+
         summary = engine._generate_summary(
             VerdictDecision.REJECT, 8.5, findings, domains, methods
         )
-        
+
         # Format: "{decision} verdict (score: {score}). {n} findings: {findings_list}.
         #          Domains: {domain_names}. Methods: {method_ids}."
         assert "REJECT verdict" in summary
@@ -909,11 +908,11 @@ class TestVerdictSummary:
     def test_generate_summary_empty_findings(self, project_root: Path) -> None:
         """Test summary with empty findings."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         summary = engine._generate_summary(
             VerdictDecision.ACCEPT, 0.0, [], [], []
         )
-        
+
         assert "ACCEPT verdict" in summary
         assert "0 findings: none" in summary
         assert "Domains: none" in summary
@@ -922,14 +921,14 @@ class TestVerdictSummary:
     def test_empty_verdict_summary(self, project_root: Path) -> None:
         """Test _empty_verdict generates correct summary."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         domain_result = DomainDetectionResult(
             domains=[DomainConfidence(domain=ArtifactDomain.API, confidence=0.9)],
             reasoning="Test",
         )
-        
+
         verdict = engine._empty_verdict(domain_result)
-        
+
         assert "ACCEPT verdict (score: 0.0)" in verdict.summary
         assert "0 findings: none" in verdict.summary
         assert "Domains: api" in verdict.summary
@@ -947,7 +946,7 @@ class TestErrorHandling:
     async def test_none_artifact_raises_valueerror(self, project_root: Path) -> None:
         """Test that None artifact raises ValueError."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         with pytest.raises(ValueError, match="cannot be None"):
             await engine.verify(None)  # type: ignore[arg-type]
 
@@ -955,7 +954,7 @@ class TestErrorHandling:
     async def test_empty_artifact_returns_accept(self, project_root: Path) -> None:
         """Test that empty artifact returns ACCEPT verdict."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         verdict = await engine.verify("")
         assert verdict.decision == VerdictDecision.ACCEPT
         assert verdict.score == 0.0
@@ -967,7 +966,7 @@ class TestErrorHandling:
     ) -> None:
         """Test that whitespace-only artifact returns ACCEPT verdict."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         verdict = await engine.verify("   \n\t   ")
         assert verdict.decision == VerdictDecision.ACCEPT
         assert verdict.score == 0.0
@@ -978,15 +977,15 @@ class TestErrorHandling:
     ) -> None:
         """Test that method timeout returns empty findings list."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         async def slow_method(text: str, **kwargs: object) -> list[Finding]:
             await asyncio.sleep(10)  # Will timeout
             return []
-        
+
         mock_method = Mock(spec=BaseVerificationMethod)
         mock_method.method_id = MethodId("#153")
         mock_method.analyze = slow_method
-        
+
         # Should timeout and return empty list
         result = await engine._run_single_method(
             mock_method, "test", None, timeout=0.01  # Very short timeout
@@ -999,10 +998,10 @@ class TestErrorHandling:
     ) -> None:
         """Test that method exception is logged but doesn't block other methods."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         async def failing_method(text: str, **kwargs: object) -> list[Finding]:
             raise ValueError("Method failed")
-        
+
         async def working_method(text: str, **kwargs: object) -> list[Finding]:
             return [
                 Finding(
@@ -1013,19 +1012,19 @@ class TestErrorHandling:
                     method_id=MethodId("#154"),
                 )
             ]
-        
+
         mock_method1 = Mock(spec=BaseVerificationMethod)
         mock_method1.method_id = MethodId("#153")
         mock_method1.analyze = failing_method
-        
+
         mock_method2 = Mock(spec=BaseVerificationMethod)
         mock_method2.method_id = MethodId("#154")
         mock_method2.analyze = working_method
-        
+
         results = await engine._run_methods_with_errors(
             [mock_method1, mock_method2], "test", None, None
         )
-        
+
         # First method should have failed
         assert results[0].success is False
         assert results[0].error is not None
@@ -1048,11 +1047,11 @@ class TestEndToEnd:
     async def test_all_7_domains_individually(self, project_root: Path) -> None:
         """Test with all 7 ArtifactDomain values individually."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         for domain in ArtifactDomain:
             # Use keyword detection for predictable domain selection
             result = engine._keyword_domain_detection(domain.value)
-            
+
             # Should detect the domain
             assert len(result.domains) >= 0  # At minimum doesn't crash
 
@@ -1060,10 +1059,10 @@ class TestEndToEnd:
     async def test_finding_deduplication_by_similarity(self, project_root: Path) -> None:
         """Test finding deduplication by evidence similarity."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Two methods returning similar findings
         evidence_text = "def similar_function_name(): pass"
-        
+
         async def method1(text: str, **kwargs: object) -> list[Finding]:
             return [
                 Finding(
@@ -1075,7 +1074,7 @@ class TestEndToEnd:
                     evidence=[Evidence(quote=evidence_text)],
                 )
             ]
-        
+
         async def method2(text: str, **kwargs: object) -> list[Finding]:
             return [
                 Finding(
@@ -1087,15 +1086,15 @@ class TestEndToEnd:
                     evidence=[Evidence(quote=evidence_text)],  # Same evidence
                 )
             ]
-        
+
         mock_method1 = Mock(spec=BaseVerificationMethod)
         mock_method1.method_id = MethodId("#153")
         mock_method1.analyze = method1
-        
+
         mock_method2 = Mock(spec=BaseVerificationMethod)
         mock_method2.method_id = MethodId("#154")
         mock_method2.analyze = method2
-        
+
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(
             return_value=DomainDetectionResult(
@@ -1103,12 +1102,12 @@ class TestEndToEnd:
                 reasoning="API",
             )
         )
-        
+
         engine._method_selector = Mock()
         engine._method_selector.select = Mock(return_value=[mock_method1, mock_method2])
-        
+
         verdict = await engine.verify("test code")
-        
+
         # Should have only 1 finding (deduplicated)
         assert len(verdict.findings) == 1
         assert verdict.findings[0].severity == Severity.ERROR  # Higher severity kept
@@ -1117,7 +1116,7 @@ class TestEndToEnd:
     async def test_finding_limits_enforced(self, project_root: Path) -> None:
         """Test finding limits (50 per method, 200 total)."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Create method returning 60 findings
         async def many_findings_method(text: str, **kwargs: object) -> list[Finding]:
             return [
@@ -1130,11 +1129,11 @@ class TestEndToEnd:
                 )
                 for i in range(60)
             ]
-        
+
         mock_method = Mock(spec=BaseVerificationMethod)
         mock_method.method_id = MethodId("#153")
         mock_method.analyze = many_findings_method
-        
+
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(
             return_value=DomainDetectionResult(
@@ -1142,12 +1141,12 @@ class TestEndToEnd:
                 reasoning="API",
             )
         )
-        
+
         engine._method_selector = Mock()
         engine._method_selector.select = Mock(return_value=[mock_method])
-        
+
         verdict = await engine.verify("test code")
-        
+
         # Should be limited to 50 per method
         assert len(verdict.findings) == 50
 
@@ -1156,9 +1155,9 @@ class TestEndToEnd:
         """Test that config.enabled=False returns ACCEPT verdict."""
         config = DeepVerifyConfig(enabled=False)
         engine = DeepVerifyEngine(project_root=project_root, config=config)
-        
+
         verdict = await engine.verify("test code")
-        
+
         # Should return ACCEPT since no methods selected
         assert verdict.decision == VerdictDecision.ACCEPT
         assert verdict.score == 0.0
@@ -1168,7 +1167,7 @@ class TestEndToEnd:
         """Test clean_pass_bonus configuration is applied correctly."""
         config = DeepVerifyConfig(clean_pass_bonus=-0.5)
         engine = DeepVerifyEngine(project_root=project_root, config=config)
-        
+
         assert engine._scorer.clean_pass_bonus == -0.5
 
     @pytest.mark.asyncio
@@ -1179,11 +1178,11 @@ class TestEndToEnd:
             method_154_boundary_analysis=MethodConfig(enabled=False),
             method_203_domain_expert=MethodConfig(enabled=False),
         )
-        
+
         selector = MethodSelector(config)
         methods = selector.select([ArtifactDomain.API])
         method_ids = [m.method_id for m in methods]
-        
+
         # Always-run methods should not be present
         assert MethodId("#153") not in method_ids
         assert MethodId("#154") not in method_ids
@@ -1204,23 +1203,23 @@ class TestAdditionalRobustness:
     async def test_context_passed_to_methods(self, project_root: Path) -> None:
         """Test that context is passed to methods that accept it."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         received_context: VerificationContext | None = None
-        
+
         async def context_checking_method(
             text: str, **kwargs: object
         ) -> list[Finding]:
             nonlocal received_context
             received_context = kwargs.get("context")
             return []
-        
+
         mock_method = Mock(spec=BaseVerificationMethod)
         mock_method.method_id = MethodId("#153")
         mock_method.analyze = context_checking_method
-        
+
         context = VerificationContext(language="python", file_path=Path("test.py"))
         await engine._run_single_method(mock_method, "test", context, None)
-        
+
         assert received_context == context
 
     def test_deduplicate_empty_findings(self, project_root: Path) -> None:
@@ -1253,17 +1252,17 @@ class TestAdditionalRobustness:
     ) -> None:
         """Test that no methods selected returns empty verdict."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(
             return_value=DomainDetectionResult(domains=[], reasoning="No domains")
         )
-        
+
         engine._method_selector = Mock()
         engine._method_selector.select = Mock(return_value=[])
-        
+
         verdict = await engine.verify("test code")
-        
+
         assert verdict.decision == VerdictDecision.ACCEPT
         assert verdict.score == 0.0
         assert verdict.findings == []
@@ -1274,18 +1273,18 @@ class TestAdditionalRobustness:
     ) -> None:
         """Test domain detection failure falls back to keyword detection."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         # Make detector raise exception
         engine._domain_detector = Mock()
         engine._domain_detector.detect = Mock(side_effect=ProviderError("LLM down"))
-        
+
         # Mock method selector and methods to avoid real execution
         engine._method_selector = Mock()
         engine._method_selector.select = Mock(return_value=[])
-        
+
         # Should not raise - uses keyword fallback
         result = await engine._detect_domains("auth token")
-        
+
         # Should have SECURITY domain from keywords
         assert any(d.domain == ArtifactDomain.SECURITY for d in result.domains)
 
@@ -1293,22 +1292,22 @@ class TestAdditionalRobustness:
     async def test_all_methods_fail_gracefully(self, project_root: Path) -> None:
         """Test that all methods failing returns partial results with errors."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         async def failing_method(text: str, **kwargs: object) -> list[Finding]:
             raise ValueError("Always fails")
-        
+
         mock_method1 = Mock(spec=BaseVerificationMethod)
         mock_method1.method_id = MethodId("#153")
         mock_method1.analyze = failing_method
-        
+
         mock_method2 = Mock(spec=BaseVerificationMethod)
         mock_method2.method_id = MethodId("#154")
         mock_method2.analyze = failing_method
-        
+
         results = await engine._run_methods_with_errors(
             [mock_method1, mock_method2], "test", None, None
         )
-        
+
         # Both methods should have failed
         assert all(not r.success for r in results)
         # Both should have error information
@@ -1318,7 +1317,7 @@ class TestAdditionalRobustness:
     async def test_severity_order_in_id_assignment(self, project_root: Path) -> None:
         """Test that findings are ordered by severity before ID assignment."""
         engine = DeepVerifyEngine(project_root=project_root)
-        
+
         findings = [
             Finding(
                 id="old-1",
@@ -1349,9 +1348,9 @@ class TestAdditionalRobustness:
                 method_id=MethodId("#157"),
             ),
         ]
-        
+
         reassigned = engine._assign_finding_ids(findings)
-        
+
         # Order should be: CRITICAL, ERROR, WARNING, INFO
         assert reassigned[0].severity == Severity.CRITICAL
         assert reassigned[1].severity == Severity.ERROR

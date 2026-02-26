@@ -9,7 +9,7 @@ Tests cover:
 - YAML serialization format and datetime round-trip
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -37,7 +37,6 @@ from bmad_assist.experiments.manifest import (
     build_resolved_patchset,
 )
 from bmad_assist.experiments.runner import ExperimentStatus
-
 
 # =============================================================================
 # Fixtures
@@ -1042,8 +1041,8 @@ class TestBuildResolvedConfig:
 
     def test_build_from_template(self, tmp_path: Path) -> None:
         """Test building resolved config from template."""
-        from bmad_assist.experiments.config import ConfigTemplate, ConfigTemplateProviders
         from bmad_assist.core.config import MasterProviderConfig
+        from bmad_assist.experiments.config import ConfigTemplate, ConfigTemplateProviders
 
         # Use actual MasterProviderConfig model
         master = MasterProviderConfig(

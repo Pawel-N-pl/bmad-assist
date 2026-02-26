@@ -9,6 +9,7 @@ from pathlib import Path
 
 import frontmatter
 import pytest
+
 from bmad_assist.code_review.orchestrator import _save_code_review_report
 from bmad_assist.validation.anonymizer import ValidationOutput
 
@@ -51,7 +52,7 @@ class TestSaveCodeReviewReport:
             anonymized_id="Validator A",
         )
 
-        with open(result_path, "r", encoding="utf-8") as f:
+        with open(result_path, encoding="utf-8") as f:
             post = frontmatter.load(f)
 
         metadata = post.metadata

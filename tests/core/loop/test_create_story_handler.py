@@ -6,13 +6,10 @@ Verifies timing tracking configuration, story file rescue, and retry logic.
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from bmad_assist.core.config import Config, MasterProviderConfig, ProviderConfig
 from bmad_assist.core.loop.handlers.create_story import (
     MAX_RETRIES,
     MIN_STORY_CONTENT_LENGTH,
-    REQUIRED_SECTIONS,
     CreateStoryHandler,
     _extract_story_content,
     _find_story_file,

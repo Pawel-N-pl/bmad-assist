@@ -12,7 +12,6 @@ from bmad_assist.deep_verify.core.types import ArtifactDomain, PatternId, Severi
 from bmad_assist.deep_verify.patterns import PatternLibrary, PatternMatcher
 from bmad_assist.deep_verify.patterns.library import PATTERN_ID_REGEX, get_default_pattern_library
 
-
 # =============================================================================
 # Pattern ID Validation Tests
 # =============================================================================
@@ -798,7 +797,9 @@ class TestPatternSerialization:
     def test_roundtrip_serialization(self) -> None:
         """Test roundtrip serialization of Pattern with language."""
         from bmad_assist.deep_verify.core.types import (
-            Pattern, serialize_pattern, deserialize_pattern
+            Pattern,
+            deserialize_pattern,
+            serialize_pattern,
         )
 
         original = Pattern(

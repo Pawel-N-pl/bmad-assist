@@ -11,14 +11,12 @@ Test organization follows Epic 3 patterns with comprehensive edge case coverage.
 from __future__ import annotations
 
 import inspect
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 
-from bmad_assist.core.config import Config, _reset_config, load_config
+from bmad_assist.core.config import Config, _reset_config
 from bmad_assist.core.state import (
     DEFAULT_STATE_PATH,
     State,

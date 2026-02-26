@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from bmad_assist.bmad.parser import EpicDocument, EpicStory
 from bmad_assist.bmad.state_reader import (
     ProjectState,
     _apply_default_status,
@@ -37,7 +38,6 @@ from bmad_assist.bmad.state_reader import (
     _story_sort_key,
     read_project_state,
 )
-from bmad_assist.bmad.parser import EpicDocument, EpicStory
 
 
 class TestDiscoverEpicFiles:

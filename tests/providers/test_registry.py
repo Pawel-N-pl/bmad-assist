@@ -20,8 +20,8 @@ class TestGetProvider:
 
     def test_get_provider_claude_returns_claude_sdk_provider(self, reset_registry: None) -> None:
         """AC1: get_provider('claude') returns ClaudeSDKProvider instance."""
-        from bmad_assist.providers.registry import get_provider
         from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
+        from bmad_assist.providers.registry import get_provider
 
         provider = get_provider("claude")
 
@@ -32,8 +32,8 @@ class TestGetProvider:
         self, reset_registry: None
     ) -> None:
         """AC1: get_provider('claude-subprocess') returns ClaudeSubprocessProvider."""
-        from bmad_assist.providers.registry import get_provider
         from bmad_assist.providers.claude import ClaudeSubprocessProvider
+        from bmad_assist.providers.registry import get_provider
 
         provider = get_provider("claude-subprocess")
 
@@ -42,8 +42,8 @@ class TestGetProvider:
 
     def test_get_provider_codex_returns_codex_provider(self, reset_registry: None) -> None:
         """AC1: get_provider('codex') returns CodexProvider instance."""
-        from bmad_assist.providers.registry import get_provider
         from bmad_assist.providers.codex import CodexProvider
+        from bmad_assist.providers.registry import get_provider
 
         provider = get_provider("codex")
 
@@ -52,8 +52,8 @@ class TestGetProvider:
 
     def test_get_provider_gemini_returns_gemini_provider(self, reset_registry: None) -> None:
         """AC1: get_provider('gemini') returns GeminiProvider instance."""
-        from bmad_assist.providers.registry import get_provider
         from bmad_assist.providers.gemini import GeminiProvider
+        from bmad_assist.providers.registry import get_provider
 
         provider = get_provider("gemini")
 
@@ -224,8 +224,8 @@ class TestRegisterProvider:
         self, reset_registry: None, custom_provider_class: type
     ) -> None:
         """AC7: Original registration NOT overwritten on duplicate attempt."""
-        from bmad_assist.providers.registry import get_provider, register_provider
         from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
+        from bmad_assist.providers.registry import get_provider, register_provider
 
         try:
             register_provider("claude", custom_provider_class)
@@ -475,11 +475,11 @@ class TestLazyInitialization:
 
     def test_get_provider_initializes_empty_registry(self) -> None:
         """get_provider() initializes registry when empty (covers line 84)."""
+        from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
         from bmad_assist.providers.registry import (
             _REGISTRY,
             get_provider,
         )
-        from bmad_assist.providers.claude_sdk import ClaudeSDKProvider
 
         # Clear registry to simulate fresh state
         _REGISTRY.clear()
