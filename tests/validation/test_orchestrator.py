@@ -189,7 +189,7 @@ class TestRunValidationPhase:
 
         # Mock providers and registry
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             # Setup mock provider
@@ -237,7 +237,7 @@ class TestRunValidationPhase:
 
         # Mock providers - only master, which alone is insufficient
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             # Setup mock provider that times out for all
@@ -288,7 +288,7 @@ class TestRunValidationPhase:
             )
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -347,7 +347,7 @@ class TestParallelInvocation:
             )
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -395,7 +395,7 @@ class TestAllFailScenario:
         )
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -493,7 +493,7 @@ class TestAnonymizationIntegration:
         from bmad_assist.validation.orchestrator import run_validation_phase
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
             patch("bmad_assist.validation.orchestrator.anonymize_validations") as mock_anon,
         ):
@@ -744,7 +744,7 @@ class TestValidationReportPersistenceIntegration:
         from bmad_assist.validation.orchestrator import run_validation_phase
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -832,7 +832,7 @@ class TestStory22_8ValidationSynthesisSaving:
         )
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             # Only 1 validator (master) - insufficient for threshold
@@ -884,7 +884,7 @@ class TestStory22_8ValidationSynthesisSaving:
         from bmad_assist.validation.orchestrator import run_validation_phase
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
             patch("bmad_assist.validation.orchestrator.save_validation_report") as mock_save,
         ):
@@ -933,7 +933,7 @@ class TestStory22_8ValidationSynthesisSaving:
         from bmad_assist.validation.orchestrator import run_validation_phase
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -1015,7 +1015,7 @@ class TestStory22_8ValidationSynthesisSaving:
             )
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)
@@ -1229,7 +1229,7 @@ class TestStory22_8SessionIdInValidationReports:
         from bmad_assist.validation.orchestrator import run_validation_phase
 
         with (
-            patch("bmad_assist.validation.orchestrator.get_provider") as mock_get_provider,
+            patch("bmad_assist.validation.orchestrator.create_provider") as mock_get_provider,
             patch("bmad_assist.validation.orchestrator.compile_workflow") as mock_compile,
         ):
             mock_provider = MagicMock(spec=BaseProvider)

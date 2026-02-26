@@ -114,12 +114,15 @@ _REDACTED_VALUE = "***REDACTED***"
 def _get_dangerous_field_paths(
     model: type,
     prefix: str = "",
+    _seen: set[type] | None = None,
 ) -> set[str]:
     """Recursively find all field paths marked as security: dangerous.
 
     Args:
         model: Pydantic model class to inspect.
         prefix: Dot-separated prefix for nested paths.
+        _seen: Internal set of already-visited model types to prevent infinite
+            recursion from self-referential types (e.g., fallbacks).
 
     Returns:
         Set of dot-separated field paths (e.g., "state_path", "providers.settings").
@@ -127,10 +130,18 @@ def _get_dangerous_field_paths(
     """
     from pydantic import BaseModel
 
+    if _seen is None:
+        _seen = set()
+
     dangerous_paths: set[str] = set()
 
     if not hasattr(model, "model_fields"):
         return dangerous_paths
+
+    # Guard against infinite recursion from self-referential types
+    if model in _seen:
+        return dangerous_paths
+    _seen.add(model)
 
     for field_name, field_info in model.model_fields.items():
         field_path = f"{prefix}.{field_name}" if prefix else field_name
@@ -150,11 +161,11 @@ def _get_dangerous_field_paths(
                     continue
                 # Recurse into BaseModel types (handles Optional[X], Union[X, Y], list[X])
                 if isinstance(arg, type) and issubclass(arg, BaseModel):
-                    dangerous_paths.update(_get_dangerous_field_paths(arg, field_path))
+                    dangerous_paths.update(_get_dangerous_field_paths(arg, field_path, _seen))
 
         # Direct Pydantic model (not wrapped in generic)
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            dangerous_paths.update(_get_dangerous_field_paths(annotation, field_path))
+            dangerous_paths.update(_get_dangerous_field_paths(annotation, field_path, _seen))
 
     return dangerous_paths
 

@@ -231,8 +231,23 @@ def _build_model_schema(
     model: type[BaseModel],
     json_schema: dict[str, Any],
     definitions: dict[str, Any],
+    _seen: set[type] | None = None,
 ) -> dict[str, Any]:
-    """Build schema for a Pydantic model, recursively handling nested models."""
+    """Build schema for a Pydantic model, recursively handling nested models.
+
+    Args:
+        _seen: Internal set of already-visited model types to prevent infinite
+            recursion from self-referential types (e.g., fallbacks).
+
+    """
+    if _seen is None:
+        _seen = set()
+
+    # Guard against infinite recursion from self-referential types
+    if model in _seen:
+        return {}
+    _seen.add(model)
+
     result: dict[str, Any] = {}
 
     for field_name, field_info in model.model_fields.items():
@@ -269,7 +284,7 @@ def _build_model_schema(
             else:
                 nested_schema = annotation.model_json_schema()
 
-            nested_result = _build_model_schema(annotation, nested_schema, definitions)
+            nested_result = _build_model_schema(annotation, nested_schema, definitions, _seen)
             if nested_result:  # Only add if not all fields are dangerous
                 if is_list_of_models:
                     # Wrap in array schema for list[BaseModel]

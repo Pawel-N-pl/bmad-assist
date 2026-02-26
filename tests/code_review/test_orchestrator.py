@@ -151,7 +151,7 @@ class TestRunCodeReviewPhaseWorkflowId:
 
         with (
             patch(
-                "bmad_assist.code_review.orchestrator.get_provider",
+                "bmad_assist.core.provider_factory.create_provider",
                 return_value=mock_provider,
             ),
             patch(
@@ -216,7 +216,7 @@ class TestRunCodeReviewPhaseDeterministicMetrics:
 
         with (
             patch(
-                "bmad_assist.code_review.orchestrator.get_provider",
+                "bmad_assist.core.provider_factory.create_provider",
                 return_value=mock_provider,
             ),
             patch(
@@ -284,7 +284,7 @@ class TestRunCodeReviewPhaseHandleFailures:
 
         with (
             patch(
-                "bmad_assist.code_review.orchestrator.get_provider",
+                "bmad_assist.core.provider_factory.create_provider",
                 return_value=mock_provider,
             ),
             patch(
@@ -343,7 +343,7 @@ class TestRunCodeReviewPhaseInsufficientReviewers:
 
         with (
             patch(
-                "bmad_assist.code_review.orchestrator.get_provider",
+                "bmad_assist.core.provider_factory.create_provider",
                 return_value=mock_provider,
             ),
             patch(
