@@ -40,10 +40,6 @@ from bmad_assist.core.exceptions import (
     ProviderExitCodeError,
     ProviderTimeoutError,
 )
-from bmad_assist.core.platform_command import (
-    build_cross_platform_command,
-    cleanup_temp_file,
-)
 from bmad_assist.providers.base import (
     BaseProvider,
     ExitStatus,
@@ -298,8 +294,8 @@ class CodexProvider(BaseProvider):
             )
             reasoning_effort = None
 
-        # Build command with --json for JSONL streaming
-        # Uses platform_command for large prompt handling (>=100KB temp file)
+        # Build command with --json for JSONL streaming.
+        # Pass prompt via stdin (trailing "-") to avoid ARG_MAX limits.
         if use_sandbox:
             base_args = [
                 "exec",
@@ -322,7 +318,7 @@ class CodexProvider(BaseProvider):
         if reasoning_effort is not None:
             base_args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
 
-        command, temp_file = build_cross_platform_command("codex", base_args, prompt)
+        command = ["codex", *base_args, "-"]
 
         # For ProviderResult, store original command structure (without shell wrapper)
         original_command: tuple[str, ...] = (
@@ -355,6 +351,7 @@ class CodexProvider(BaseProvider):
         try:
             process = Popen(
                 command,
+                stdin=PIPE,
                 stdout=PIPE,
                 stderr=PIPE,
                 text=True,
@@ -363,6 +360,11 @@ class CodexProvider(BaseProvider):
                 cwd=cwd,  # Use target project directory, not bmad-assist cwd
                 start_new_session=True,  # Own process group for safe termination
             )
+
+            # Feed prompt through stdin so command-line length is never a bottleneck.
+            if process.stdin is not None:
+                process.stdin.write(prompt)
+                process.stdin.close()
 
             def process_json_stream(
                 stream: Any,
@@ -515,7 +517,6 @@ class CodexProvider(BaseProvider):
             raise ProviderError("Codex CLI not found. Is 'codex' in PATH?") from e
         finally:
             debug_json_logger.close()
-            cleanup_temp_file(temp_file)
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         stderr_content = "".join(stderr_chunks)
