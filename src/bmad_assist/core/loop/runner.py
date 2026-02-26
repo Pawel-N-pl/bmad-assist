@@ -141,7 +141,7 @@ def _get_dangerous_field_paths(
     # Guard against infinite recursion from self-referential types
     if model in _seen:
         return dangerous_paths
-    _seen.add(model)
+    _seen = _seen | {model}
 
     for field_name, field_info in model.model_fields.items():
         field_path = f"{prefix}.{field_name}" if prefix else field_name

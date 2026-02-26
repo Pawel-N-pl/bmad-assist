@@ -63,7 +63,7 @@ def _build_full_schema(
     # Guard against infinite recursion from self-referential types
     if model in _seen:
         return result
-    _seen.add(model)
+    _seen = _seen | {model}
 
     for field_name, field_info in model.model_fields.items():
         annotation = field_info.annotation
