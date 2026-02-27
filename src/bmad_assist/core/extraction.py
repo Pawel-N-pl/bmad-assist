@@ -221,7 +221,10 @@ def _extract_by_markers(
         Extracted content, or None if start marker not found.
 
     """
-    start_idx = output.find(markers.start_marker)
+    # Find the LAST occurrence of the start marker.
+    # Why: Some models echo the prompt (including instructions with marker examples).
+    # Using the last occurrence ensures we get the actual report even if echoed.
+    start_idx = output.rfind(markers.start_marker)
     if start_idx == -1:
         return None
 

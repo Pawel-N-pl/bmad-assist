@@ -608,7 +608,13 @@ class OpenCodeSDKProvider(BaseProvider):
         )
 
         # Build tool restriction prompt if needed
-        final_prompt = prompt
+        # Story 24.1: Prepend Master Instruction to prevent prompt mirroring/echoing
+        master_instruction = (
+            "**TASK ORIENTATION:** You are an AI agent executing a structured software engineering task.\n"
+            "The following XML document contains your mission, context, and instructions.\n"
+            "DO NOT echo the prompt. DO NOT repeat the XML. Focus ONLY on executing the steps.\n\n"
+        )
+        final_prompt = master_instruction + prompt
         if allowed_tools is not None:
             allowed_set = set(allowed_tools)
             restricted_tools = sorted(_COMMON_TOOL_NAMES - allowed_set)
