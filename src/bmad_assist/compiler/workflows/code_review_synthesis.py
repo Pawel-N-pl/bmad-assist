@@ -312,7 +312,7 @@ class CodeReviewSynthesisCompiler:
         # 3. Git diff (embedded as section) - LIMITED for synthesis
         # F4-IMPL: Truncate git diff to prevent token explosion
         # Full diff is too large for synthesis context (can be 500k+ chars)
-        max_diff_chars = 20000  # ~5k tokens max for diff
+        max_diff_chars = 100000  # ~25k tokens max for diff
         if git_diff:
             if len(git_diff) > max_diff_chars:
                 truncated = git_diff[:max_diff_chars]
@@ -350,14 +350,14 @@ class CodeReviewSynthesisCompiler:
                 git_diff_files = get_git_diff_files(project_root, git_diff)
 
         # F4-IMPL: Limit source files for synthesis to prevent token explosion
-        # Synthesis only needs git diff + max 3 key files (not all modified files)
+        # Synthesis only needs git diff + max key files (not all modified files)
         service = SourceContextService(context, "code_review_synthesis")
         source_files = service.collect_files(file_list_paths, git_diff_files)
 
-        # Hard cap: max 3 files for synthesis (prioritized by score)
-        max_synthesis_files = 3
+        # Hard cap: max files for synthesis (prioritized by score)
+        max_synthesis_files = 15
         if len(source_files) > max_synthesis_files:
-            # Sort by file path (deterministic) and take first 3
+            # Sort by file path (deterministic) and take first 15
             sorted_files = sorted(source_files.items(), key=lambda x: x[0])
             limited_files = dict(sorted_files[:max_synthesis_files])
             logger.warning(

@@ -294,7 +294,7 @@ class ValidateStorySynthesisCompiler:
                 source_files = service.collect_files(file_list_paths, None)
 
                 # F4-IMPL: Limit source files for synthesis to prevent token explosion
-                max_synthesis_files = 3
+                max_synthesis_files = 15
                 if len(source_files) > max_synthesis_files:
                     sorted_files = sorted(source_files.items(), key=lambda x: x[0])
                     limited_files = dict(sorted_files[:max_synthesis_files])

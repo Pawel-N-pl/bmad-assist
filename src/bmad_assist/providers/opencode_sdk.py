@@ -802,6 +802,11 @@ class OpenCodeSDKProvider(BaseProvider):
             except Exception as e:
                 logger.warning("Failed to delete session %s: %s", session_id, e)
 
+            try:
+                await client.close()
+            except Exception:
+                pass
+
             # Clear session tracking
             with self._sessions_lock:
                 self._active_sessions.pop(threading.get_ident(), None)
@@ -874,7 +879,10 @@ class OpenCodeSDKProvider(BaseProvider):
                         base_url=f"http://127.0.0.1:{port}",
                         default_headers=abort_headers if abort_headers else None,
                     )
-                    await abort_client.session.abort(id=session_id)
+                    try:
+                        await abort_client.session.abort(id=session_id)
+                    finally:
+                        await abort_client.close()
                 except Exception as e:
                     logger.debug("Failed to abort session %s: %s", session_id, e)
 
