@@ -312,7 +312,7 @@ class CodeReviewSynthesisCompiler:
         # 3. Git diff (embedded as section) - LIMITED for synthesis
         # F4-IMPL: Truncate git diff to prevent token explosion
         # Full diff is too large for synthesis context (can be 500k+ chars)
-        max_diff_chars = 100000  # ~25k tokens max for diff
+        max_diff_chars = 50000  # ~12k tokens max for diff
         if git_diff:
             if len(git_diff) > max_diff_chars:
                 truncated = git_diff[:max_diff_chars]
@@ -320,12 +320,11 @@ class CodeReviewSynthesisCompiler:
                 last_nl = truncated.rfind('\n')
                 if last_nl > 0:
                     truncated = truncated[:last_nl]
-                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
+                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated ...]"
                 logger.warning(
-                    "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
+                    "Git diff truncated for synthesis: %d → %d chars",
                     len(git_diff),
                     len(truncated),
-                    100 * len(truncated) / len(git_diff),
                 )
             else:
                 files["[git-diff]"] = git_diff
@@ -355,9 +354,9 @@ class CodeReviewSynthesisCompiler:
         source_files = service.collect_files(file_list_paths, git_diff_files)
 
         # Hard cap: max files for synthesis (prioritized by score)
-        max_synthesis_files = 15
+        max_synthesis_files = 10
         if len(source_files) > max_synthesis_files:
-            # Sort by file path (deterministic) and take first 15
+            # Sort by file path (deterministic) and take first 10
             sorted_files = sorted(source_files.items(), key=lambda x: x[0])
             limited_files = dict(sorted_files[:max_synthesis_files])
             logger.warning(
@@ -449,6 +448,9 @@ class CodeReviewSynthesisCompiler:
         reviewer_count = resolved.get("reviewer_count", 0)
 
         return f"""Master Code Review Synthesis: Story {epic_num}.{story_num}
+
+**CRITICAL: REMAIN IN CHARACTER AND DO YOUR JOB.**
+**DO NOT REPEAT THE PROMPT. DO NOT ECHO THE XML. ONLY OUTPUT THE SYNTHESIS REPORT.**
 
 You are synthesizing {reviewer_count} independent code review findings.
 

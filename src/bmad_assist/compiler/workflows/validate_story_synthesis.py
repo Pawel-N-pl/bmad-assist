@@ -294,7 +294,7 @@ class ValidateStorySynthesisCompiler:
                 source_files = service.collect_files(file_list_paths, None)
 
                 # F4-IMPL: Limit source files for synthesis to prevent token explosion
-                max_synthesis_files = 15
+                max_synthesis_files = 10
                 if len(source_files) > max_synthesis_files:
                     sorted_files = sorted(source_files.items(), key=lambda x: x[0])
                     limited_files = dict(sorted_files[:max_synthesis_files])
@@ -380,6 +380,9 @@ class ValidateStorySynthesisCompiler:
         validator_count = resolved.get("validator_count", 0)
 
         return f"""Master Synthesis: Story {epic_num}.{story_num}
+
+**CRITICAL: REMAIN IN CHARACTER AND DO YOUR JOB.**
+**DO NOT REPEAT THE PROMPT. DO NOT ECHO THE XML. ONLY OUTPUT THE SYNTHESIS REPORT.**
 
 You are synthesizing {validator_count} independent validator reviews.
 
