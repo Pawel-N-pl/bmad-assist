@@ -320,6 +320,7 @@ def validate_resume_state(
                     "current_epic": next_epic,
                     "current_story": next_epic_stories[0],
                     "current_phase": Phase.CREATE_STORY,
+                    "code_review_rework_count": 0,
                     "updated_at": now,
                 }
             )
@@ -397,6 +398,7 @@ def validate_resume_state(
                 update={
                     "current_story": next_story,
                     "current_phase": Phase.CREATE_STORY,
+                    "code_review_rework_count": 0,
                     "updated_at": now,
                 }
             )
