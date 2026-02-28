@@ -222,6 +222,56 @@
 
   </step>
 
+  <step n="6.5" goal="Write Senior Developer Review section to story file for dev_story rework detection">
+    <critical>This section enables dev_story to detect that a code review has occurred and extract action items.</critical>
+    <critical>APPEND this section to the story file - do NOT replace existing content.</critical>
+
+    <action>Determine the evidence verdict from the [Evidence Score] section:
+      - REJECT: Evidence score exceeds reject threshold
+      - PASS: Evidence score is below accept threshold
+      - UNCERTAIN: Evidence score is between thresholds
+    </action>
+
+    <action>Map evidence verdict to review outcome:
+      - PASS → "Approved"
+      - REJECT → "Changes Requested"
+      - UNCERTAIN → "Approved with Reservations"
+    </action>
+
+    <action>Append to story file "## Senior Developer Review (AI)" section:
+      ```
+      ## Senior Developer Review (AI)
+
+      ### Review: {current_date}
+      - **Reviewer:** AI Code Review Synthesis
+      - **Evidence Score:** {evidence_score} → {evidence_verdict}
+      - **Issues Found:** {total_verified_issues}
+      - **Issues Fixed:** {fixes_applied_count}
+      - **Action Items Created:** {remaining_unfixed_count}
+      ```
+    </action>
+
+    <critical>When evidence verdict is REJECT, you MUST create Review Follow-ups tasks.
+      If "Action Items Created" count is > 0, there MUST be exactly that many [ ] [AI-Review] tasks.
+      Do NOT skip this step. Do NOT claim all issues are fixed if you reported deferred items above.</critical>
+
+    <action>Find the "## Tasks / Subtasks" section in the story file</action>
+    <action>Append a "#### Review Follow-ups (AI)" subsection with checkbox tasks:
+      ```
+      #### Review Follow-ups (AI)
+      - [ ] [AI-Review] {severity}: {brief description of unfixed issue} ({file path})
+      ```
+      One line per unfixed/deferred issue, prefixed with [AI-Review] tag.
+      Order by severity: Critical first, then High, Medium, Low.
+    </action>
+
+    <critical>ATDD DEFECT CHECK: Search test directories (tests/**) for test.fixme() calls in test files related to this story.
+      If ANY test.fixme() calls remain in story-related test files, this is a DEFECT — the dev_story agent failed to activate ATDD RED-phase tests.
+      Create an additional [AI-Review] task:
+      - [ ] [AI-Review] HIGH: Activate ATDD tests — convert all test.fixme() to test() and ensure they pass ({test file paths})
+      Do NOT dismiss test.fixme() as "intentional TDD methodology". After dev_story completes, ALL test.fixme() tests for the story MUST be converted to test().</critical>
+  </step>
+
   <edge-cases>
     <case name="no-issues-found">
       <action>Generate report with "No issues requiring fixes" in each severity section</action>
