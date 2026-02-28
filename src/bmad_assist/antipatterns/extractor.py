@@ -29,13 +29,31 @@ ISSUES_SECTION_PATTERN = re.compile(r"## Issues Verified.*?(?=^## |\Z)", re.MULT
 SEVERITY_HEADER_PATTERN = re.compile(
     r"^###\s+(Critical|High|Medium|Low)", re.IGNORECASE | re.MULTILINE
 )
-# Issue with Fix - handles BOTH formats:
-# Format A: - **Issue desc** | ... | **Fix**: action (whole desc is bold)
-# Format B: - **Issue**: desc | ... | **Fix**: action (only "Issue" is bold)
-# Must have **Fix**: to be extracted (skip DEFERRED)
-# Captures: group(1) = raw issue text (needs cleanup), group(2) = fix action
+
+# --- Single-line pipe-delimited format ---
+# Format A: - **Issue desc** | ... | **Fix**: action
+# Format B: - **Issue**: desc | ... | **Fix**: action
+# Format C: 1. **Issue desc** | ... | **Fix**: action (numbered variant)
 ISSUE_WITH_FIX_PATTERN = re.compile(
-    r"^\s*-\s+\*\*([^|]+?)\s*\|.*?\*\*Fix\*\*:\s*(.+?)$", re.MULTILINE
+    r"^\s*(?:-|\d+\.)\s+\*\*([^|]+?)\s*\|.*?\*\*Fix\*\*:\s*(.+?)$", re.MULTILINE
+)
+
+# --- Multi-line block format patterns ---
+# Issue block start: numbered item or bold-numbered item
+# Matches: "1. **Title**" or "**1. Title**" or "- **Title**"
+# The "- **" alternative excludes field labels like "- **Issue**:", "- **Fix Applied**:"
+BLOCK_START_PATTERN = re.compile(
+    r"^(?:\d+\.\s+\*\*|\*\*\d+\.\s+|-\s+\*\*(?!\w+(?:\s+\w+)?\*\*\s*:))(.+?)$", re.MULTILINE
+)
+# Fix line within a block (indented or not)
+# Matches: "- **Fix**: ...", "- **Fix Applied**: ...", "  - **Fix**: ..."
+BLOCK_FIX_PATTERN = re.compile(
+    r"^\s*-\s+\*\*Fix(?:\s+Applied)?\*\*:\s*(.+?)$", re.MULTILINE
+)
+# Issue description line within a validation synthesis block
+# Matches: "- **Issue**: description"
+BLOCK_ISSUE_PATTERN = re.compile(
+    r"^\s*-\s+\*\*Issue\*\*:\s*(.+?)$", re.MULTILINE
 )
 
 
@@ -57,6 +75,28 @@ CODE_ANTIPATTERNS_HEADER = """# Epic {epic_id} - Code Antipatterns
 > These represent implementation mistakes (race conditions, missing tests, weak assertions, etc.)
 
 """
+
+
+def _clean_issue_desc(desc: str) -> str:
+    """Clean up issue description from various synthesis formats."""
+    # Remove trailing ** (bold markers)
+    desc = desc.rstrip("*").strip()
+    # Remove leading "Issue**:" or "Issue:" prefix only when it's a field label
+    # (has colon after "Issue"), not when "Issue" is part of the title
+    if re.match(r"^Issue\*{0,2}:", desc):
+        desc = re.sub(r"^Issue\*{0,2}:\s*", "", desc)
+    # Remove trailing parenthetical source refs like "(Validator B + ...)"
+    desc = re.sub(r"\s*\([^)]*(?:Validator|Reviewer|Deep Verify)[^)]*\)\s*$", "", desc)
+    # Remove bold markers wrapping the whole description
+    desc = desc.strip("*").strip()
+    return desc
+
+
+def _clean_fix_desc(desc: str) -> str:
+    """Clean up fix description, removing status markers."""
+    # Remove status emoji prefixes like "✅ **APPLIED** — " or "⏭️ **DEFERRED** — "
+    desc = re.sub(r"^[✅⏭️🔄❌\s]*\*\*(?:APPLIED|DEFERRED|PARTIAL)\*\*\s*[—–-]?\s*", "", desc)
+    return desc.strip()
 
 
 def extract_antipatterns(
@@ -106,34 +146,74 @@ def extract_antipatterns(
     current_severity = "unknown"
     lines = section_content.split("\n")
 
+    # Track multi-line block state
+    current_block_issue: str | None = None
+    current_block_fix: str | None = None
+
+    def _flush_block() -> None:
+        """Flush accumulated block into issues list."""
+        nonlocal current_block_issue, current_block_fix
+        if current_block_issue and current_block_fix:
+            # Skip DEFERRED items
+            fix_upper = current_block_fix.upper()
+            if "DEFERRED" not in fix_upper or "APPLIED" in fix_upper:
+                issues.append(
+                    {
+                        "severity": current_severity,
+                        "issue": _clean_issue_desc(current_block_issue),
+                        "fix": _clean_fix_desc(current_block_fix),
+                    }
+                )
+        current_block_issue = None
+        current_block_fix = None
+
     for line in lines:
         # Check for severity header
         header_match = SEVERITY_HEADER_PATTERN.match(line)
         if header_match:
+            _flush_block()
             current_severity = header_match.group(1).lower()
             continue
 
-        # Check for issue with fix
+        # --- Legacy single-line pipe-delimited format ---
         issue_match = ISSUE_WITH_FIX_PATTERN.match(line)
         if issue_match:
+            _flush_block()
             issue_desc = issue_match.group(1).strip()
             fix_desc = issue_match.group(2).strip()
-
-            # Clean up issue description:
-            # - Remove trailing ** (Format A: **desc**)
-            # - Remove leading Issue**: prefix (Format B: Issue**: desc)
-            issue_desc = issue_desc.rstrip("*").strip()
-            if issue_desc.startswith("Issue"):
-                # Remove "Issue**:" or "Issue:" prefix
-                issue_desc = re.sub(r"^Issue\*{0,2}:?\s*", "", issue_desc)
-
             issues.append(
                 {
                     "severity": current_severity,
-                    "issue": issue_desc,
-                    "fix": fix_desc,
+                    "issue": _clean_issue_desc(issue_desc),
+                    "fix": _clean_fix_desc(fix_desc),
                 }
             )
+            continue
+
+        # --- Multi-line block format ---
+        # Check for block start (numbered or bold-numbered item)
+        block_start = BLOCK_START_PATTERN.match(line)
+        if block_start:
+            _flush_block()
+            current_block_issue = block_start.group(1).strip()
+            continue
+
+        # Inside a block: check for explicit issue description line
+        if current_block_issue is not None:
+            issue_line = BLOCK_ISSUE_PATTERN.match(line)
+            if issue_line:
+                # Override block title with explicit issue description
+                current_block_issue = issue_line.group(1).strip()
+                continue
+
+            # Check for fix line
+            fix_line = BLOCK_FIX_PATTERN.match(line)
+            if fix_line:
+                current_block_fix = fix_line.group(1).strip()
+                continue
+
+    # Flush any remaining block
+    _flush_block()
 
     logger.info(
         "Extracted %d antipatterns from story %s (epic %s)",
