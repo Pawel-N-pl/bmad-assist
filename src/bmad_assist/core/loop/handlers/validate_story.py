@@ -95,12 +95,24 @@ class ValidateStoryHandler(BaseHandler):
                 story_num,
             )
 
+            # Pre-compile workflow patches BEFORE entering the async event loop.
+            # Patch compilation invokes the Claude SDK which needs its own event loop.
+            # If we let it auto-compile inside run_async_with_timeout(), it hits
+            # "Cannot run the event loop while another loop is running".
+            try:
+                from bmad_assist.compiler.patching import ensure_template_compiled
+                from bmad_assist.core.io import get_original_cwd
+
+                cwd = get_original_cwd()
+                ensure_template_compiled("validate-story", self.project_path, cwd=cwd)
+            except Exception as e:
+                logger.debug("Pre-compilation skipped for validate-story: %s", e)
+
             # Run async orchestrator
             # CRITICAL: Use run_async_with_timeout() instead of asyncio.run()
             # to prevent hanging on executor shutdown if threads don't terminate
             from bmad_assist.core.async_utils import run_async_with_timeout
 
-            logger.debug("HANG_DEBUG: Starting run_async_with_timeout(run_validation_phase)")
             result = run_async_with_timeout(
                 run_validation_phase(
                     config=self.config,
