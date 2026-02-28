@@ -176,6 +176,44 @@ class TestIsLastStoryInEpic:
 
         assert result is True
 
+    def test_is_last_story_earlier_incomplete_ignored(self) -> None:
+        """Returns True when at end of list even if earlier stories are incomplete.
+
+        Regression test: pipeline skips to story 4.9 via -s flag, earlier stories
+        (4.1-4.8) are not in completed_stories. At end of epic, is_last should
+        return True because no stories AFTER 4.9 remain.
+        """
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        # Only current story completed, earlier stories not tracked
+        state = State(
+            current_epic=4,
+            current_story="4.9",
+            completed_stories=["4.9"],
+        )
+        epic_stories = ["4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is True
+
+    def test_is_last_story_incomplete_after_current_returns_false(self) -> None:
+        """Returns False when there are incomplete stories AFTER the current one."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        state = State(
+            current_epic=4,
+            current_story="4.7",
+            completed_stories=["4.7"],
+        )
+        epic_stories = ["4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is False
+
 
 class TestGetNextStoryId:
     """AC5: get_next_story_id() calculates next story."""

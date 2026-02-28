@@ -78,30 +78,29 @@ def complete_story(state: State) -> State:
 
 
 def is_last_story_in_epic(state: State, epic_stories: list[str]) -> bool:
-    """Check if current story is the last INCOMPLETE story in the epic.
+    """Check if current story is the last actionable story in the epic.
 
-    Filters out already completed stories (in state.completed_stories) before
-    checking if this is the last one. This prevents premature RETROSPECTIVE
-    trigger when epic_stories list is static but stories are being marked done.
+    Only considers incomplete stories AFTER the current story's position.
+    Earlier incomplete stories (from prior runs or skipped) do not prevent
+    epic completion — the pipeline only moves forward.
 
     Args:
         state: Current loop state with current_story and completed_stories set.
         epic_stories: Ordered list of story IDs in the epic.
 
     Returns:
-        True if current_story is the last story not in completed_stories.
+        True if no incomplete stories remain after the current story.
 
     Raises:
         StateError: If current_story is None.
-        StateError: If epic_stories is empty.
 
     Example:
         >>> state = State(current_story="2.4", completed_stories=["2.1", "2.2", "2.3"])
         >>> is_last_story_in_epic(state, ["2.1", "2.2", "2.3", "2.4", "2.5"])
-        False  # 2.5 is after 2.4
+        False  # 2.5 is after 2.4 and incomplete
         >>> state = State(current_story="2.4", completed_stories=["2.1", "2.2", "2.3"])
         >>> is_last_story_in_epic(state, ["2.1", "2.2", "2.3", "2.4"])
-        True  # 2.4 is last incomplete story
+        True  # nothing after 2.4
 
     """
     if state.current_story is None:
@@ -113,15 +112,25 @@ def is_last_story_in_epic(state: State, epic_stories: list[str]) -> bool:
         logger.info("Epic has no active stories (all done), treating as last story")
         return True
 
-    # Filter out already completed stories to find actual last incomplete story
-    incomplete_stories = [s for s in epic_stories if s not in state.completed_stories]
-
-    if not incomplete_stories:
-        # All stories done - treat current as last (will trigger RETROSPECTIVE)
+    # Find the current story's position in the epic
+    try:
+        current_index = epic_stories.index(state.current_story)
+    except ValueError:
+        # Current story not in list — treat as last (safe fallback)
+        logger.warning(
+            "Current story %s not in epic_stories list, treating as last",
+            state.current_story,
+        )
         return True
 
-    # Check if current story is the last INCOMPLETE story
-    return state.current_story == incomplete_stories[-1]
+    # Only consider incomplete stories AFTER the current position.
+    # Earlier incomplete stories are from prior runs or were skipped — they
+    # should not prevent epic completion when we're at the end of the list.
+    remaining_stories = epic_stories[current_index + 1 :]
+    incomplete_after = [s for s in remaining_stories if s not in state.completed_stories]
+
+    # If no incomplete stories remain after current, this is the last
+    return len(incomplete_after) == 0
 
 
 def get_next_story_id(current_story: str, epic_stories: list[str]) -> str | None:
@@ -302,13 +311,22 @@ def handle_story_completion(
     # Step 3: Not last story - advance to next
     advanced_state = advance_to_next_story(state_with_completion, epic_stories)
 
-    # Type narrowing: If is_last=False, advance_to_next_story never returns None
-    # Use explicit exception instead of assertion (assertions stripped with -O flag)
+    # Defensive: if advance_to_next_story returns None unexpectedly,
+    # treat as epic complete rather than crashing (e.g., stale completed_stories
+    # from prior runs causing is_last_story_in_epic to miscalculate)
     if advanced_state is None:
-        raise StateError(
-            f"Logic error: advance_to_next_story returned None for non-last story "
-            f"{state.current_story} in epic {state.current_epic}"
+        logger.warning(
+            "advance_to_next_story returned None for story %s in epic %s "
+            "(treating as epic complete)",
+            state.current_story,
+            state.current_epic,
         )
+        now = datetime.now(UTC).replace(tzinfo=None)
+        state_with_completion = state_with_completion.model_copy(
+            update={"code_review_rework_count": 0, "updated_at": now}
+        )
+        persist_story_completion(state_with_completion, state_path)
+        return state_with_completion, True
 
     # Step 4: Persist FINAL state (single atomic persist)
     persist_story_completion(advanced_state, state_path)
