@@ -4,6 +4,7 @@ Tests the Cursor Agent CLI subprocess-based provider implementation.
 """
 
 from pathlib import Path
+from subprocess import PIPE
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -93,6 +94,77 @@ class TestCursorAgentProviderInvoke:
         mock_process = mock_cursor_popen_success.return_value
         mock_process.stdin.write.assert_called_once_with("Test prompt for stdin")
         mock_process.stdin.close.assert_called_once()
+
+    def test_popen_receives_stdin_pipe(self):
+        """Popen must be called with stdin=PIPE to enable stdin writing."""
+        with patch("bmad_assist.providers.cursor_agent.Popen") as mock_popen:
+            mock_popen.return_value = create_cursor_mock_process()
+            provider = CursorAgentProvider()
+            provider.invoke("Test prompt", timeout=30)
+
+            call_kwargs = mock_popen.call_args.kwargs
+            assert call_kwargs["stdin"] == PIPE
+
+    def test_popen_command_excludes_prompt(self):
+        """The command list passed to Popen should not contain the prompt."""
+        with patch("bmad_assist.providers.cursor_agent.Popen") as mock_popen:
+            mock_popen.return_value = create_cursor_mock_process()
+            provider = CursorAgentProvider()
+            prompt = "This is the prompt text"
+            provider.invoke(prompt, timeout=30)
+
+            popen_command = mock_popen.call_args.args[0]
+            assert prompt not in popen_command
+            # Command should be just the flags, no prompt
+            assert popen_command == [
+                "cursor-agent", "--print", "--model", "claude-sonnet-4", "--force",
+            ]
+
+    def test_stdin_write_called_before_close(self, mock_cursor_popen_success):
+        """stdin.write must be called before stdin.close (ordering matters)."""
+        provider = CursorAgentProvider()
+        mock_process = mock_cursor_popen_success.return_value
+
+        # Track call order
+        call_order = []
+        original_write = mock_process.stdin.write.side_effect
+
+        def track_write(arg):
+            call_order.append("write")
+            if original_write:
+                return original_write(arg)
+
+        def track_close():
+            call_order.append("close")
+
+        mock_process.stdin.write.side_effect = track_write
+        mock_process.stdin.close.side_effect = track_close
+
+        provider.invoke("Test prompt", timeout=30)
+
+        assert call_order == ["write", "close"]
+
+    def test_large_prompt_via_stdin(self):
+        """Large prompts (>100KB) should work via stdin without ARG_MAX errors."""
+        with patch("bmad_assist.providers.cursor_agent.Popen") as mock_popen:
+            mock_popen.return_value = create_cursor_mock_process()
+            provider = CursorAgentProvider()
+
+            # Create a prompt larger than the old TEMP_FILE_THRESHOLD (100KB)
+            large_prompt = "x" * 300_000  # 300KB
+
+            result = provider.invoke(large_prompt, timeout=30)
+
+            # Should succeed without errors
+            assert result.exit_code == 0
+
+            # Prompt should be written to stdin, not in command args
+            mock_process = mock_popen.return_value
+            mock_process.stdin.write.assert_called_once_with(large_prompt)
+
+            # Command should not contain the prompt
+            popen_command = mock_popen.call_args.args[0]
+            assert large_prompt not in popen_command
 
     def test_invoke_with_cwd(self):
         """Should pass cwd to Popen."""
