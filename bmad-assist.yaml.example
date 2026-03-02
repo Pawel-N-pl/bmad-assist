@@ -185,6 +185,14 @@ phase_models:
 compiler:
   # patch_path: .bmad-assist/patches  # Custom patch files directory
 
+  # LLM-based compression of context documents when they exceed token budgets
+  # Uses the helper provider to intelligently compress instead of truncating
+  # prompt_compression:
+  #   enabled: true                    # Use LLM compression instead of truncation
+  #   min_file_tokens: 2000            # Only compress files larger than this
+  #   compression_ratio: 0.5           # Target 50% of original size
+  #   timeout: 120                     # Per-file compression timeout (seconds)
+
   # Source files context collection for workflow prompts
   source_context:
     # Per-workflow token budgets (0-99 = disabled)

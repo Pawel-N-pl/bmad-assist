@@ -6,6 +6,37 @@ from bmad_assist.core.config.models.source_context import SourceContextConfig
 from bmad_assist.core.config.models.strategic_context import StrategicContextConfig
 
 
+class PromptCompressionConfig(BaseModel):
+    """Prompt compression configuration.
+
+    Controls LLM-based compression of context documents when they exceed
+    token budgets. Uses the helper provider for fast, cheap compression.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable LLM compression (vs truncation)",
+        json_schema_extra={"security": "safe", "ui_widget": "toggle"},
+    )
+    min_file_tokens: int = Field(
+        default=2000,
+        description="Only compress files larger than this",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    compression_ratio: float = Field(
+        default=0.5,
+        description="Target ratio (0.5 = 50% of original)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    timeout: int = Field(
+        default=120,
+        description="Per-file compression timeout in seconds",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+
+
 class CompilerConfig(BaseModel):
     """Compiler configuration section.
 
@@ -18,6 +49,7 @@ class CompilerConfig(BaseModel):
         source_context: Source file collection configuration.
         strategic_context: Strategic document loading configuration.
             If None, legacy behavior (load all docs). Use {} for optimized defaults.
+        prompt_compression: LLM-based compression configuration.
 
     """
 
@@ -35,6 +67,10 @@ class CompilerConfig(BaseModel):
     strategic_context: StrategicContextConfig | None = Field(
         default=None,
         description="Strategic document loading config. None = legacy behavior (all docs).",
+    )
+    prompt_compression: PromptCompressionConfig = Field(
+        default_factory=PromptCompressionConfig,
+        description="LLM-based prompt compression configuration",
     )
 
 

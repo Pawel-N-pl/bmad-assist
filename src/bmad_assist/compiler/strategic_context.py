@@ -135,6 +135,77 @@ def _truncate_content(content: str, target_tokens: int) -> tuple[str, int]:
     return truncated, actual_tokens
 
 
+def _compress_or_truncate(
+    content: str, target_tokens: int, doc_type: str
+) -> tuple[str, int]:
+    """Try LLM compression first, fall back to truncation.
+
+    Checks config to see if compression is enabled. If so, invokes
+    the helper LLM to compress the document. On any failure, falls
+    back to simple truncation.
+
+    Args:
+        content: Full document content.
+        target_tokens: Target token count.
+        doc_type: Document type name (for logging).
+
+    Returns:
+        Tuple of (compressed_or_truncated_content, actual_tokens).
+
+    """
+    original_tokens = estimate_tokens(content)
+
+    try:
+        from bmad_assist.core.config.loaders import get_config
+        from bmad_assist.providers import get_provider
+
+        config = get_config()
+        compression_cfg = config.compiler.prompt_compression
+
+        if not compression_cfg.enabled:
+            logger.debug("Prompt compression disabled, using truncation for %s", doc_type)
+            result, actual = _truncate_content(content, target_tokens)
+            logger.info(
+                "Truncated %s from %d to %d tokens (budget remaining: %d)",
+                doc_type, original_tokens, actual, target_tokens,
+            )
+            return result, actual
+
+        helper = config.providers.helper
+        if not helper:
+            logger.debug("No helper provider configured, using truncation for %s", doc_type)
+            result, actual = _truncate_content(content, target_tokens)
+            logger.info(
+                "Truncated %s from %d to %d tokens (budget remaining: %d)",
+                doc_type, original_tokens, actual, target_tokens,
+            )
+            return result, actual
+
+        from bmad_assist.compiler.prompt_compression import compress_document
+
+        provider = get_provider(helper.provider)
+        compressed, actual = compress_document(
+            content, target_tokens, provider, helper.model, compression_cfg.timeout
+        )
+        logger.info(
+            "Compressed %s from %d to ~%d tokens via helper LLM (budget remaining: %d)",
+            doc_type, original_tokens, actual, target_tokens,
+        )
+        return compressed, actual
+
+    except Exception as e:
+        logger.warning(
+            "LLM compression failed for %s, falling back to truncation: %s",
+            doc_type, e,
+        )
+        result, actual = _truncate_content(content, target_tokens)
+        logger.info(
+            "Truncated %s from %d to %d tokens (budget remaining: %d)",
+            doc_type, original_tokens, actual, target_tokens,
+        )
+        return result, actual
+
+
 class StrategicContextService:
     """Service for collecting strategic documents with config-driven filtering.
 
@@ -296,19 +367,15 @@ class StrategicContextService:
                 total_tokens += tokens
                 loaded_docs.append(doc_type)
             elif remaining_budget >= 500:  # Only truncate if meaningful space remains
-                # Truncate to fit remaining budget
-                truncated_content, actual_tokens = _truncate_content(content, remaining_budget)
-                files[path] = truncated_content
+                # Compress (or truncate as fallback) to fit remaining budget
+                compressed_content, actual_tokens = _compress_or_truncate(
+                    content, remaining_budget, doc_type
+                )
+                files[path] = compressed_content
                 total_tokens += actual_tokens
                 loaded_docs.append(doc_type)
                 truncated_docs.append(f"{doc_type}:{tokens}->{actual_tokens}")
-                logger.info(
-                    "Truncated %s from %d to %d tokens (budget remaining: %d)",
-                    doc_type,
-                    tokens,
-                    actual_tokens,
-                    remaining_budget,
-                )
+                # Logged inside _compress_or_truncate
             else:
                 # Not enough budget for meaningful truncation
                 logger.debug(
