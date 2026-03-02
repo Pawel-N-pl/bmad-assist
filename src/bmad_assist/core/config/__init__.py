@@ -71,6 +71,7 @@ from bmad_assist.core.config.models import (
     PlaywrightServerConfig,
     PowerPromptConfig,
     ProjectPathsConfig,
+    PromptCompressionConfig,
     ProviderConfig,
     QAConfig,
     SourceContextBudgetsConfig,
@@ -149,6 +150,7 @@ __all__ = [
     "_validate_story_synthesis_defaults",
     # Models - Features
     "CompilerConfig",
+    "PromptCompressionConfig",
     "TimeoutsConfig",
     "BenchmarkingConfig",
     "PlaywrightServerConfig",

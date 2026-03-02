@@ -353,7 +353,7 @@ class BaseHandler(ABC):
             prompt = compiled.context
             prompt = self._inject_git_intelligence(prompt, workflow_name, resolved_variables)
 
-            # F4-IMPL: Warn if prompt exceeds expected budget (but don't block)
+            # F4-IMPL: Warn if prompt exceeds expected budget, attempt compression
             try:
                 config = get_config()
                 workflow_budget = config.compiler.source_context.budgets.get_budget(workflow_name)
@@ -368,6 +368,54 @@ class BaseHandler(ABC):
                         expected_prompt_tokens,
                         workflow_budget,
                     )
+
+                    # Attempt post-compilation compression of context files
+                    compression_cfg = config.compiler.prompt_compression
+                    if compression_cfg.enabled and config.providers.helper:
+                        try:
+                            from bmad_assist.compiler.prompt_compression import (
+                                compress_context_files,
+                            )
+
+                            helper = config.providers.helper
+                            helper_provider = get_provider(helper.provider)
+
+                            logger.info(
+                                "Prompt exceeds budget (%d > %d), compressing context files...",
+                                expected_prompt_tokens,
+                                workflow_budget,
+                            )
+
+                            compressed_prompt, new_tokens = compress_context_files(
+                                prompt,
+                                target_tokens=workflow_budget // 2,
+                                provider=helper_provider,
+                                model=helper.model,
+                                timeout=compression_cfg.timeout,
+                                min_file_tokens=compression_cfg.min_file_tokens,
+                                compression_ratio=compression_cfg.compression_ratio,
+                            )
+
+                            if new_tokens < expected_prompt_tokens:
+                                prompt = compressed_prompt
+                                logger.info(
+                                    "Post-compilation compression reduced prompt "
+                                    "from ~%d to ~%d tokens for %s",
+                                    expected_prompt_tokens,
+                                    new_tokens,
+                                    workflow_name,
+                                )
+                            else:
+                                logger.warning(
+                                    "Post-compilation compression did not reduce tokens for %s",
+                                    workflow_name,
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "Post-compilation compression failed for %s: %s",
+                                workflow_name,
+                                e,
+                            )
             except Exception:
                 # Config not loaded (e.g., in tests) - skip budget warning
                 pass

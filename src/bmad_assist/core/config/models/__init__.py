@@ -10,6 +10,7 @@ from bmad_assist.core.config.models.features import (
     CompilerConfig,
     PlaywrightConfig,
     PlaywrightServerConfig,
+    PromptCompressionConfig,
     QAConfig,
     TimeoutsConfig,
 )
@@ -84,6 +85,7 @@ __all__ = [
     # features.py
     "AntipatternConfig",
     "CompilerConfig",
+    "PromptCompressionConfig",
     "TimeoutsConfig",
     "BenchmarkingConfig",
     "PlaywrightServerConfig",
