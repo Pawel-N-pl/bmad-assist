@@ -176,6 +176,71 @@ class TestIsLastStoryInEpic:
 
         assert result is True
 
+    def test_is_last_story_skipped_story_before_current(self) -> None:
+        """Incomplete story BEFORE current should not prevent 'last' detection."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        # 1.1 is still in review (not in completed_stories), 1.7 is current
+        state = State(
+            current_epic=1,
+            current_story="1.7",
+            completed_stories=["1.2", "1.3", "1.4", "1.5", "1.6"],
+        )
+        epic_stories = ["1.1", "1.7"]  # as built by _load_epic_data
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is True
+
+    def test_is_last_story_incomplete_after_current(self) -> None:
+        """Incomplete story AFTER current means NOT last."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            completed_stories=["2.1", "2.2"],
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is False
+
+    def test_is_last_story_incomplete_before_and_after(self) -> None:
+        """Incomplete stories both before AND after — NOT last (because after)."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            completed_stories=["2.2"],  # 2.1 incomplete before, 2.4 incomplete after
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is False
+
+    def test_is_last_story_current_not_in_epic_stories(
+        self, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Current story not in epic_stories returns True with warning."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        state = State(current_epic=1, current_story="1.5")
+        epic_stories = ["1.1", "1.2", "1.3"]
+
+        with caplog.at_level(logging.WARNING):
+            result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is True
+        assert "not found in epic_stories" in caplog.text
+
 
 class TestGetNextStoryId:
     """AC5: get_next_story_id() calculates next story."""
@@ -484,6 +549,35 @@ class TestHandleStoryCompletion:
 
         with pytest.raises(StateError, match="no current story set"):
             handle_story_completion(state, ["1.1", "1.2"], state_path)
+
+    def test_handle_story_completion_skipped_story_before_current(self) -> None:
+        """Reproduces crash: skipped story before current caused StateError.
+
+        Scenario: story 1.1 still in review (not completed), stories 1.2-1.6
+        completed, story 1.7 just finished code review. epic_stories = [1.1, 1.7].
+        Before fix: is_last_story_in_epic returned False (1.1 incomplete),
+        advance_to_next_story returned None (1.7 positionally last) → crash.
+        """
+        from bmad_assist.core.loop import handle_story_completion
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.7",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+            completed_stories=["1.2", "1.3", "1.4", "1.5", "1.6"],
+        )
+        epic_stories = ["1.1", "1.7"]
+        state_path = Path("/tmp/state.yaml")
+
+        with patch("bmad_assist.core.loop.story_transitions.save_state"):
+            new_state, is_epic_complete = handle_story_completion(
+                state, epic_stories, state_path,
+            )
+
+        assert is_epic_complete is True
+        assert "1.7" in new_state.completed_stories
+        assert new_state.current_story == "1.7"
 
 
 class TestStory63Exports:
