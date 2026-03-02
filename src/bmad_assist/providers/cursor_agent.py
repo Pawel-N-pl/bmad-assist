@@ -14,12 +14,8 @@ Output Format:
     Response is captured directly from stdout.
 
 Command Format:
-    cursor-agent --print --model "<MODEL>" --force "<PROMPT>"
-
-Large Prompt Handling:
-    Uses platform_command module for prompts >=100KB to avoid ARG_MAX limits
-    on POSIX systems. Large prompts are written to a temp file and read via
-    shell command substitution.
+    cursor-agent --print --model "<MODEL>" --force
+    Prompt is passed via stdin to avoid ARG_MAX limits on large prompts.
 
 Example:
     >>> from bmad_assist.providers import CursorAgentProvider
@@ -40,10 +36,6 @@ from bmad_assist.core.exceptions import (
     ProviderError,
     ProviderExitCodeError,
     ProviderTimeoutError,
-)
-from bmad_assist.core.platform_command import (
-    build_cross_platform_command,
-    cleanup_temp_file,
 )
 from bmad_assist.providers.base import (
     MAX_RETRIES,
@@ -197,20 +189,18 @@ class CursorAgentProvider(BaseProvider):
             cwd,
         )
 
-        # Build command with platform-aware large prompt handling
-        # Args before prompt: --print, --model, <model>, --force
-        base_args = ["--print", "--model", effective_model, "--force"]
-        command, temp_file = build_cross_platform_command("cursor-agent", base_args, prompt)
-
-        # For ProviderResult, we need original command structure (without shell wrapper)
-        original_command: tuple[str, ...] = (
+        # Build command without prompt - prompt is passed via stdin
+        # to avoid "Argument list too long" errors on large prompts
+        command: list[str] = [
             "cursor-agent",
             "--print",
             "--model",
             effective_model,
             "--force",
-            prompt,
-        )
+        ]
+
+        # For ProviderResult, we need the command structure
+        original_command: tuple[str, ...] = tuple(command)
 
         last_error: ProviderExitCodeError | None = None
         returncode: int = 0
@@ -218,152 +208,150 @@ class CursorAgentProvider(BaseProvider):
         stderr_content: str = ""
         stdout_content: str = ""
 
-        try:
-            for attempt in range(MAX_RETRIES):
-                if attempt > 0:
-                    delay = calculate_retry_delay(attempt - 1)
-                    logger.warning(
-                        "Cursor Agent CLI retry %d/%d after %.1fs delay (previous: %s)",
-                        attempt + 1,
-                        MAX_RETRIES,
-                        delay,
-                        last_error,
-                    )
-                    time.sleep(delay)
+        for attempt in range(MAX_RETRIES):
+            if attempt > 0:
+                delay = calculate_retry_delay(attempt - 1)
+                logger.warning(
+                    "Cursor Agent CLI retry %d/%d after %.1fs delay (previous: %s)",
+                    attempt + 1,
+                    MAX_RETRIES,
+                    delay,
+                    last_error,
+                )
+                time.sleep(delay)
 
-                stdout_chunks: list[str] = []
-                stderr_chunks: list[str] = []
-                start_time = time.perf_counter()
+            stdout_chunks: list[str] = []
+            stderr_chunks: list[str] = []
+            start_time = time.perf_counter()
 
-                # Create callbacks for stream readers (check log level dynamically)
-                def _stdout_cb(line: str) -> None:
-                    if should_print_progress():
-                        stripped = line.rstrip()
-                        tag = format_tag("OUT", color_index)
-                        if is_full_stream():
-                            write_progress(f"{tag} {stripped}")
-                        else:
-                            preview = stripped[:200]
-                            if len(stripped) > 200:
-                                preview += "..."
-                            write_progress(f"{tag} {preview}")
-
-                def _stderr_cb(line: str) -> None:
-                    if should_print_progress():
-                        stripped = line.rstrip()
-                        tag = format_tag("ERR", color_index)
+            # Create callbacks for stream readers (check log level dynamically)
+            def _stdout_cb(line: str) -> None:
+                if should_print_progress():
+                    stripped = line.rstrip()
+                    tag = format_tag("OUT", color_index)
+                    if is_full_stream():
                         write_progress(f"{tag} {stripped}")
+                    else:
+                        preview = stripped[:200]
+                        if len(stripped) > 200:
+                            preview += "..."
+                        write_progress(f"{tag} {preview}")
+
+            def _stderr_cb(line: str) -> None:
+                if should_print_progress():
+                    stripped = line.rstrip()
+                    tag = format_tag("ERR", color_index)
+                    write_progress(f"{tag} {stripped}")
+
+            try:
+                env = os.environ.copy()
+                if cwd is not None:
+                    env["PWD"] = str(cwd)
+
+                process = Popen(
+                    command,
+                    stdin=PIPE,
+                    stdout=PIPE,
+                    stderr=PIPE,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    cwd=cwd,
+                    env=env,
+                    start_new_session=True,  # Own process group for safe termination
+                )
+
+                # Write prompt to stdin and close it
+                if process.stdin:
+                    process.stdin.write(prompt)
+                    process.stdin.close()
+
+                # Use shared helper for stream reader threads
+                stdout_thread, stderr_thread = start_stream_reader_threads(
+                    process,
+                    stdout_chunks,
+                    stderr_chunks,
+                    stdout_callback=_stdout_cb,
+                    stderr_callback=_stderr_cb,
+                )
+
+                if should_print_progress():
+                    shown_model = display_model or effective_model
+                    tag = format_tag("START", color_index)
+                    write_progress(f"{tag} Invoking Cursor Agent CLI (model={shown_model})...")
 
                 try:
-                    env = os.environ.copy()
-                    if cwd is not None:
-                        env["PWD"] = str(cwd)
+                    returncode = process.wait(timeout=effective_timeout)
+                except TimeoutExpired:
+                    process.kill()
+                    stdout_thread.join(timeout=2)
+                    stderr_thread.join(timeout=2)
+                    duration_ms = int((time.perf_counter() - start_time) * 1000)
+                    truncated = _truncate_prompt(prompt)
 
-                    process = Popen(
-                        command,
-                        stdin=PIPE,
-                        stdout=PIPE,
-                        stderr=PIPE,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        cwd=cwd,
-                        env=env,
-                        start_new_session=True,  # Own process group for safe termination
-                    )
-
-                    if process.stdin:
-                        process.stdin.close()
-
-                    # Use shared helper for stream reader threads
-                    stdout_thread, stderr_thread = start_stream_reader_threads(
-                        process,
-                        stdout_chunks,
-                        stderr_chunks,
-                        stdout_callback=_stdout_cb,
-                        stderr_callback=_stderr_cb,
-                    )
-
-                    if should_print_progress():
-                        shown_model = display_model or effective_model
-                        tag = format_tag("START", color_index)
-                        write_progress(f"{tag} Invoking Cursor Agent CLI (model={shown_model})...")
-
-                    try:
-                        returncode = process.wait(timeout=effective_timeout)
-                    except TimeoutExpired:
-                        process.kill()
-                        stdout_thread.join(timeout=2)
-                        stderr_thread.join(timeout=2)
-                        duration_ms = int((time.perf_counter() - start_time) * 1000)
-                        truncated = _truncate_prompt(prompt)
-
-                        partial_result = ProviderResult(
-                            stdout="".join(stdout_chunks),
-                            stderr="".join(stderr_chunks),
-                            exit_code=-1,
-                            duration_ms=duration_ms,
-                            model=effective_model,
-                            command=original_command,
-                        )
-
-                        raise ProviderTimeoutError(
-                            f"Cursor Agent CLI timeout after {effective_timeout}s: {truncated}",
-                            partial_result=partial_result,
-                        ) from None
-
-                    stdout_thread.join(timeout=10)
-                    stderr_thread.join(timeout=10)
-
-                except FileNotFoundError as e:
-                    logger.error("Cursor Agent CLI not found in PATH")
-                    raise ProviderError(
-                        "Cursor Agent CLI not found. Is 'cursor-agent' in PATH?"
-                    ) from e
-
-                duration_ms = int((time.perf_counter() - start_time) * 1000)
-                stdout_content = "".join(stdout_chunks)
-                stderr_content = "".join(stderr_chunks)
-
-                if returncode != 0:
-                    exit_status = ExitStatus.from_code(returncode)
-                    stderr_truncated = (
-                        stderr_content[:STDERR_TRUNCATE_LENGTH] if stderr_content else "(empty)"
-                    )
-
-                    logger.error(
-                        "Cursor Agent CLI failed: exit_code=%d, status=%s, model=%s, stderr=%s",
-                        returncode,
-                        exit_status.name,
-                        effective_model,
-                        stderr_truncated,
-                    )
-
-                    message = (
-                        f"Cursor Agent CLI failed with exit code {returncode}: {stderr_truncated}"
-                    )
-                    error = ProviderExitCodeError(
-                        message,
-                        exit_code=returncode,
-                        exit_status=exit_status,
-                        stderr=stderr_content,
+                    partial_result = ProviderResult(
+                        stdout="".join(stdout_chunks),
+                        stderr="".join(stderr_chunks),
+                        exit_code=-1,
+                        duration_ms=duration_ms,
+                        model=effective_model,
                         command=original_command,
                     )
 
-                    # Use shared helper for transient error detection
-                    if (
-                        is_transient_error(stderr_content, exit_status)
-                        and attempt < MAX_RETRIES - 1
-                    ):  # noqa: E501
-                        last_error = error
-                        continue
+                    raise ProviderTimeoutError(
+                        f"Cursor Agent CLI timeout after {effective_timeout}s: {truncated}",
+                        partial_result=partial_result,
+                    ) from None
 
-                    raise error
+                stdout_thread.join(timeout=10)
+                stderr_thread.join(timeout=10)
 
-                break
-        finally:
-            # Always cleanup temp file if created
-            cleanup_temp_file(temp_file)
+            except FileNotFoundError as e:
+                logger.error("Cursor Agent CLI not found in PATH")
+                raise ProviderError(
+                    "Cursor Agent CLI not found. Is 'cursor-agent' in PATH?"
+                ) from e
+
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            stdout_content = "".join(stdout_chunks)
+            stderr_content = "".join(stderr_chunks)
+
+            if returncode != 0:
+                exit_status = ExitStatus.from_code(returncode)
+                stderr_truncated = (
+                    stderr_content[:STDERR_TRUNCATE_LENGTH] if stderr_content else "(empty)"
+                )
+
+                logger.error(
+                    "Cursor Agent CLI failed: exit_code=%d, status=%s, model=%s, stderr=%s",
+                    returncode,
+                    exit_status.name,
+                    effective_model,
+                    stderr_truncated,
+                )
+
+                message = (
+                    f"Cursor Agent CLI failed with exit code {returncode}: {stderr_truncated}"
+                )
+                error = ProviderExitCodeError(
+                    message,
+                    exit_code=returncode,
+                    exit_status=exit_status,
+                    stderr=stderr_content,
+                    command=original_command,
+                )
+
+                # Use shared helper for transient error detection
+                if (
+                    is_transient_error(stderr_content, exit_status)
+                    and attempt < MAX_RETRIES - 1
+                ):  # noqa: E501
+                    last_error = error
+                    continue
+
+                raise error
+
+            break
 
         logger.info(
             "Cursor Agent CLI completed: duration=%dms, exit_code=%d, text_len=%d",

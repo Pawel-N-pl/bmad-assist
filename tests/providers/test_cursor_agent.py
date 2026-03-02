@@ -74,7 +74,7 @@ class TestCursorAgentProviderInvoke:
         assert "gpt-4o" in result.command
 
     def test_invoke_command_structure(self, mock_cursor_popen_success):
-        """Command should have correct structure."""
+        """Command should have correct structure (prompt passed via stdin, not args)."""
         provider = CursorAgentProvider()
         result = provider.invoke("Test prompt", timeout=30)
 
@@ -82,7 +82,17 @@ class TestCursorAgentProviderInvoke:
         assert "--print" in result.command
         assert "--model" in result.command
         assert "--force" in result.command
-        assert "Test prompt" in result.command
+        # Prompt is passed via stdin, not as a CLI argument
+        assert "Test prompt" not in result.command
+
+    def test_invoke_writes_prompt_to_stdin(self, mock_cursor_popen_success):
+        """Prompt should be written to process stdin (not passed as CLI arg)."""
+        provider = CursorAgentProvider()
+        provider.invoke("Test prompt for stdin", timeout=30)
+
+        mock_process = mock_cursor_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with("Test prompt for stdin")
+        mock_process.stdin.close.assert_called_once()
 
     def test_invoke_with_cwd(self):
         """Should pass cwd to Popen."""
