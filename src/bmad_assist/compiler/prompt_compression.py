@@ -10,10 +10,16 @@ Two entry points:
   in compiled XML when the total prompt exceeds budget.
 """
 
+from __future__ import annotations
+
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from bmad_assist.compiler.shared_utils import estimate_tokens
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +43,7 @@ DOCUMENT:
 def compress_document(
     content: str,
     target_tokens: int,
-    provider: object,
+    provider: BaseProvider,
     model: str,
     timeout: int = 120,
 ) -> tuple[str, int]:
@@ -97,7 +103,7 @@ _FILE_PATTERN = re.compile(
 def compress_context_files(
     xml_prompt: str,
     target_tokens: int,
-    provider: object,
+    provider: BaseProvider,
     model: str,
     timeout: int = 120,
     min_file_tokens: int = 2000,
