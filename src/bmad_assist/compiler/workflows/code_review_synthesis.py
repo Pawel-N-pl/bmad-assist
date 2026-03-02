@@ -35,6 +35,7 @@ from bmad_assist.compiler.patching import (
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
+    estimate_tokens,
     find_sprint_status_file,
     format_dv_findings_for_prompt,
     get_stories_dir,
@@ -310,23 +311,54 @@ class CodeReviewSynthesisCompiler:
             logger.debug("Added review to synthesis context: %s", review_path)
 
         # 3. Git diff (embedded as section) - LIMITED for synthesis
-        # F4-IMPL: Truncate git diff to prevent token explosion
         # Full diff is too large for synthesis context (can be 500k+ chars)
-        max_diff_chars = 20000  # ~5k tokens max for diff
+        max_diff_tokens = 5000
         if git_diff:
-            if len(git_diff) > max_diff_chars:
-                truncated = git_diff[:max_diff_chars]
-                # Find last complete line
-                last_nl = truncated.rfind('\n')
-                if last_nl > 0:
-                    truncated = truncated[:last_nl]
-                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
-                logger.warning(
-                    "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
-                    len(git_diff),
-                    len(truncated),
-                    100 * len(truncated) / len(git_diff),
-                )
+            diff_tokens = estimate_tokens(git_diff)
+            if diff_tokens > max_diff_tokens:
+                try:
+                    from bmad_assist.compiler.prompt_compression import compress_document
+                    from bmad_assist.core.config.loaders import get_config as _get_cfg
+                    from bmad_assist.providers import get_provider
+
+                    _cfg = _get_cfg()
+                    helper = _cfg.providers.helper
+                    if not helper or not _cfg.compiler.prompt_compression.enabled:
+                        raise RuntimeError("Compression not available")
+
+                    provider = get_provider(helper.provider)
+                    compressed_diff, actual_tokens = compress_document(
+                        git_diff, max_diff_tokens, provider, helper.model,
+                        _cfg.compiler.prompt_compression.timeout,
+                    )
+                    files["[git-diff]"] = compressed_diff
+                    logger.info(
+                        "Compressed git diff for synthesis: %d → %d tokens (%.0f%%)",
+                        diff_tokens,
+                        actual_tokens,
+                        100 * actual_tokens / diff_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Git diff LLM compression failed, falling back to truncation: %s", e
+                    )
+                    # Fallback: naive character truncation
+                    max_diff_chars = 20000
+                    truncated = git_diff[:max_diff_chars]
+                    last_nl = truncated.rfind('\n')
+                    if last_nl > 0:
+                        truncated = truncated[:last_nl]
+                    files["[git-diff]"] = (
+                        truncated
+                        + "\n\n[... Git diff truncated due to size"
+                        " - see full diff with git command ...]"
+                    )
+                    logger.warning(
+                        "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
+                        len(git_diff),
+                        len(truncated),
+                        100 * len(truncated) / len(git_diff),
+                    )
             else:
                 files["[git-diff]"] = git_diff
                 logger.debug("Added git diff to synthesis context: %d chars", len(git_diff))
