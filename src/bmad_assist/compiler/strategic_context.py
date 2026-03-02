@@ -203,7 +203,7 @@ def _save_cached_compression(
 
     """
     try:
-        from datetime import datetime, timezone
+        from datetime import UTC, datetime
 
         import yaml
 
@@ -225,7 +225,7 @@ def _save_cached_compression(
             "content_hash": content_hash,
             "original_tokens": original_tokens,
             "compressed_tokens": compressed_tokens,
-            "compressed_at": datetime.now(timezone.utc).isoformat(),
+            "compressed_at": datetime.now(UTC).isoformat(),
         }
         tmp_meta = meta_file.with_suffix(".tmp")
         tmp_meta.write_text(yaml.safe_dump(meta, default_flow_style=False), encoding="utf-8")
