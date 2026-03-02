@@ -386,7 +386,14 @@ class StrategicContextService:
                 )
 
         # Telemetry logging at INFO level
-        truncation_info = f" [truncated: {', '.join(truncated_docs)}]" if truncated_docs else ""
+        label = "truncated"
+        try:
+            from bmad_assist.core.config.loaders import get_config as _get_config
+            if _get_config().compiler.prompt_compression.enabled:
+                label = "compressed"
+        except Exception:
+            pass
+        truncation_info = f" [{label}: {', '.join(truncated_docs)}]" if truncated_docs else ""
         logger.info(
             "Strategic context for %s: %d tokens (%d docs: %s)%s",
             self.workflow_name,
