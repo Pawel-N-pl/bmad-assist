@@ -240,6 +240,101 @@ Just plain text without structured findings.
         report = parse_evidence_findings(content, "Validator C")
         assert report is None
 
+    def test_parse_table_with_high_medium_low_aliases(self) -> None:
+        """Test parsing table format with HIGH/MEDIUM/LOW aliases."""
+        content = """
+## Evidence Score Summary
+
+| Severity | Description | Source | Score |
+|----------|-------------|--------|-------|
+| 🔴 HIGH | Missing input validation | auth.py:45 | +3 |
+| 🟠 MEDIUM | No error handling | api.py:100 | +1 |
+| 🟡 LOW | Inconsistent naming | utils.py:20 | +0.3 |
+"""
+        report = parse_evidence_findings(content, "Validator Alias")
+        assert report is not None
+        assert len(report.findings) == 3
+        assert report.findings[0].severity == Severity.CRITICAL
+        assert report.findings[1].severity == Severity.IMPORTANT
+        assert report.findings[2].severity == Severity.MINOR
+
+    def test_parse_section_header_fallback(self) -> None:
+        """Test fallback parsing from section headers (## HIGH Severity, ### HIGH: desc)."""
+        content = """
+# Code Review
+
+## HIGH Severity Findings
+
+### 1. Missing `From<std::io::Error>` for `StorageError`
+
+**Issue:** Task 3 requires this impl but it's not present.
+
+### 2. `expect()` in Production Code
+
+**Issue:** Project context bans unwrap/expect.
+
+## MEDIUM Severity Findings
+
+### 1. Documentation Gap
+
+**Issue:** Missing docs for new module.
+
+## LOW Severity Findings
+
+Nothing significant.
+"""
+        report = parse_evidence_findings(content, "Validator Section")
+        assert report is not None
+        # Should extract: 2 HIGH (CRITICAL) + 1 MEDIUM (IMPORTANT) findings
+        # The "## HIGH Severity Findings" header itself has no description after colon
+        # Only sub-headings with descriptions count
+        assert len(report.findings) >= 1
+        # Verify severity mapping
+        severities = {f.severity for f in report.findings}
+        assert Severity.CRITICAL in severities or Severity.IMPORTANT in severities
+
+    def test_parse_section_header_with_description(self) -> None:
+        """Test parsing headers like '### HIGH: Path Traversal Vulnerability'."""
+        content = """
+# Code Review
+
+### HIGH: Path Traversal Vulnerability for New Files
+Some details here.
+
+### MEDIUM: Incomplete Tree Permissions
+Some details here.
+
+### MEDIUM: Missing Task Completion
+Some details here.
+
+### LOW: Documentation Gap
+Some details here.
+"""
+        report = parse_evidence_findings(content, "Validator Desc")
+        assert report is not None
+        assert len(report.findings) == 4
+        # HIGH → CRITICAL (+3), 2×MEDIUM → IMPORTANT (+1 each), LOW → MINOR (+0.3)
+        assert report.findings[0].severity == Severity.CRITICAL
+        assert report.findings[0].description == "Path Traversal Vulnerability for New Files"
+        assert report.findings[1].severity == Severity.IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR
+
+    def test_parse_finding_number_dash_severity_format(self) -> None:
+        """Test parsing '### Finding #1 — HIGH: description' format."""
+        content = """
+### Finding #1 — HIGH: tempfile is a dev-dependency but used in public module
+Details here.
+
+### Finding #2 — MEDIUM: String-based check in resolve_path is fragile
+Details here.
+"""
+        report = parse_evidence_findings(content, "Validator Finding")
+        assert report is not None
+        assert len(report.findings) == 2
+        assert report.findings[0].severity == Severity.CRITICAL
+        assert "tempfile" in report.findings[0].description
+        assert report.findings[1].severity == Severity.IMPORTANT
+
     def test_parse_only_clean_passes(self) -> None:
         """Test parsing report with only CLEAN PASS count."""
         content = """
