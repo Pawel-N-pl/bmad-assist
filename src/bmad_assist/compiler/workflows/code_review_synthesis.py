@@ -35,7 +35,6 @@ from bmad_assist.compiler.patching import (
 from bmad_assist.compiler.shared_utils import (
     apply_post_process,
     context_snapshot,
-    estimate_tokens,
     find_sprint_status_file,
     format_dv_findings_for_prompt,
     get_stories_dir,
