@@ -83,6 +83,20 @@ class TestValidateInstructionsXml:
         """)
         assert _validate_instructions_xml(content) is None
 
+    def test_markdown_with_html_comment_returns_none(self) -> None:
+        """Markdown starting with HTML comment should skip validation."""
+        content = textwrap.dedent("""\
+            <instructions-xml>
+            <!-- Powered by BMAD-CORE™ -->
+
+            # Acceptance Test-Driven Development (ATDD)
+
+            ## Step 1: Load Context
+            - Read story file
+            </instructions-xml>
+        """)
+        assert _validate_instructions_xml(content) is None
+
     def test_xml_with_entities_valid(self) -> None:
         """XML with proper entities (&lt;, &amp;) should pass validation."""
         content = textwrap.dedent("""\
