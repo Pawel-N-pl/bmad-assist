@@ -68,6 +68,15 @@ MAX_RETRIES: int = 5
 RETRY_BASE_DELAY: float = 2.0  # Base delay in seconds (exponential backoff)
 RETRY_MAX_DELAY: float = 30.0  # Maximum delay between retries
 
+# Informational stderr prefixes from Gemini CLI that should not affect
+# retry decisions (these are always emitted and don't indicate real errors)
+_STDERR_INFO_PREFIXES: tuple[str, ...] = (
+    "YOLO mode",
+    "Loaded cached",
+    "Sandbox mode",
+    "File ",  # ripgrep cache messages
+)
+
 # Tool name mapping: Gemini CLI uses technical names, we use display names
 # This maps the raw tool_name from JSON stream to our display names
 _GEMINI_TOOL_NAME_MAP: dict[str, str] = {
@@ -557,19 +566,12 @@ class GeminiProvider(BaseProvider):
                     color_idx: int | None,
                 ) -> None:
                     """Read stderr stream."""
-                    # Gemini CLI outputs informational messages to stderr
-                    info_prefixes = (
-                        "YOLO mode",
-                        "Loaded cached",
-                        "Sandbox mode",
-                        "File ",  # ripgrep cache messages
-                    )
                     for line in iter(stream.readline, ""):
                         chunks.append(line)
                         if should_print_progress():
                             stripped = line.rstrip()
                             # Skip known informational messages
-                            if any(stripped.startswith(p) for p in info_prefixes):
+                            if any(stripped.startswith(p) for p in _STDERR_INFO_PREFIXES):
                                 continue
                             tag = format_tag("ERR", color_idx)
                             write_progress(f"{tag} {stripped}")
@@ -691,8 +693,17 @@ class GeminiProvider(BaseProvider):
                     command=tuple(command),
                 )
 
-                # Retry only on transient failures (empty stderr, general error status)
-                is_transient = not stderr_content.strip() and exit_status == ExitStatus.ERROR
+                # Filter out informational prefixes before checking if stderr
+                # has real error content (YOLO mode, Sandbox mode etc. are always
+                # emitted and should not prevent retry on transient API errors)
+                stderr_meaningful = "\n".join(
+                    line
+                    for line in stderr_content.strip().splitlines()
+                    if not any(line.strip().startswith(p) for p in _STDERR_INFO_PREFIXES)
+                ).strip()
+
+                # Retry only on transient failures (no meaningful stderr, general error status)
+                is_transient = not stderr_meaningful and exit_status == ExitStatus.ERROR
 
                 if is_transient and attempt < MAX_RETRIES - 1:
                     last_error = error

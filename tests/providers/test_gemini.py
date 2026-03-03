@@ -871,6 +871,56 @@ class TestGeminiProviderExitStatusHandling:
             assert "permission denied" in error_msg
 
 
+class TestGeminiProviderRetryLogic:
+    """Test retry behaviour for transient failures."""
+
+    @pytest.fixture
+    def provider(self) -> GeminiProvider:
+        """Create GeminiProvider instance."""
+        return GeminiProvider()
+
+    def test_info_only_stderr_is_treated_as_transient(self, provider: GeminiProvider) -> None:
+        """Stderr containing only informational prefixes should trigger retry."""
+        calls = {"count": 0}
+
+        def make_process(*args: object, **kwargs: object) -> MagicMock:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                # First call: fail with only YOLO mode info in stderr
+                return create_gemini_mock_process(
+                    stdout_content="",
+                    stderr_content="YOLO mode is enabled. All tool calls will be automatically approved.\n",
+                    returncode=1,
+                )
+            # Second call: succeed
+            return create_gemini_mock_process(
+                response_text="OK",
+                stderr_content="",
+                returncode=0,
+            )
+
+        with patch("bmad_assist.providers.gemini.Popen", side_effect=make_process):
+            result = provider.invoke("Hello")
+
+        assert "OK" in result.stdout
+        assert calls["count"] == 2  # retried once
+
+    def test_real_error_stderr_is_not_retried(self, provider: GeminiProvider) -> None:
+        """Stderr with real error content (beyond info prefixes) should not retry."""
+        with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
+            mock_popen.return_value = create_gemini_mock_process(
+                stdout_content="",
+                stderr_content="YOLO mode is enabled.\nError: model not found\n",
+                returncode=1,
+            )
+
+            with pytest.raises(ProviderExitCodeError):
+                provider.invoke("Hello")
+
+            # Should be called exactly once (no retry)
+            assert mock_popen.call_count == 1
+
+
 class TestGeminiProviderThreadSafety:
     """Test thread safety of GeminiProvider with Popen-based streaming."""
 

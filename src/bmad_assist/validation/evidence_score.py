@@ -378,6 +378,26 @@ _SECTION_HEADER_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Fallback: trailing bracket severity at end of section header
+# Matches: ### ISSUE-1: Description text [HIGH — Category]
+#          ### Finding 2: Some issue [CRITICAL]
+_TRAILING_BRACKET_SEVERITY_PATTERN = re.compile(
+    r"^#{2,6}\s+"
+    r"(?:(?:Finding|ISSUE)\s*[-#:]?\s*\d+\s*[—–:-]?\s*)?"
+    r"(.+?)"  # description (non-greedy)
+    r"\s*\[\s*(?:🔴|🟠|🟡|🔵)?\s*(" + _ALL_SEVERITY_LABELS + r")"
+    r"(?:\s*[—–-]\s*[^\]]+)?"  # optional category after dash (e.g., "— Security")
+    r"\s*\]\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Fallback: severity on a separate bold line below a section header
+# Matches: **Severity:** HIGH  or  **Severity:** CRITICAL
+_BOLD_SEVERITY_LINE_PATTERN = re.compile(
+    r"\*{1,2}Severity:?\*{1,2}\s*(" + _ALL_SEVERITY_LABELS + r")\b",
+    re.IGNORECASE,
+)
+
 # Pattern for CLEAN PASS count
 # | 🟢 CLEAN PASS | 5 |
 _CLEAN_PASS_TABLE_PATTERN = re.compile(r"\|\s*🟢\s*CLEAN PASS\s*\|\s*(\d+)\s*\|", re.IGNORECASE)
@@ -525,6 +545,54 @@ def parse_evidence_findings(
         if findings:
             parse_warnings.append(
                 "Used section-header fallback parser (no Evidence Score table found)"
+            )
+
+    # Fallback: trailing bracket severity at end of section headers
+    # Matches: ### ISSUE-1: Description [HIGH — Security]
+    if not findings:
+        bracket_matches = _TRAILING_BRACKET_SEVERITY_PATTERN.findall(content)
+        for description, severity_str in bracket_matches:
+            try:
+                severity = _resolve_severity(severity_str)
+                score = SEVERITY_SCORES[severity.value]
+                findings.append(
+                    EvidenceFinding(
+                        severity=severity,
+                        score=score,
+                        description=description.strip(),
+                        source="",
+                        validator_id=validator_id,
+                    )
+                )
+            except (ValueError, KeyError) as e:
+                parse_warnings.append(f"Failed to parse bracket-severity finding: {e}")
+        if findings:
+            parse_warnings.append(
+                "Used trailing-bracket-severity fallback parser (no Evidence Score table found)"
+            )
+
+    # Fallback: **Severity:** LEVEL on separate lines below section headers
+    # Matches: **Severity:** HIGH
+    if not findings:
+        severity_line_matches = _BOLD_SEVERITY_LINE_PATTERN.findall(content)
+        for severity_str in severity_line_matches:
+            try:
+                severity = _resolve_severity(severity_str)
+                score = SEVERITY_SCORES[severity.value]
+                findings.append(
+                    EvidenceFinding(
+                        severity=severity,
+                        score=score,
+                        description=f"{severity.value} finding",
+                        source="",
+                        validator_id=validator_id,
+                    )
+                )
+            except (ValueError, KeyError) as e:
+                parse_warnings.append(f"Failed to parse severity-line finding: {e}")
+        if findings:
+            parse_warnings.append(
+                "Used bold-severity-line fallback parser (no Evidence Score table found)"
             )
 
     # Parse CLEAN PASS count

@@ -17,47 +17,64 @@ from bmad_assist.compiler.patching.types import PostProcessRule
 logger = logging.getLogger(__name__)
 
 
-# Pattern to match < that should be escaped (not part of XML tags)
-# Matches < followed by: digit, space, =, or other comparison context
-_UNESCAPED_LT_PATTERN = re.compile(r"<(\d|[=\s])")
+# Conservative pattern: < followed by digit, space, =, or common comparison chars
+_UNESCAPED_LT_CONSERVATIVE = re.compile(r"<(\d|[=\s])")
+
+# Aggressive pattern: < NOT followed by valid XML construct starters
+# (tag name [a-zA-Z_:], closing tag /, comment/CDATA !, processing instruction ?)
+_UNESCAPED_LT_AGGRESSIVE = re.compile(r"<(?![a-zA-Z_:/!?])")
+
+# Bare ampersand not followed by a valid entity reference (name + ;) or numeric ref (# + digits + ;)
+_BARE_AMPERSAND = re.compile(r"&(?![a-zA-Z#][a-zA-Z0-9]*;)")
 
 
 def fix_xml_entities(content: str) -> str:
-    """Fix unescaped < characters in XML text content.
+    """Fix unescaped < and & characters in XML text content.
 
     LLMs sometimes convert &lt; back to < when transforming XML.
     This function attempts to fix such cases by escaping < characters
     that appear in text content (not as part of XML tags).
 
-    Heuristic: < followed by digit, space, or = is likely text content
-    that should be escaped. < followed by letter or / is likely a tag.
+    Uses a two-pass strategy:
+    1. Conservative: escape < before digits/spaces/= (most common case)
+    2. Aggressive: escape any < not followed by valid XML construct starters,
+       and fix bare & not followed by valid entity references
 
     Args:
-        content: XML content that may have unescaped < in text.
+        content: XML content that may have unescaped < or & in text.
 
     Returns:
-        Content with problematic < characters escaped to &lt;
+        Content with problematic characters escaped.
 
     """
     # First check if XML is already valid
     try:
-        # Wrap in root element for parsing (content may have multiple roots)
         ET.fromstring(f"<root>{content}</root>")
         return content  # Already valid, no fix needed
     except ET.ParseError:
         pass  # Need to fix
 
-    # Fix < characters that appear to be in text content
-    # Pattern: < followed by digit, space, or = (comparison operators)
-    fixed = _UNESCAPED_LT_PATTERN.sub(r"&lt;\1", content)
+    # Pass 1: Conservative fix for < before digits/spaces/=
+    fixed = _UNESCAPED_LT_CONSERVATIVE.sub(r"&lt;\1", content)
 
-    # Verify fix worked
     try:
         ET.fromstring(f"<root>{fixed}</root>")
-        logger.info("Fixed unescaped < characters in XML content")
+        logger.info("Fixed unescaped < characters in XML content (conservative)")
+        return fixed
+    except ET.ParseError:
+        pass  # Try more aggressive fix
+
+    # Pass 2: Aggressive fix — escape any < not followed by valid XML constructs,
+    # plus fix bare & characters
+    fixed = _UNESCAPED_LT_AGGRESSIVE.sub("&lt;", content)
+    fixed = _BARE_AMPERSAND.sub("&amp;", fixed)
+
+    try:
+        ET.fromstring(f"<root>{fixed}</root>")
+        logger.info("Fixed unescaped XML entities (aggressive)")
         return fixed
     except ET.ParseError as e:
-        # Fix didn't work, return original and let caller handle error
+        # Neither fix worked, return original and let caller handle error
         logger.warning("Could not auto-fix XML content: %s", e)
         return content
 

@@ -385,3 +385,33 @@ class TestFixXmlEntities:
         content = "<action>Check if score &lt; 3</action>"
         result = fix_xml_entities(content)
         assert result == content
+
+    def test_aggressive_fixes_bare_lt_before_special_chars(self) -> None:
+        """Aggressive pass fixes < before chars not handled by conservative pass."""
+        content = "<action>Use <> brackets or <+2 offset</action>"
+        result = fix_xml_entities(content)
+        assert "&lt;>" in result
+        assert "&lt;+2" in result
+        # Valid XML tags should be preserved
+        assert "<action>" in result
+        assert "</action>" in result
+
+    def test_aggressive_fixes_bare_ampersand(self) -> None:
+        """Aggressive pass fixes bare & not followed by entity ref."""
+        content = "<action>Use foo & bar together</action>"
+        result = fix_xml_entities(content)
+        assert "foo &amp; bar" in result
+        assert "<action>" in result
+
+    def test_preserves_valid_entity_references(self) -> None:
+        """Preserves valid XML entity references like &lt; &gt; &amp;."""
+        content = "<action>Compare: &lt; and &gt; and &amp; ok</action>"
+        result = fix_xml_entities(content)
+        assert result == content
+
+    def test_combined_lt_and_ampersand_fix(self) -> None:
+        """Fixes both < and & in same content."""
+        content = "<action>if x < 3 & y > 0</action>"
+        result = fix_xml_entities(content)
+        assert "&lt; 3" in result
+        assert "&amp;" in result

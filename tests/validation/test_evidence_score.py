@@ -394,6 +394,68 @@ Details about issue 3.
         assert report.findings[1].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
         assert report.findings[2].severity == Severity.MINOR  # LOW → MINOR
 
+    def test_parse_trailing_bracket_severity(self) -> None:
+        """Test parsing '### ISSUE-1: Description [HIGH — Category]' format."""
+        content = """
+## Findings
+
+### ISSUE-1: Decrypted plaintext not zeroized in `migrate_file()` [HIGH — Security]
+
+**File:** `encrypted.rs:180-198`
+
+### ISSUE-2: Story file tasks all marked incomplete [HIGH — Process]
+
+**Evidence:** All checkboxes unchecked.
+
+### ISSUE-3: `println!` in documentation code example [MEDIUM — Code Quality]
+
+Details about the medium issue.
+
+### ISSUE-4: Stale TDD comment in integration tests [LOW — Documentation]
+
+Details about the low issue.
+"""
+        report = parse_evidence_findings(content, "Validator Bracket-Trail")
+        assert report is not None
+        assert len(report.findings) == 4
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert "plaintext" in report.findings[0].description.lower()
+        assert report.findings[1].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[2].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
+        assert any("trailing-bracket" in w for w in report.parse_warnings)
+
+    def test_parse_bold_severity_line(self) -> None:
+        """Test parsing '**Severity:** HIGH' on separate lines below headers."""
+        content = """
+## Findings
+
+### ISSUE-1: `expect()` calls in production code
+
+**Severity:** HIGH
+**Location:** `main.rs:338, 341, 350`
+
+### ISSUE-2: Double config loading
+
+**Severity:** HIGH
+
+### ISSUE-3: Missing data directory creation
+
+**Severity:** MEDIUM
+
+### ISSUE-4: Feature flag should be removed
+
+**Severity:** LOW
+"""
+        report = parse_evidence_findings(content, "Validator Bold-Sev")
+        assert report is not None
+        assert len(report.findings) == 4
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[1].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[2].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
+        assert any("bold-severity" in w for w in report.parse_warnings)
+
     def test_parse_only_clean_passes(self) -> None:
         """Test parsing report with only CLEAN PASS count."""
         content = """
