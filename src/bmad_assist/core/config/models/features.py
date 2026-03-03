@@ -89,6 +89,14 @@ class TimeoutsConfig(BaseModel):
         code_review: Timeout for code_review phase.
         code_review_synthesis: Timeout for code_review_synthesis phase.
         retrospective: Timeout for retrospective phase.
+        atdd: Timeout for ATDD phase.
+        test_review: Timeout for test_review phase.
+        tea_test_design: Timeout for TEA test_design phase.
+        tea_framework: Timeout for TEA framework phase.
+        tea_automate: Timeout for TEA automate phase.
+        tea_ci: Timeout for TEA CI phase.
+        tea_nfr_assess: Timeout for TEA NFR assessment phase.
+        trace: Timeout for trace phase.
 
     Example:
         >>> config = TimeoutsConfig(default=3600, validate_story=600, code_review=900)
@@ -147,6 +155,54 @@ class TimeoutsConfig(BaseModel):
         default=None,
         ge=60,
         description="Timeout for retrospective phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    atdd: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for ATDD phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    test_review: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for test_review phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_test_design: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for TEA test_design phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_framework: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for TEA framework phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_automate: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for TEA automate phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_ci: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for TEA CI phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_nfr_assess: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for TEA NFR assessment phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    trace: int | None = Field(
+        default=None,
+        ge=60,
+        description="Timeout for trace phase (None = use default)",
         json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
     )
     security_review: int | None = Field(

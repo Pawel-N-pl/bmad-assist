@@ -76,6 +76,28 @@ class TestTimeoutsConfig:
         assert tc.get_timeout("code_review_synthesis") == 1200
         assert tc.get_timeout("retrospective") == 1800
 
+    def test_testarch_phases_can_be_configured(self) -> None:
+        """All testarch phases can have custom timeouts."""
+        tc = TimeoutsConfig(
+            default=3600,
+            atdd=1800,
+            test_review=900,
+            tea_test_design=600,
+            tea_framework=600,
+            tea_automate=1200,
+            tea_ci=600,
+            tea_nfr_assess=900,
+            trace=1200,
+        )
+        assert tc.get_timeout("atdd") == 1800
+        assert tc.get_timeout("test_review") == 900
+        assert tc.get_timeout("tea_test_design") == 600
+        assert tc.get_timeout("tea_framework") == 600
+        assert tc.get_timeout("tea_automate") == 1200
+        assert tc.get_timeout("tea_ci") == 600
+        assert tc.get_timeout("tea_nfr_assess") == 900
+        assert tc.get_timeout("trace") == 1200
+
 
 class TestGetPhaseTimeout:
     """Tests for get_phase_timeout helper function."""

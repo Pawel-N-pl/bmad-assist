@@ -30,6 +30,7 @@ class FakeConfig:
         self.providers.master.provider = kwargs.get("provider", "claude-subprocess")
         self.providers.master.model = kwargs.get("model", "opus")
         self.timeout = kwargs.get("timeout", 120)
+        self.timeouts = None
 
         # Testarch config with all mode fields
         self.testarch = MagicMock()

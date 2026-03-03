@@ -222,6 +222,7 @@ class FakeConfig:
         self.providers.master.provider = provider
         self.providers.master.model = model
         self.timeout = timeout
+        self.timeouts = None
         # Identify testarch-related kwargs
         testarch_keys = {"engagement_model", "atdd_mode", "framework_mode",
                         "ci_mode", "test_design_mode", "automate_mode",

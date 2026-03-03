@@ -28,6 +28,7 @@ class FakeConfig:
         self.providers.master.provider = "claude-subprocess"
         self.providers.master.model = "opus"
         self.timeout = 120
+        self.timeouts = None
         self.testarch = MagicMock()
         self.testarch.atdd_mode = "on"
         self.testarch.preflight = None

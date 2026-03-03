@@ -21,10 +21,22 @@ timeouts:
   validate_story_synthesis: 900 # 15m
   dev_story: 3600               # 1h
   code_review_synthesis: 1200   # 20m
+  # retrospective: 900          # 15m
+  # security_review: 600        # 10m
+  # Testarch (TEA) phases
+  # atdd: 1800                  # 30m
+  # test_review: 900            # 15m
+  # tea_test_design: 900        # 15m
+  # tea_framework: 600          # 10m
+  # tea_automate: 900           # 15m
+  # tea_ci: 600                 # 10m
+  # tea_nfr_assess: 900         # 15m
+  # trace: 900                  # 15m
+  # QA phases
   qa_plan_generate: 1200        # 20m
   qa_plan_execute: 3600         # 1h (Playwright!)
   qa_remediate: 3600            # 1h (LLM fixes + re-test)
-  
+
 providers:
   # Default provider used for single-LLM phases when no phase_models specified
   master:

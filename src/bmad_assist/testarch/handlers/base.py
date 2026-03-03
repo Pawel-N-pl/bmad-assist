@@ -683,8 +683,11 @@ class TestarchBaseHandler(BaseHandler):
             except OSError as e:
                 logger.warning("Failed to save prompt (continuing): %s", e)
 
-            # 3. Invoke provider
-            result = self._invoke_workflow(compiled)
+            # 3. Invoke provider (with phase-specific timeout from config)
+            from bmad_assist.core.config.loaders import get_phase_timeout
+
+            phase_timeout = get_phase_timeout(self.config, self.phase_name)
+            result = self._invoke_workflow(compiled, timeout=phase_timeout)
 
             # 3. Check for PhaseResult failure (returned from _invoke_workflow on error)
             if isinstance(result, PhaseResult):
