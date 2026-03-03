@@ -49,7 +49,7 @@ from bmad_assist.compiler.source_context import (
     extract_file_paths_from_story,
     get_git_diff_files,
 )
-from bmad_assist.compiler.strategic_context import StrategicContextService
+from bmad_assist.compiler.strategic_context import StrategicContextService, _compress_or_truncate
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variable_utils import (
     filter_garbage_variables,
@@ -310,23 +310,19 @@ class CodeReviewSynthesisCompiler:
             logger.debug("Added review to synthesis context: %s", review_path)
 
         # 3. Git diff (embedded as section) - LIMITED for synthesis
-        # F4-IMPL: Truncate git diff to prevent token explosion
         # Full diff is too large for synthesis context (can be 500k+ chars)
-        max_diff_chars = 20000  # ~5k tokens max for diff
+        # Use _compress_or_truncate to intelligently reduce via helper LLM
+        # (falls back to truncation if compression is disabled/unavailable)
+        max_diff_tokens = 5000  # ~5k tokens max for diff in synthesis
         if git_diff:
-            if len(git_diff) > max_diff_chars:
-                truncated = git_diff[:max_diff_chars]
-                # Find last complete line
-                last_nl = truncated.rfind('\n')
-                if last_nl > 0:
-                    truncated = truncated[:last_nl]
-                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
-                logger.warning(
-                    "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
-                    len(git_diff),
-                    len(truncated),
-                    100 * len(truncated) / len(git_diff),
+            from bmad_assist.compiler.shared_utils import estimate_tokens
+
+            diff_tokens = estimate_tokens(git_diff)
+            if diff_tokens > max_diff_tokens:
+                compressed_diff, _actual_tokens = _compress_or_truncate(
+                    git_diff, max_diff_tokens, "git-diff"
                 )
+                files["[git-diff]"] = compressed_diff
             else:
                 files["[git-diff]"] = git_diff
                 logger.debug("Added git diff to synthesis context: %d chars", len(git_diff))

@@ -983,6 +983,43 @@ class TestGitDiff:
         assert "<!-- GIT_DIFF_START -->" in result.context
         assert "<!-- GIT_DIFF_END -->" in result.context
 
+    def test_large_git_diff_uses_compress_or_truncate(
+        self,
+        tmp_project: Path,
+        two_reviews: list[AnonymizedValidation],
+    ) -> None:
+        """Large git diff is compressed via _compress_or_truncate, not naive truncation."""
+        from bmad_assist.compiler.workflows.code_review_synthesis import (
+            CodeReviewSynthesisCompiler,
+        )
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=14,
+            story_num=9,
+            reviews=two_reviews,
+        )
+        compiler = CodeReviewSynthesisCompiler()
+
+        # Create a diff larger than the 5000 token budget (~20k chars)
+        large_diff = "diff --git a/test.py\n" + ("+added line\n" * 3000)
+
+        with (
+            patch(
+                "bmad_assist.compiler.workflows.code_review_synthesis._capture_git_diff",
+                return_value=large_diff,
+            ),
+            patch(
+                "bmad_assist.compiler.workflows.code_review_synthesis._compress_or_truncate",
+                return_value=("compressed-diff-content", 4000),
+            ) as mock_compress,
+        ):
+            result = compiler.compile(context)
+
+        # _compress_or_truncate should have been called with the large diff
+        mock_compress.assert_called_once_with(large_diff, 5000, "git-diff")
+        assert "compressed-diff-content" in result.context
+
     def test_graceful_degradation_non_git_repo(
         self,
         tmp_project: Path,
