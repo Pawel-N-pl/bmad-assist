@@ -19,7 +19,9 @@ Token budget behavior:
 - Slight budget overruns (~10%) are acceptable for better cut points
 """
 
+import hashlib
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -135,8 +137,116 @@ def _truncate_content(content: str, target_tokens: int) -> tuple[str, int]:
     return truncated, actual_tokens
 
 
+def _compute_content_hash(content: str) -> str:
+    """Compute SHA-256 hex digest of content string."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _get_compression_cache_dir(project_root: Path) -> Path:
+    """Return path to compression cache directory."""
+    return project_root / ".bmad-assist" / "cache" / "compressed"
+
+
+def _load_cached_compression(
+    project_root: Path, doc_type: str, content_hash: str
+) -> tuple[str, int] | None:
+    """Load cached compression result if available and valid.
+
+    Args:
+        project_root: Project root directory.
+        doc_type: Document type (e.g., "ux", "prd").
+        content_hash: Full SHA-256 hash of the source content.
+
+    Returns:
+        Tuple of (compressed_content, compressed_tokens) or None if not cached.
+
+    """
+    try:
+        cache_dir = _get_compression_cache_dir(project_root)
+        prefix = content_hash[:16]
+        cache_file = cache_dir / f"{doc_type}-{prefix}.md"
+        meta_file = cache_dir / f"{doc_type}-{prefix}.meta.yaml"
+
+        if not cache_file.exists() or not meta_file.exists():
+            return None
+
+        import yaml
+
+        meta = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+        if not meta or meta.get("content_hash") != content_hash:
+            return None
+
+        content = cache_file.read_text(encoding="utf-8")
+        return content, meta.get("compressed_tokens", estimate_tokens(content))
+    except Exception as e:
+        logger.warning("Failed to load compression cache for %s: %s", doc_type, e)
+        return None
+
+
+def _save_cached_compression(
+    project_root: Path,
+    doc_type: str,
+    content_hash: str,
+    compressed: str,
+    original_tokens: int,
+) -> None:
+    """Save compressed content to disk cache.
+
+    Writes atomically (tmp + rename) and cleans up stale entries for the same doc_type.
+
+    Args:
+        project_root: Project root directory.
+        doc_type: Document type (e.g., "ux", "prd").
+        content_hash: Full SHA-256 hash of the source content.
+        compressed: Compressed content to cache.
+        original_tokens: Token count of the original content.
+
+    """
+    try:
+        from datetime import UTC, datetime
+
+        import yaml
+
+        cache_dir = _get_compression_cache_dir(project_root)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        prefix = content_hash[:16]
+        cache_file = cache_dir / f"{doc_type}-{prefix}.md"
+        meta_file = cache_dir / f"{doc_type}-{prefix}.meta.yaml"
+
+        # Atomic write: content
+        tmp_file = cache_file.with_suffix(".tmp")
+        tmp_file.write_text(compressed, encoding="utf-8")
+        os.rename(tmp_file, cache_file)
+
+        # Write metadata
+        compressed_tokens = estimate_tokens(compressed)
+        meta = {
+            "content_hash": content_hash,
+            "original_tokens": original_tokens,
+            "compressed_tokens": compressed_tokens,
+            "compressed_at": datetime.now(UTC).isoformat(),
+        }
+        tmp_meta = meta_file.with_suffix(".tmp")
+        tmp_meta.write_text(yaml.safe_dump(meta, default_flow_style=False), encoding="utf-8")
+        os.rename(tmp_meta, meta_file)
+
+        # Clean up stale entries for the same doc_type (different hash)
+        for stale in cache_dir.glob(f"{doc_type}-*.md"):
+            if stale.name != cache_file.name:
+                stale.unlink(missing_ok=True)
+        for stale in cache_dir.glob(f"{doc_type}-*.meta.yaml"):
+            if stale.name != meta_file.name:
+                stale.unlink(missing_ok=True)
+        # Clean up any leftover .tmp files
+        for stale in cache_dir.glob(f"{doc_type}-*.tmp"):
+            stale.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning("Failed to save compression cache for %s: %s", doc_type, e)
+
+
 def _compress_or_truncate(
-    content: str, target_tokens: int, doc_type: str
+    content: str, target_tokens: int, doc_type: str, project_root: Path | None = None
 ) -> tuple[str, int]:
     """Try LLM compression first, fall back to truncation.
 
@@ -148,6 +258,7 @@ def _compress_or_truncate(
         content: Full document content.
         target_tokens: Target token count.
         doc_type: Document type name (for logging).
+        project_root: Project root for disk caching (None to disable caching).
 
     Returns:
         Tuple of (compressed_or_truncated_content, actual_tokens).
@@ -181,6 +292,20 @@ def _compress_or_truncate(
             )
             return result, actual
 
+        # Check cache before calling LLM
+        content_hash = _compute_content_hash(content)
+        if project_root is not None:
+            cached = _load_cached_compression(project_root, doc_type, content_hash)
+            if cached is not None:
+                cached_content, cached_tokens = cached
+                if cached_tokens <= target_tokens * BUDGET_OVERRUN_FACTOR:
+                    logger.info("Using cached compression for %s", doc_type)
+                    return cached_content, cached_tokens
+                else:
+                    logger.info("Truncating cached compression for %s", doc_type)
+                    return _truncate_content(cached_content, target_tokens)
+
+        # Cache miss: compress via LLM
         from bmad_assist.compiler.prompt_compression import compress_document
 
         provider = get_provider(helper.provider)
@@ -191,6 +316,14 @@ def _compress_or_truncate(
             "Compressed %s from %d to ~%d tokens via helper LLM (budget remaining: %d)",
             doc_type, original_tokens, actual, target_tokens,
         )
+
+        # Save to cache
+        if project_root is not None:
+            _save_cached_compression(
+                project_root, doc_type, content_hash, compressed, original_tokens
+            )
+            logger.info("Saved compression cache for %s", doc_type)
+
         return compressed, actual
 
     except Exception as e:
@@ -369,7 +502,7 @@ class StrategicContextService:
             elif remaining_budget >= 500:  # Only truncate if meaningful space remains
                 # Compress (or truncate as fallback) to fit remaining budget
                 compressed_content, actual_tokens = _compress_or_truncate(
-                    content, remaining_budget, doc_type
+                    content, remaining_budget, doc_type, self.context.project_root
                 )
                 files[path] = compressed_content
                 total_tokens += actual_tokens
