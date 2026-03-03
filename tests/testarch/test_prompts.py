@@ -70,6 +70,7 @@ class TestPromptOutputSectionHasSchema:
         # Check for schema fields
         assert "ui_score" in prompt
         assert "api_score" in prompt
+        assert "testability_score" in prompt
         assert "skip_score" in prompt
         assert "reasoning" in prompt
 
@@ -134,20 +135,22 @@ class TestATDDEligibilityOutput:
     def test_valid_response_parses(self) -> None:
         """Verify valid JSON response parses correctly."""
         json_str = (
-            '{"ui_score": 0.8, "api_score": 0.5, '
+            '{"ui_score": 0.8, "api_score": 0.5, "testability_score": 0.7, '
             '"skip_score": 0.1, "reasoning": "Story has UI components"}'
         )
         result = parse_eligibility_response(json_str)
         assert result.__class__.__name__ == "ATDDEligibilityOutput"
         assert result.ui_score == 0.8
         assert result.api_score == 0.5
+        assert result.testability_score == 0.7
         assert result.skip_score == 0.1
         assert result.reasoning == "Story has UI components"
 
     def test_score_at_boundaries(self) -> None:
         """Verify scores at 0.0 and 1.0 are valid."""
         json_str = (
-            '{"ui_score": 0.0, "api_score": 1.0, "skip_score": 0.0, "reasoning": "Boundary test"}'
+            '{"ui_score": 0.0, "api_score": 1.0, "testability_score": 0.5, '
+            '"skip_score": 0.0, "reasoning": "Boundary test"}'
         )
         result = parse_eligibility_response(json_str)
         assert result.ui_score == 0.0
@@ -155,14 +158,14 @@ class TestATDDEligibilityOutput:
 
     def test_score_above_range_raises_validation_error(self) -> None:
         """Verify score > 1.0 raises ValidationError."""
-        json_str = '{"ui_score": 1.5, "api_score": 0.5, "skip_score": 0.1, "reasoning": "Invalid"}'
+        json_str = '{"ui_score": 1.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.1, "reasoning": "Invalid"}'
         with pytest.raises(ValidationError) as exc_info:
             parse_eligibility_response(json_str)
         assert "ui_score" in str(exc_info.value)
 
     def test_score_below_range_raises_validation_error(self) -> None:
         """Verify score < 0.0 raises ValidationError."""
-        json_str = '{"ui_score": -0.1, "api_score": 0.5, "skip_score": 0.1, "reasoning": "Invalid"}'
+        json_str = '{"ui_score": -0.1, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.1, "reasoning": "Invalid"}'
         with pytest.raises(ValidationError) as exc_info:
             parse_eligibility_response(json_str)
         assert "ui_score" in str(exc_info.value)
@@ -183,7 +186,7 @@ class TestATDDEligibilityOutput:
     def test_strips_markdown_json_block(self) -> None:
         """Verify markdown code blocks are stripped before parsing."""
         json_str = """```json
-{"ui_score": 0.7, "api_score": 0.3, "skip_score": 0.2, "reasoning": "Wrapped in markdown"}
+{"ui_score": 0.7, "api_score": 0.3, "testability_score": 0.6, "skip_score": 0.2, "reasoning": "Wrapped in markdown"}
 ```"""
         result = parse_eligibility_response(json_str)
         assert result.ui_score == 0.7
@@ -192,7 +195,7 @@ class TestATDDEligibilityOutput:
     def test_strips_plain_markdown_block(self) -> None:
         """Verify plain markdown code blocks are stripped."""
         json_str = """```
-{"ui_score": 0.6, "api_score": 0.4, "skip_score": 0.0, "reasoning": "Plain block"}
+{"ui_score": 0.6, "api_score": 0.4, "testability_score": 0.5, "skip_score": 0.0, "reasoning": "Plain block"}
 ```"""
         result = parse_eligibility_response(json_str)
         assert result.ui_score == 0.6
@@ -201,7 +204,7 @@ class TestATDDEligibilityOutput:
         """Verify leading/trailing whitespace is handled."""
         json_str = """
 
-{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.5, "reasoning": "With whitespace"}
+{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.5, "reasoning": "With whitespace"}
 
 """
         result = parse_eligibility_response(json_str)
@@ -212,13 +215,34 @@ class TestATDDEligibilityOutput:
         model = ATDDEligibilityOutput(
             ui_score=0.8,
             api_score=0.6,
+            testability_score=0.7,
             skip_score=0.0,
             reasoning="Direct creation test",
         )
         assert model.ui_score == 0.8
         assert model.api_score == 0.6
+        assert model.testability_score == 0.7
         assert model.skip_score == 0.0
         assert model.reasoning == "Direct creation test"
+
+    def test_missing_testability_score_defaults_to_zero(self) -> None:
+        """Verify missing testability_score defaults to 0.0."""
+        json_str = (
+            '{"ui_score": 0.8, "api_score": 0.5, '
+            '"skip_score": 0.1, "reasoning": "No testability"}'
+        )
+        result = parse_eligibility_response(json_str)
+        assert result.testability_score == 0.0
+
+    def test_testability_score_out_of_range_raises_validation_error(self) -> None:
+        """Verify testability_score > 1.0 raises ValidationError."""
+        json_str = (
+            '{"ui_score": 0.5, "api_score": 0.5, "testability_score": 1.5, '
+            '"skip_score": 0.1, "reasoning": "Invalid"}'
+        )
+        with pytest.raises(ValidationError) as exc_info:
+            parse_eligibility_response(json_str)
+        assert "testability_score" in str(exc_info.value)
 
 
 class TestMarkdownParsingEdgeCases:
@@ -227,7 +251,7 @@ class TestMarkdownParsingEdgeCases:
     def test_strips_uppercase_json_block(self) -> None:
         """Verify uppercase JSON language tag is stripped."""
         json_str = """```JSON
-{"ui_score": 0.6, "api_score": 0.4, "skip_score": 0.0, "reasoning": "Uppercase"}
+{"ui_score": 0.6, "api_score": 0.4, "testability_score": 0.5, "skip_score": 0.0, "reasoning": "Uppercase"}
 ```"""
         result = parse_eligibility_response(json_str)
         assert result.ui_score == 0.6
@@ -238,7 +262,7 @@ class TestMarkdownParsingEdgeCases:
         json_str = """Here is the analysis:
 
 ```json
-{"ui_score": 0.7, "api_score": 0.3, "skip_score": 0.1, "reasoning": "With preamble"}
+{"ui_score": 0.7, "api_score": 0.3, "testability_score": 0.6, "skip_score": 0.1, "reasoning": "With preamble"}
 ```"""
         result = parse_eligibility_response(json_str)
         assert result.ui_score == 0.7
@@ -256,14 +280,14 @@ class TestMarkdownParsingEdgeCases:
 
     def test_empty_reasoning_raises_validation_error(self) -> None:
         """Verify empty reasoning string raises ValidationError."""
-        json_str = '{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.0, "reasoning": ""}'
+        json_str = '{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.0, "reasoning": ""}'
         with pytest.raises(ValidationError):
             parse_eligibility_response(json_str)
 
     def test_extra_fields_ignored(self) -> None:
         """Verify extra fields in LLM response are ignored."""
         json_str = (
-            '{"ui_score": 0.8, "api_score": 0.5, "skip_score": 0.1, '
+            '{"ui_score": 0.8, "api_score": 0.5, "testability_score": 0.6, "skip_score": 0.1, '
             '"reasoning": "test", "extra_field": "ignored"}'
         )
         result = parse_eligibility_response(json_str)

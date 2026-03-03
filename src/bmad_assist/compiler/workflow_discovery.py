@@ -45,6 +45,7 @@ STANDARD_WORKFLOWS = {
 BMAD_SEARCH_PATHS = [
     "_bmad/bmm/workflows/4-implementation",
     "_bmad/bmm/workflows/testarch",
+    "_bmad/tea/workflows/testarch",
 ]
 
 # Mapping from workflow name to BMAD directory structure
@@ -98,12 +99,18 @@ def discover_workflow_dir(
         return None
 
     # STANDARD workflows: Check user's BMAD first
+    # Try both the mapped name (e.g. "atdd") and the full name (e.g. "testarch-atdd")
+    # because TEA uses stripped names and BMM uses full names
     bmad_dir_name = WORKFLOW_TO_BMAD_DIR.get(workflow_name, workflow_name)
+    candidate_names = [bmad_dir_name]
+    if bmad_dir_name != workflow_name:
+        candidate_names.append(workflow_name)
     for search_path in BMAD_SEARCH_PATHS:
-        candidate = project_root / search_path / bmad_dir_name
-        if _is_valid_workflow_dir(candidate):
-            logger.debug("Using user's BMAD workflow: %s", candidate)
-            return candidate
+        for dir_name in candidate_names:
+            candidate = project_root / search_path / dir_name
+            if _is_valid_workflow_dir(candidate):
+                logger.debug("Using user's BMAD workflow: %s", candidate)
+                return candidate
 
     # STANDARD workflows: Fallback to bundled
     bundled = get_bundled_workflow_dir(workflow_name)
@@ -145,7 +152,11 @@ def get_workflow_not_found_message(workflow_name: str, project_root: Path) -> st
         )
 
     bmad_dir_name = WORKFLOW_TO_BMAD_DIR.get(workflow_name, workflow_name)
-    checked = [str(project_root / p / bmad_dir_name) for p in BMAD_SEARCH_PATHS]
+    checked = []
+    for p in BMAD_SEARCH_PATHS:
+        checked.append(str(project_root / p / bmad_dir_name))
+        if bmad_dir_name != workflow_name:
+            checked.append(str(project_root / p / workflow_name))
     checked.append("(bundled package fallback)")
 
     return (

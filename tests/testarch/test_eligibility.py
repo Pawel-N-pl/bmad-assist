@@ -575,6 +575,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Test reasoning",
             ui_score=0.7,
             api_score=0.5,
+            testability_score=0.6,
             skip_score=0.1,
         )
         with pytest.raises(FrozenInstanceError):
@@ -592,6 +593,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Test reasoning",
             ui_score=0.7,
             api_score=0.5,
+            testability_score=0.6,
             skip_score=0.1,
         )
         assert result.keyword_score == 0.5
@@ -601,6 +603,7 @@ class TestATDDEligibilityResultDataclass:
         assert result.reasoning == "Test reasoning"
         assert result.ui_score == 0.7
         assert result.api_score == 0.5
+        assert result.testability_score == 0.6
         assert result.skip_score == 0.1
 
     def test_result_scores_in_valid_range(self) -> None:
@@ -616,6 +619,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Boundary test",
             ui_score=0.0,
             api_score=1.0,
+            testability_score=0.5,
             skip_score=0.5,
         )
         assert 0.0 <= result.keyword_score <= 1.0
@@ -623,6 +627,7 @@ class TestATDDEligibilityResultDataclass:
         assert 0.0 <= result.final_score <= 1.0
         assert 0.0 <= result.ui_score <= 1.0
         assert 0.0 <= result.api_score <= 1.0
+        assert 0.0 <= result.testability_score <= 1.0
         assert 0.0 <= result.skip_score <= 1.0
 
     def test_result_post_init_validation_rejects_invalid_scores(self) -> None:
@@ -639,6 +644,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -652,6 +658,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -665,6 +672,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -739,9 +747,7 @@ class TestCompositeLLMScoreFormula:
     """Test AC4: LLM composite score calculation."""
 
     def test_composite_score_formula(self) -> None:
-        """Composite LLM score = max(0, (ui + api) / 2 - skip)."""
-        from unittest.mock import MagicMock, patch
-
+        """Composite LLM score = max(0, max(testability, (ui+api)/2) - skip)."""
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
         from bmad_assist.testarch.prompts import ATDDEligibilityOutput
@@ -749,12 +755,12 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (0.8 + 0.6) / 2 - 0.3 = 0.7 - 0.3 = 0.4
+        # Test formula: max(0.5, (0.8 + 0.6) / 2) - 0.3 = max(0.5, 0.7) - 0.3 = 0.4
         output = ATDDEligibilityOutput(
-            ui_score=0.8, api_score=0.6, skip_score=0.3, reasoning="Test"
+            ui_score=0.8, api_score=0.6, testability_score=0.5, skip_score=0.3, reasoning="Test"
         )
         result = detector._compute_llm_composite_score(output)
-        expected = (0.8 + 0.6) / 2 - 0.3
+        expected = max(0.5, (0.8 + 0.6) / 2) - 0.3
         assert abs(result - expected) < 0.001
 
     def test_composite_score_clamped_to_zero(self) -> None:
@@ -766,9 +772,10 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (0.2 + 0.2) / 2 - 0.9 = 0.2 - 0.9 = -0.7 → 0.0
+        # Test formula: max(0.3, (0.2+0.2)/2) - 0.9 = max(0.3, 0.2) - 0.9 = -0.6 → 0.0
         output = ATDDEligibilityOutput(
-            ui_score=0.2, api_score=0.2, skip_score=0.9, reasoning="Skip-heavy"
+            ui_score=0.2, api_score=0.2, testability_score=0.3, skip_score=0.9,
+            reasoning="Skip-heavy",
         )
         result = detector._compute_llm_composite_score(output)
         assert result == 0.0
@@ -782,10 +789,48 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (1.0 + 1.0) / 2 - 0.0 = 1.0 (exactly at cap)
-        output = ATDDEligibilityOutput(ui_score=1.0, api_score=1.0, skip_score=0.0, reasoning="Max")
+        # Test formula: max(1.0, (1.0+1.0)/2) - 0.0 = 1.0 (exactly at cap)
+        output = ATDDEligibilityOutput(
+            ui_score=1.0, api_score=1.0, testability_score=1.0, skip_score=0.0, reasoning="Max"
+        )
         result = detector._compute_llm_composite_score(output)
         assert result == 1.0
+
+    def test_composite_score_testability_dominates(self) -> None:
+        """Testability > (ui+api)/2 provides the signal."""
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
+
+        config = EligibilityConfig()
+        detector = ATDDEligibilityDetector(config)
+
+        # ui_api_avg = (0.05 + 0.0) / 2 = 0.025
+        # max(0.85, 0.025) - 0.0 = 0.85
+        output = ATDDEligibilityOutput(
+            ui_score=0.05, api_score=0.0, testability_score=0.85, skip_score=0.0,
+            reasoning="Crypto story",
+        )
+        result = detector._compute_llm_composite_score(output)
+        assert abs(result - 0.85) < 0.001
+
+    def test_composite_score_ui_api_dominates(self) -> None:
+        """(ui+api)/2 > testability, backward compatible."""
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
+
+        config = EligibilityConfig()
+        detector = ATDDEligibilityDetector(config)
+
+        # ui_api_avg = (0.9 + 0.7) / 2 = 0.8
+        # max(0.6, 0.8) - 0.0 = 0.8  (same as old formula)
+        output = ATDDEligibilityOutput(
+            ui_score=0.9, api_score=0.7, testability_score=0.6, skip_score=0.0,
+            reasoning="UI/API story",
+        )
+        result = detector._compute_llm_composite_score(output)
+        assert abs(result - 0.8) < 0.001
 
 
 class TestHybridScoreCalculation:
@@ -800,27 +845,25 @@ class TestHybridScoreCalculation:
         with patch("bmad_assist.core.get_config", return_value=mock_config):
             yield
 
-    def test_hybrid_score_weights_applied(self) -> None:
-        """Final score = (keyword_weight * keyword) + (llm_weight * llm)."""
+    def test_hybrid_score_max_of_keyword_and_llm(self) -> None:
+        """Final score = max(keyword_score, llm_score)."""
         from unittest.mock import MagicMock, patch
 
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
-        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
 
-        # Custom weights: keyword=0.3, llm=0.7
-        config = EligibilityConfig(keyword_weight=0.3, llm_weight=0.7, threshold=0.5)
+        config = EligibilityConfig(threshold=0.5)
 
         # Mock provider to return controlled LLM output
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.8, "api_score": 0.6, "skip_score": 0.0, "reasoning": "Test"}',
+            stdout='{"ui_score": 0.8, "api_score": 0.6, "testability_score": 0.7, "skip_score": 0.0, "reasoning": "Test"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.8, "api_score": 0.6, "skip_score": 0.0, "reasoning": "Test"}'
+            '{"ui_score": 0.8, "api_score": 0.6, "testability_score": 0.7, "skip_score": 0.0, "reasoning": "Test"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
@@ -828,10 +871,9 @@ class TestHybridScoreCalculation:
             # "button" = 0.12 keyword score
             result = detector.detect("button")
 
-        # keyword_score = 0.12, llm_score = (0.8 + 0.6) / 2 - 0.0 = 0.7
-        # final_score = 0.3 * 0.12 + 0.7 * 0.7 = 0.036 + 0.49 = 0.526
-        expected_final = 0.3 * 0.12 + 0.7 * 0.7
-        assert abs(result.final_score - expected_final) < 0.001
+        # keyword_score = 0.12, llm_score = max(0.7, (0.8+0.6)/2) - 0.0 = 0.7
+        # final_score = max(0.12, 0.7) = 0.7
+        assert result.final_score == pytest.approx(0.7, abs=0.001)
 
     def test_detect_threshold_boundary_not_eligible(self) -> None:
         """Score == threshold → NOT eligible (strict > required)."""
@@ -841,26 +883,25 @@ class TestHybridScoreCalculation:
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
         # Set up scenario where final_score exactly equals threshold
-        config = EligibilityConfig(keyword_weight=1.0, llm_weight=0.0, threshold=0.12)
+        # keyword=0.12 ("button"), LLM scores all 0 → max(0.12, 0.0) = 0.12
+        config = EligibilityConfig(threshold=0.12)
 
-        # Mock LLM to not be called (weight=0.0 means keyword only in practice)
-        # but we still mock it since detect() calls it
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.0, "api_score": 0.0, "skip_score": 0.0, "reasoning": "Test"}',
+            stdout='{"ui_score": 0.0, "api_score": 0.0, "testability_score": 0.0, "skip_score": 0.0, "reasoning": "Test"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.0, "api_score": 0.0, "skip_score": 0.0, "reasoning": "Test"}'
+            '{"ui_score": 0.0, "api_score": 0.0, "testability_score": 0.0, "skip_score": 0.0, "reasoning": "Test"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
             detector = ATDDEligibilityDetector(config)
             result = detector.detect("button")  # 0.12 keyword score
 
-        # final_score = 1.0 * 0.12 + 0.0 * 0.0 = 0.12, threshold = 0.12
+        # final_score = max(0.12, 0.0) = 0.12, threshold = 0.12
         # eligible = 0.12 > 0.12 → False
         assert result.final_score == pytest.approx(0.12, abs=0.001)
         assert result.eligible is False
@@ -872,20 +913,19 @@ class TestHybridScoreCalculation:
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
-        # Balanced: keyword=0.5, llm=0.5, equal weights
-        config = EligibilityConfig(keyword_weight=0.5, llm_weight=0.5, threshold=0.4)
+        config = EligibilityConfig(threshold=0.4)
 
-        # LLM returns balanced scores: ui=0.5, api=0.5, skip=0.3
-        # llm_composite = (0.5 + 0.5) / 2 - 0.3 = 0.2
+        # LLM returns balanced scores: ui=0.5, api=0.5, testability=0.5, skip=0.3
+        # llm_composite = max(0.5, (0.5+0.5)/2) - 0.3 = 0.2
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.3, "reasoning": "Balanced"}',
+            stdout='{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.3, "reasoning": "Balanced"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.3, "reasoning": "Balanced"}'
+            '{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.3, "reasoning": "Balanced"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
@@ -894,21 +934,21 @@ class TestHybridScoreCalculation:
             result = detector.detect("form endpoint")
 
         # keyword_score ~= 0.30, llm_score = 0.2
-        # final = 0.5 * 0.30 + 0.5 * 0.2 = 0.15 + 0.10 = 0.25
+        # final = max(0.30, 0.2) = 0.30
         # threshold = 0.4, so NOT eligible
         assert result.keyword_score == pytest.approx(0.30, abs=0.01)
         assert result.llm_score == pytest.approx(0.2, abs=0.001)
-        assert result.final_score == pytest.approx(0.25, abs=0.01)
-        assert result.eligible is False  # 0.25 < 0.4
+        assert result.final_score == pytest.approx(0.30, abs=0.01)
+        assert result.eligible is False  # 0.30 < 0.4
 
         # Now test with lower threshold where it WOULD be eligible
-        config_low = EligibilityConfig(keyword_weight=0.5, llm_weight=0.5, threshold=0.2)
+        config_low = EligibilityConfig(threshold=0.2)
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
             detector_low = ATDDEligibilityDetector(config_low)
             result_low = detector_low.detect("form endpoint")
 
         # Same scores, but threshold = 0.2
-        # 0.25 > 0.2 → eligible
+        # 0.30 > 0.2 → eligible
         assert result_low.eligible is True  # Threshold is deciding factor
 
     def test_detect_high_ui_score_eligible(self) -> None:
@@ -923,12 +963,12 @@ class TestHybridScoreCalculation:
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.9, "api_score": 0.7, "skip_score": 0.0, "reasoning": "UI-heavy story"}',
+            stdout='{"ui_score": 0.9, "api_score": 0.7, "testability_score": 0.8, "skip_score": 0.0, "reasoning": "UI-heavy story"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.9, "api_score": 0.7, "skip_score": 0.0, "reasoning": "UI-heavy story"}'
+            '{"ui_score": 0.9, "api_score": 0.7, "testability_score": 0.8, "skip_score": 0.0, "reasoning": "UI-heavy story"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
@@ -936,7 +976,7 @@ class TestHybridScoreCalculation:
             result = detector.detect("Create a button component with form validation")
 
         # keyword_score > 0 (button, component, form)
-        # llm_score = (0.9 + 0.7) / 2 - 0.0 = 0.8
+        # llm_score = max(0.8, (0.9 + 0.7) / 2) - 0.0 = 0.8
         # final_score should be > 0.5
         assert result.eligible is True
         assert result.ui_score == 0.9
@@ -955,12 +995,12 @@ class TestHybridScoreCalculation:
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.1, "api_score": 0.1, "skip_score": 0.9, "reasoning": "Config only"}',
+            stdout='{"ui_score": 0.1, "api_score": 0.1, "testability_score": 0.1, "skip_score": 0.9, "reasoning": "Config only"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.1, "api_score": 0.1, "skip_score": 0.9, "reasoning": "Config only"}'
+            '{"ui_score": 0.1, "api_score": 0.1, "testability_score": 0.1, "skip_score": 0.9, "reasoning": "Config only"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
@@ -968,7 +1008,7 @@ class TestHybridScoreCalculation:
             result = detector.detect("Update configuration schema")
 
         # keyword_score low (config is negative)
-        # llm_score = (0.1 + 0.1) / 2 - 0.9 = -0.8 → clamped to 0.0
+        # llm_score = max(0.1, (0.1+0.1)/2) - 0.9 = -0.8 → clamped to 0.0
         assert result.eligible is False
         assert result.skip_score == 0.9
 
@@ -1114,12 +1154,12 @@ class TestEdgeCases:
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.0, "api_score": 0.0, "skip_score": 0.5, "reasoning": "Empty"}',
+            stdout='{"ui_score": 0.0, "api_score": 0.0, "testability_score": 0.0, "skip_score": 0.5, "reasoning": "Empty"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.0, "api_score": 0.0, "skip_score": 0.5, "reasoning": "Empty"}'
+            '{"ui_score": 0.0, "api_score": 0.0, "testability_score": 0.0, "skip_score": 0.5, "reasoning": "Empty"}'
         )
 
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
@@ -1160,12 +1200,12 @@ class TestProviderInvocation:
         mock_provider = MagicMock()
         mock_provider.provider_name = "claude"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.0, "reasoning": "Test"}',
+            stdout='{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.0, "reasoning": "Test"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.5, "api_score": 0.5, "skip_score": 0.0, "reasoning": "Test"}'
+            '{"ui_score": 0.5, "api_score": 0.5, "testability_score": 0.5, "skip_score": 0.0, "reasoning": "Test"}'
         )
 
         # Mock helper config
@@ -1208,12 +1248,12 @@ class TestCombinedReasoning:
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
-            stdout='{"ui_score": 0.7, "api_score": 0.5, "skip_score": 0.1, "reasoning": "UI-heavy story"}',
+            stdout='{"ui_score": 0.7, "api_score": 0.5, "testability_score": 0.6, "skip_score": 0.1, "reasoning": "UI-heavy story"}',
             stderr="",
             exit_code=0,
         )
         mock_provider.parse_output.return_value = (
-            '{"ui_score": 0.7, "api_score": 0.5, "skip_score": 0.1, "reasoning": "UI-heavy story"}'
+            '{"ui_score": 0.7, "api_score": 0.5, "testability_score": 0.6, "skip_score": 0.1, "reasoning": "UI-heavy story"}'
         )
 
         # Mock helper config
@@ -1254,7 +1294,7 @@ class TestIntegrationWithMockProvider:
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
         json_response = (
-            '{"ui_score": 0.7, "api_score": 0.5, "skip_score": 0.1, "reasoning": "UI-heavy story"}'
+            '{"ui_score": 0.7, "api_score": 0.5, "testability_score": 0.6, "skip_score": 0.1, "reasoning": "UI-heavy story"}'
         )
 
         mock_provider = MagicMock()
@@ -1300,7 +1340,7 @@ class TestIntegrationWithMockProvider:
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
         # Scenario: High UI/API, low skip → eligible
-        json_response = '{"ui_score": 0.9, "api_score": 0.8, "skip_score": 0.0, "reasoning": "Great ATDD candidate"}'
+        json_response = '{"ui_score": 0.9, "api_score": 0.8, "testability_score": 0.9, "skip_score": 0.0, "reasoning": "Great ATDD candidate"}'
 
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
@@ -1320,3 +1360,101 @@ class TestIntegrationWithMockProvider:
         # Should definitely be eligible
         assert result.eligible is True
         assert result.final_score > 0.5
+
+
+# =============================================================================
+# Testability Score Integration Tests
+# =============================================================================
+
+
+class TestTestabilityScoreIntegration:
+    """Tests for testability_score dimension in hybrid detection."""
+
+    @pytest.fixture(autouse=True)
+    def mock_get_config(self):
+        """Mock get_config for all tests in this class."""
+        mock_config = MagicMock()
+        mock_config.providers.helper.provider = "claude"
+        mock_config.providers.helper.model = "haiku"
+        with patch("bmad_assist.core.get_config", return_value=mock_config):
+            yield
+
+    def test_crypto_story_eligible_via_testability(self) -> None:
+        """Crypto story with high testability but no UI/API is eligible."""
+        from unittest.mock import MagicMock, patch
+
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+
+        config = EligibilityConfig(threshold=0.3)
+
+        # Simulates the actual bug scenario: crypto story with no UI/API
+        json_response = (
+            '{"ui_score": 0.05, "api_score": 0.0, "testability_score": 0.85, '
+            '"skip_score": 0.0, "reasoning": "Crypto operations with clear roundtrip verification"}'
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.provider_name = "mock"
+        mock_provider.invoke.return_value = MagicMock(
+            stdout=json_response, stderr="", exit_code=0,
+        )
+        mock_provider.parse_output.return_value = json_response
+
+        with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
+            detector = ATDDEligibilityDetector(config)
+            result = detector.detect("master key backup and restore with cryptographic operations")
+
+        # llm_score = max(0.85, (0.05+0.0)/2) - 0.0 = 0.85
+        assert result.llm_score == pytest.approx(0.85, abs=0.001)
+        assert result.testability_score == 0.85
+        assert result.eligible is True
+
+    def test_testability_overridden_by_skip_score(self) -> None:
+        """High skip score still blocks even with high testability."""
+        from unittest.mock import MagicMock, patch
+
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+
+        config = EligibilityConfig(threshold=0.5)
+
+        json_response = (
+            '{"ui_score": 0.1, "api_score": 0.1, "testability_score": 0.3, '
+            '"skip_score": 0.9, "reasoning": "Config-heavy with minor testable parts"}'
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.provider_name = "mock"
+        mock_provider.invoke.return_value = MagicMock(
+            stdout=json_response, stderr="", exit_code=0,
+        )
+        mock_provider.parse_output.return_value = json_response
+
+        with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
+            detector = ATDDEligibilityDetector(config)
+            result = detector.detect("refactor configuration schema")
+
+        # llm_score = max(0.3, (0.1+0.1)/2) - 0.9 = 0.3 - 0.9 = -0.6 → 0.0
+        assert result.llm_score == 0.0
+        assert result.eligible is False
+
+    def test_fallback_testability_defaults_to_zero(self) -> None:
+        """LLM failure fallback sets testability_score to 0.0."""
+        from unittest.mock import patch
+
+        from bmad_assist.core.exceptions import ProviderTimeoutError
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+
+        config = EligibilityConfig(threshold=0.1)
+
+        with patch(
+            "bmad_assist.providers.registry.get_provider",
+            side_effect=ProviderTimeoutError("Timeout"),
+        ):
+            detector = ATDDEligibilityDetector(config)
+            result = detector.detect("button")
+
+        assert result.testability_score == 0.0
+        assert result.llm_score == 0.0

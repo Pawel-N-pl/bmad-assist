@@ -109,17 +109,20 @@ Each workflow interprets `auto` differently based on project state:
 
 When `atdd_mode: auto`, stories are scored for ATDD eligibility using:
 
-1. **Keyword detection** (weight: 0.5) - Looks for UI/test-related terms
-2. **LLM assessment** (weight: 0.5) - Uses helper provider to evaluate story
+1. **Keyword detection** - Looks for UI/API-related terms in story text
+2. **LLM assessment** - Uses helper provider to evaluate story across three dimensions:
+   - **UI involvement** - UI components, user-facing changes
+   - **API involvement** - Endpoints, contracts, HTTP methods
+   - **General testability** - Clear acceptance criteria, defined inputs/outputs, verifiable state transitions, cryptographic roundtrips, CLI commands, business rules
 
-Stories scoring above threshold (default: 0.5) trigger ATDD workflow.
+The LLM composite score uses `max(testability, (ui + api) / 2) - skip`, ensuring stories with clear testable behaviors (like cryptography, data processing, or CLI tools) are correctly identified as ATDD-eligible even without UI or API involvement.
 
-Configure scoring weights:
+The final score is `max(keyword_score, llm_score)` — either signal alone can drive eligibility. Stories scoring above threshold (default: 0.5) trigger ATDD workflow.
+
+Configure threshold:
 ```yaml
 testarch:
   eligibility:
-    keyword_weight: 0.5
-    llm_weight: 0.5
     threshold: 0.5
 ```
 
