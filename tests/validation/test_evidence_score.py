@@ -335,6 +335,65 @@ Details here.
         assert "tempfile" in report.findings[0].description
         assert report.findings[1].severity == Severity.IMPORTANT
 
+    def test_parse_section_header_five_hashes(self) -> None:
+        """Test parsing '##### HIGH Severity Findings (Must Fix)' format."""
+        content = """
+##### HIGH Severity Findings (Must Fix)
+
+Some details about high severity issues.
+
+##### MEDIUM Severity Findings
+
+Some medium details.
+"""
+        report = parse_evidence_findings(content, "Validator 5hash")
+        assert report is not None
+        assert len(report.findings) >= 2
+        severities = [f.severity for f in report.findings]
+        assert Severity.CRITICAL in severities
+        assert Severity.IMPORTANT in severities
+
+    def test_parse_section_header_bracketed_severity(self) -> None:
+        """Test parsing '### [CRITICAL] Description here' format."""
+        content = """
+### [CRITICAL] False Claim: Incomplete Passphrase Zeroing in CLI
+
+Details about the critical issue.
+
+### [HIGH] Missing Error Handling
+
+Details about the high issue.
+"""
+        report = parse_evidence_findings(content, "Validator Bracket")
+        assert report is not None
+        assert len(report.findings) == 2
+        assert report.findings[0].severity == Severity.CRITICAL
+        assert report.findings[0].description == "False Claim: Incomplete Passphrase Zeroing in CLI"
+        assert report.findings[1].severity == Severity.CRITICAL  # HIGH → CRITICAL
+
+    def test_parse_section_header_issue_n_format(self) -> None:
+        """Test parsing '### ISSUE-1 [HIGH] — Description' format."""
+        content = """
+### ISSUE-1 [HIGH] — Passphrase handled as raw Vec<u8>
+
+Details about issue 1.
+
+### ISSUE-2 [MEDIUM] — Missing unit tests for edge cases
+
+Details about issue 2.
+
+### ISSUE-3 [LOW] — Documentation typo
+
+Details about issue 3.
+"""
+        report = parse_evidence_findings(content, "Validator Issue")
+        assert report is not None
+        assert len(report.findings) == 3
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert "Passphrase" in report.findings[0].description
+        assert report.findings[1].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[2].severity == Severity.MINOR  # LOW → MINOR
+
     def test_parse_only_clean_passes(self) -> None:
         """Test parsing report with only CLEAN PASS count."""
         content = """

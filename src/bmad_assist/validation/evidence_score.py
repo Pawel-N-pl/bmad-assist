@@ -363,14 +363,18 @@ _FINDING_BULLET_PATTERN = re.compile(
 #   ### CRITICAL FINDINGS (3)
 #   ### Finding #1 — HIGH: description
 #   ### HIGH: description
+#   ##### HIGH Severity Findings (Must Fix)
+#   ### [CRITICAL] False Claim: ...
+#   ### ISSUE-1 [HIGH] — description
 _SECTION_HEADER_PATTERN = re.compile(
-    r"^#{2,4}\s+(?:Finding\s*#?\d+\s*[—–-]\s*)?"
+    r"^#{2,6}\s+"
+    r"(?:(?:Finding|ISSUE)\s*[-#]?\s*\d+\s*[—–-]?\s*)?"
     r"(?:🔴|🟠|🟡|🔵)?\s*"
-    r"(" + _ALL_SEVERITY_LABELS + r")"
+    r"\[?\s*(" + _ALL_SEVERITY_LABELS + r")\s*\]?"
     r"(?:\s+Severity)?"
     r"(?:\s+Findings?)?"
-    r"(?:\s*\(\d+\))?"  # optional count like (3)
-    r"(?:\s*:\s*(.+))?$",  # optional description after colon
+    r"(?:\s*\([^)]*\))?"  # optional parenthetical like (3) or (Must Fix)
+    r"(?:\s*[—–:-]?\s*(.+))?$",  # optional description after colon/dash/space
     re.IGNORECASE | re.MULTILINE,
 )
 
