@@ -490,8 +490,8 @@ def parse_evidence_findings(
 
     """
     # Early return for content too short to contain a structured report
-    MIN_CONTENT_LENGTH = 2000  # ~500 tokens; too short for structured report
-    if len(content) < MIN_CONTENT_LENGTH:
+    min_content_length = 2000  # ~500 tokens; too short for structured report
+    if len(content) < min_content_length:
         logger.info(
             "Skipping Evidence Score for %s: content too short for parsing (%d chars)",
             validator_id,
