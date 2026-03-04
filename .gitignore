@@ -34,6 +34,9 @@ venv/
 ENV/
 env/
 
+# Lock files
+uv.lock
+
 # Type checkers
 .mypy_cache/
 .dmypy.json
