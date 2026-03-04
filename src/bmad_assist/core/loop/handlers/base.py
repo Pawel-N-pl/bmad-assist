@@ -361,17 +361,19 @@ class BaseHandler(ABC):
                 expected_prompt_tokens = compiled.token_estimate * 2
 
                 if expected_prompt_tokens > workflow_budget:
-                    logger.warning(
-                        "Prompt may exceed budget for %s: estimated %d tokens "
-                        "(config budget: %d). Consider reducing source context.",
-                        workflow_name,
-                        expected_prompt_tokens,
-                        workflow_budget,
-                    )
-
-                    # Attempt post-compilation compression of context files
+                    # Check if compression will be attempted before choosing log level
                     compression_cfg = config.compiler.prompt_compression
-                    if compression_cfg.enabled and config.providers.helper:
+                    will_compress = compression_cfg.enabled and config.providers.helper
+
+                    if will_compress:
+                        # Compression available — INFO now, WARNING later if still over
+                        logger.info(
+                            "Prompt may exceed budget for %s: estimated %d tokens "
+                            "(config budget: %d). Attempting compression...",
+                            workflow_name,
+                            expected_prompt_tokens,
+                            workflow_budget,
+                        )
                         try:
                             from bmad_assist.compiler.prompt_compression import (
                                 compress_context_files,
@@ -379,12 +381,6 @@ class BaseHandler(ABC):
 
                             helper = config.providers.helper
                             helper_provider = get_provider(helper.provider)
-
-                            logger.info(
-                                "Prompt exceeds budget (%d > %d), compressing context files...",
-                                expected_prompt_tokens,
-                                workflow_budget,
-                            )
 
                             compressed_prompt, new_tokens = compress_context_files(
                                 prompt,
@@ -405,6 +401,15 @@ class BaseHandler(ABC):
                                     new_tokens,
                                     workflow_name,
                                 )
+                                # After compression, warn if still over budget
+                                if new_tokens > workflow_budget:
+                                    logger.warning(
+                                        "Prompt still exceeds budget for %s after "
+                                        "compression: ~%d tokens (budget: %d)",
+                                        workflow_name,
+                                        new_tokens,
+                                        workflow_budget,
+                                    )
                             else:
                                 logger.warning(
                                     "Post-compilation compression did not reduce tokens for %s",
@@ -416,6 +421,15 @@ class BaseHandler(ABC):
                                 workflow_name,
                                 e,
                             )
+                    else:
+                        # No compression available — WARNING immediately
+                        logger.warning(
+                            "Prompt may exceed budget for %s: estimated %d tokens "
+                            "(config budget: %d). Consider reducing source context.",
+                            workflow_name,
+                            expected_prompt_tokens,
+                            workflow_budget,
+                        )
             except Exception:
                 # Config not loaded (e.g., in tests) - skip budget warning
                 pass

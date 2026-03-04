@@ -296,8 +296,8 @@ class ValidateStorySynthesisCompiler:
                 # F4-IMPL: Limit source files for synthesis to prevent token explosion
                 max_synthesis_files = 3
                 if len(source_files) > max_synthesis_files:
-                    sorted_files = sorted(source_files.items(), key=lambda x: x[0])
-                    limited_files = dict(sorted_files[:max_synthesis_files])
+                    # Preserve score-based ordering from SourceContextService
+                    limited_files = dict(list(source_files.items())[:max_synthesis_files])
                     logger.warning(
                         "Synthesis source files limited: %d → %d (token budget protection)",
                         len(source_files),

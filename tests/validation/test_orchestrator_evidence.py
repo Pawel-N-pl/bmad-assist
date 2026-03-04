@@ -32,13 +32,16 @@ from bmad_assist.validation.orchestrator import (
     save_validations_for_synthesis,
 )
 
+# Padding to push test content above MIN_CONTENT_LENGTH (2000 chars) in parse_evidence_findings.
+_PAD = "\n<!-- " + "x" * 2000 + " -->\n"
+
 
 class TestParseEvidenceFindingsIntegration:
     """Integration tests for parsing Evidence Score from validator output."""
 
     def test_parses_full_validation_report(self) -> None:
         """Parse Evidence Score from a complete validation report."""
-        content = """# Story Context Validation Report
+        content = _PAD + """# Story Context Validation Report
 
 ## Executive Summary
 
@@ -77,7 +80,7 @@ Story validated against INVEST criteria.
 
     def test_parses_clean_validation_report(self) -> None:
         """Parse Evidence Score from a clean validation report with no issues."""
-        content = """# Story Context Validation Report
+        content = _PAD + """# Story Context Validation Report
 
 ## Evidence Score Summary
 
@@ -407,7 +410,7 @@ class TestEndToEndEvidenceScoreFlow:
         """Test complete flow from validator content to synthesis context."""
         # Step 1: Parse validator outputs
         # Note: Use identical critical finding descriptions to ensure consensus detection
-        validator_a_content = """
+        validator_a_content = _PAD + """
 ## Evidence Score Summary
 
 | Severity | Description | Source | Score |
@@ -419,7 +422,7 @@ class TestEndToEndEvidenceScoreFlow:
 
 ### Evidence Score: 2.5
 """
-        validator_b_content = """
+        validator_b_content = _PAD + """
 ## Evidence Score Summary
 
 | Severity | Description | Source | Score |

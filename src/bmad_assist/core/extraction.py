@@ -194,11 +194,19 @@ def extract_report(
         return content
 
     # Stage 3: Last resort - return stripped original
-    logger.warning(
-        "Could not extract structured %s report, using raw content (%d chars)",
-        markers.name,
-        len(raw_output.strip()),
-    )
+    stripped_len = len(raw_output.strip())
+    if stripped_len < 2000:
+        logger.info(
+            "Validator produced short unstructured %s output (%d chars), using as-is",
+            markers.name,
+            stripped_len,
+        )
+    else:
+        logger.warning(
+            "Could not extract structured %s report, using raw content (%d chars)",
+            markers.name,
+            stripped_len,
+        )
     return raw_output.strip()
 
 

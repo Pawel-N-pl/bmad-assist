@@ -29,6 +29,10 @@ from bmad_assist.validation.evidence_score import (
     parse_evidence_findings,
 )
 
+# Padding to push test content above MIN_CONTENT_LENGTH (2000 chars) in parse_evidence_findings.
+# Without this, the early-return for short content would skip parsing entirely.
+_PAD = "\n<!-- " + "x" * 2000 + " -->\n"
+
 
 # =============================================================================
 # Enum Tests
@@ -192,7 +196,7 @@ class TestParseEvidenceFindings:
 
     def test_parse_table_format(self) -> None:
         """Test parsing Evidence Score table format."""
-        content = """
+        content = _PAD + """
 ## Evidence Score Summary
 
 | Severity | Description | Source | Score |
@@ -214,7 +218,7 @@ class TestParseEvidenceFindings:
 
     def test_parse_bullet_format(self) -> None:
         """Test parsing Evidence Score bullet format."""
-        content = """
+        content = _PAD + """
 ## Findings
 
 - 🔴 **CRITICAL** (+3): SQL injection vulnerability [db.py:50]
@@ -240,9 +244,16 @@ Just plain text without structured findings.
         report = parse_evidence_findings(content, "Validator C")
         assert report is None
 
+    def test_parse_short_content_returns_none(self) -> None:
+        """Test that short content (<2000 chars) returns None early without warning."""
+        content = "Short validator output with no structure."
+        assert len(content) < 2000
+        report = parse_evidence_findings(content, "Validator Short")
+        assert report is None
+
     def test_parse_table_with_high_medium_low_aliases(self) -> None:
         """Test parsing table format with HIGH/MEDIUM/LOW aliases."""
-        content = """
+        content = _PAD + """
 ## Evidence Score Summary
 
 | Severity | Description | Source | Score |
@@ -260,7 +271,7 @@ Just plain text without structured findings.
 
     def test_parse_section_header_fallback(self) -> None:
         """Test fallback parsing from section headers (## HIGH Severity, ### HIGH: desc)."""
-        content = """
+        content = _PAD + """
 # Code Review
 
 ## HIGH Severity Findings
@@ -295,7 +306,7 @@ Nothing significant.
 
     def test_parse_section_header_with_description(self) -> None:
         """Test parsing headers like '### HIGH: Path Traversal Vulnerability'."""
-        content = """
+        content = _PAD + """
 # Code Review
 
 ### HIGH: Path Traversal Vulnerability for New Files
@@ -321,7 +332,7 @@ Some details here.
 
     def test_parse_finding_number_dash_severity_format(self) -> None:
         """Test parsing '### Finding #1 — HIGH: description' format."""
-        content = """
+        content = _PAD + """
 ### Finding #1 — HIGH: tempfile is a dev-dependency but used in public module
 Details here.
 
@@ -337,7 +348,7 @@ Details here.
 
     def test_parse_section_header_five_hashes(self) -> None:
         """Test parsing '##### HIGH Severity Findings (Must Fix)' format."""
-        content = """
+        content = _PAD + """
 ##### HIGH Severity Findings (Must Fix)
 
 Some details about high severity issues.
@@ -355,7 +366,7 @@ Some medium details.
 
     def test_parse_section_header_bracketed_severity(self) -> None:
         """Test parsing '### [CRITICAL] Description here' format."""
-        content = """
+        content = _PAD + """
 ### [CRITICAL] False Claim: Incomplete Passphrase Zeroing in CLI
 
 Details about the critical issue.
@@ -373,7 +384,7 @@ Details about the high issue.
 
     def test_parse_section_header_issue_n_format(self) -> None:
         """Test parsing '### ISSUE-1 [HIGH] — Description' format."""
-        content = """
+        content = _PAD + """
 ### ISSUE-1 [HIGH] — Passphrase handled as raw Vec<u8>
 
 Details about issue 1.
@@ -396,7 +407,7 @@ Details about issue 3.
 
     def test_parse_trailing_bracket_severity(self) -> None:
         """Test parsing '### ISSUE-1: Description [HIGH — Category]' format."""
-        content = """
+        content = _PAD + """
 ## Findings
 
 ### ISSUE-1: Decrypted plaintext not zeroized in `migrate_file()` [HIGH — Security]
@@ -427,7 +438,7 @@ Details about the low issue.
 
     def test_parse_bold_severity_line(self) -> None:
         """Test parsing '**Severity:** HIGH' on separate lines below headers."""
-        content = """
+        content = _PAD + """
 ## Findings
 
 ### ISSUE-1: `expect()` calls in production code
@@ -458,7 +469,7 @@ Details about the low issue.
 
     def test_parse_only_clean_passes(self) -> None:
         """Test parsing report with only CLEAN PASS count."""
-        content = """
+        content = _PAD + """
 ## Evidence Score
 
 No issues found!

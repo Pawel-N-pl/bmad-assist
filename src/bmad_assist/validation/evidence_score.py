@@ -478,6 +478,16 @@ def parse_evidence_findings(
         None on complete parse failure (no usable data).
 
     """
+    # Early return for content too short to contain a structured report
+    MIN_CONTENT_LENGTH = 2000  # ~500 tokens; too short for structured report
+    if len(content) < MIN_CONTENT_LENGTH:
+        logger.info(
+            "Skipping Evidence Score for %s: content too short for parsing (%d chars)",
+            validator_id,
+            len(content),
+        )
+        return None
+
     findings: list[EvidenceFinding] = []
     clean_passes = 0
     parse_warnings: list[str] = []

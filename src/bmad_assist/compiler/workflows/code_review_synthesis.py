@@ -350,12 +350,11 @@ class CodeReviewSynthesisCompiler:
         service = SourceContextService(context, "code_review_synthesis")
         source_files = service.collect_files(file_list_paths, git_diff_files)
 
-        # Hard cap: max 3 files for synthesis (prioritized by score)
+        # Hard cap: max 3 files for synthesis
         max_synthesis_files = 3
         if len(source_files) > max_synthesis_files:
-            # Sort by file path (deterministic) and take first 3
-            sorted_files = sorted(source_files.items(), key=lambda x: x[0])
-            limited_files = dict(sorted_files[:max_synthesis_files])
+            # Preserve score-based ordering from SourceContextService
+            limited_files = dict(list(source_files.items())[:max_synthesis_files])
             logger.warning(
                 "Synthesis source files limited: %d → %d (token budget protection)",
                 len(source_files),
