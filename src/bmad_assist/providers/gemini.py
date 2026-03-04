@@ -68,13 +68,16 @@ MAX_RETRIES: int = 5
 RETRY_BASE_DELAY: float = 2.0  # Base delay in seconds (exponential backoff)
 RETRY_MAX_DELAY: float = 30.0  # Maximum delay between retries
 
-# Informational stderr prefixes from Gemini CLI that should not affect
-# retry decisions (these are always emitted and don't indicate real errors)
+# Stderr prefixes from Gemini CLI that should not prevent retries.
+# Informational lines (YOLO/Sandbox mode) are always emitted; tool-execution
+# errors (e.g. model passes prompt content as a file path) are stochastic
+# and unlikely to recur on retry.
 _STDERR_INFO_PREFIXES: tuple[str, ...] = (
     "YOLO mode",
     "Loaded cached",
     "Sandbox mode",
     "File ",  # ripgrep cache messages
+    "Error stating path",  # model passed bad path to Read/Glob tool
 )
 
 # Tool name mapping: Gemini CLI uses technical names, we use display names

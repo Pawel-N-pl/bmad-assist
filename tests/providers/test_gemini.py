@@ -905,6 +905,35 @@ class TestGeminiProviderRetryLogic:
         assert "OK" in result.stdout
         assert calls["count"] == 2  # retried once
 
+    def test_stat_path_error_is_retried(self, provider: GeminiProvider) -> None:
+        """Stderr with 'Error stating path' from bad tool call should trigger retry."""
+        calls = {"count": 0}
+
+        def make_process(*args: object, **kwargs: object) -> MagicMock:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                # First call: model passed prompt content as file path
+                return create_gemini_mock_process(
+                    stdout_content="",
+                    stderr_content=(
+                        "YOLO mode is enabled. All tool calls will be automatically approved.\n"
+                        'Error stating path gmail.com"`, `"proton:user@proton.me"`) to\n'
+                    ),
+                    returncode=1,
+                )
+            # Second call: succeed
+            return create_gemini_mock_process(
+                response_text="OK",
+                stderr_content="",
+                returncode=0,
+            )
+
+        with patch("bmad_assist.providers.gemini.Popen", side_effect=make_process):
+            result = provider.invoke("Hello")
+
+        assert "OK" in result.stdout
+        assert calls["count"] == 2  # retried once
+
     def test_real_error_stderr_is_not_retried(self, provider: GeminiProvider) -> None:
         """Stderr with real error content (beyond info prefixes) should not retry."""
         with patch("bmad_assist.providers.gemini.Popen") as mock_popen:
