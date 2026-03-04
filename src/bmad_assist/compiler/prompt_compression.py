@@ -4,10 +4,6 @@ Replaces simple truncation with intelligent compression using the helper
 provider (e.g., haiku). Preserves key technical information while reducing
 token count to fit within budgets.
 
-Compression results are cached to `.bmad-assist/cache/compressed/` using a
-content-hash key (SHA-256 of source content + target_tokens). Cache hits
-skip the LLM call entirely.
-
 Two entry points:
 - compress_document(): Compress a single document to a target token count.
 - compress_context_files(): Post-compilation pass to compress <file> elements
@@ -16,11 +12,8 @@ Two entry points:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bmad_assist.compiler.shared_utils import estimate_tokens
@@ -48,73 +41,40 @@ DOCUMENT:
 
 
 # ---------------------------------------------------------------------------
-# Compression cache helpers
+# Stale .json cache cleanup (one-time, from removed pattern-A cache)
 # ---------------------------------------------------------------------------
 
-def _compression_cache_dir() -> Path | None:
-    """Return the compression cache directory, or None if paths not initialized."""
+_json_cache_cleaned = False
+
+
+def _cleanup_stale_json_cache() -> None:
+    """Remove stale *.json files from the compressed cache directory.
+
+    Previously, compress_document() maintained its own .json cache (pattern A).
+    That cache has been removed in favour of the .md/.meta.yaml cache in
+    strategic_context.py (pattern B).  This function deletes any leftover
+    .json files on the first call per process.
+    """
+    global _json_cache_cleaned  # noqa: PLW0603
+    if _json_cache_cleaned:
+        return
+    _json_cache_cleaned = True
+
     try:
         from bmad_assist.core.paths import get_paths
-        return get_paths().cache_dir / "compressed"
+        cache_dir = get_paths().cache_dir / "compressed"
     except Exception:
-        return None
-
-
-def _cache_key(content: str, target_tokens: int) -> str:
-    """Compute a cache key from content hash and target tokens."""
-    h = hashlib.sha256()
-    h.update(content.encode("utf-8", errors="replace"))
-    h.update(f"|target={target_tokens}".encode())
-    return h.hexdigest()[:16]
-
-
-def _load_cached(content: str, target_tokens: int) -> tuple[str, int] | None:
-    """Load compressed content from cache if it exists and source matches."""
-    cache_dir = _compression_cache_dir()
-    if cache_dir is None:
-        return None
-
-    key = _cache_key(content, target_tokens)
-    cache_file = cache_dir / f"{key}.json"
-    if not cache_file.exists():
-        return None
-
-    try:
-        data = json.loads(cache_file.read_text(encoding="utf-8"))
-        compressed = data["compressed"]
-        actual_tokens = data["actual_tokens"]
-        logger.info(
-            "Compression cache hit: key=%s, tokens=%d",
-            key, actual_tokens,
-        )
-        return compressed, actual_tokens
-    except (json.JSONDecodeError, KeyError, OSError) as e:
-        logger.debug("Compression cache read failed for %s: %s", key, e)
-        return None
-
-
-def _save_cached(
-    content: str, target_tokens: int, compressed: str, actual_tokens: int
-) -> None:
-    """Save compressed content to cache."""
-    cache_dir = _compression_cache_dir()
-    if cache_dir is None:
         return
 
-    try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        key = _cache_key(content, target_tokens)
-        cache_file = cache_dir / f"{key}.json"
-        cache_file.write_text(
-            json.dumps(
-                {"compressed": compressed, "actual_tokens": actual_tokens},
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-        logger.debug("Compression cache saved: key=%s", key)
-    except OSError as e:
-        logger.debug("Compression cache write failed: %s", e)
+    if not cache_dir.is_dir():
+        return
+
+    for json_file in cache_dir.glob("*.json"):
+        try:
+            json_file.unlink()
+            logger.debug("Removed stale compression cache file: %s", json_file.name)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -128,11 +88,10 @@ def compress_document(
     model: str,
     timeout: int = 120,
 ) -> tuple[str, int]:
-    """Compress a document using the helper LLM, with caching.
+    """Compress a document using the helper LLM.
 
-    Checks `.bmad-assist/cache/compressed/` for a cached result keyed by
-    SHA-256(content + target_tokens). On cache miss, invokes the helper
-    provider and saves the result for future runs.
+    Pure LLM call with no local caching. Callers that need caching
+    (e.g., strategic_context) maintain their own cache layer.
 
     Args:
         content: Full document content to compress.
@@ -149,10 +108,7 @@ def compress_document(
             Callers should catch this and fall back to truncation.
 
     """
-    # Check cache first
-    cached = _load_cached(content, target_tokens)
-    if cached is not None:
-        return cached
+    _cleanup_stale_json_cache()
 
     target_chars = target_tokens * 4
     prompt = COMPRESSION_PROMPT.format(
@@ -177,9 +133,6 @@ def compress_document(
         raise RuntimeError("Compression returned empty content")
 
     actual_tokens = estimate_tokens(compressed)
-
-    # Save to cache for future runs
-    _save_cached(content, target_tokens, compressed, actual_tokens)
 
     return compressed, actual_tokens
 

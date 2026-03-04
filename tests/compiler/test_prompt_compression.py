@@ -223,8 +223,8 @@ class TestCompressContextFiles:
         assert "900 tokens" in prompt_arg
 
 
-class TestCompressionCache:
-    """Tests for compression caching in compress_document()."""
+class TestStaleJsonCacheCleanup:
+    """Tests for _cleanup_stale_json_cache() in compress_document()."""
 
     def _make_provider(self, stdout: str = "compressed content", exit_code: int = 0):
         """Create a mock provider."""
@@ -236,96 +236,78 @@ class TestCompressionCache:
         provider.invoke.return_value = result
         return provider
 
-    def test_cache_miss_invokes_provider_and_saves(self, tmp_path):
-        """On cache miss, invokes provider and saves result to cache."""
-        from bmad_assist.compiler.prompt_compression import compress_document
+    def test_removes_stale_json_files(self, tmp_path):
+        """Stale *.json files are removed from the compressed cache dir."""
+        import bmad_assist.compiler.prompt_compression as mod
 
         provider = self._make_provider("# Compressed")
         cache_dir = tmp_path / "compressed"
+        cache_dir.mkdir()
+
+        # Create stale .json files
+        (cache_dir / "abc123.json").write_text("{}")
+        (cache_dir / "def456.json").write_text("{}")
+        # Also a pattern-B file that should NOT be removed
+        (cache_dir / "ux-abc123.md").write_text("# compressed")
+
+        # Reset the once-flag so cleanup runs
+        mod._json_cache_cleaned = False
 
         with patch(
-            "bmad_assist.compiler.prompt_compression._compression_cache_dir",
-            return_value=cache_dir,
-        ):
-            compressed, tokens = compress_document("original content", 500, provider, "haiku")
+            "bmad_assist.core.paths.get_paths",
+        ) as mock_get_paths:
+            paths = MagicMock()
+            paths.cache_dir = tmp_path
+            mock_get_paths.return_value = paths
 
-        assert compressed == "# Compressed"
-        provider.invoke.assert_called_once()
-        # Cache file should have been created
-        cache_files = list(cache_dir.glob("*.json"))
-        assert len(cache_files) == 1
+            compress_document("content", 500, provider, "haiku")
 
-    def test_cache_hit_skips_provider(self, tmp_path):
-        """On cache hit, returns cached content without invoking provider."""
-        from bmad_assist.compiler.prompt_compression import compress_document
+        # .json files should be gone
+        assert list(cache_dir.glob("*.json")) == []
+        # .md file should still be there
+        assert (cache_dir / "ux-abc123.md").exists()
+
+    def test_cleanup_runs_only_once(self, tmp_path):
+        """Cleanup only runs on the first call per process."""
+        import bmad_assist.compiler.prompt_compression as mod
 
         provider = self._make_provider("# Compressed")
         cache_dir = tmp_path / "compressed"
+        cache_dir.mkdir()
+
+        # Reset the once-flag
+        mod._json_cache_cleaned = False
 
         with patch(
-            "bmad_assist.compiler.prompt_compression._compression_cache_dir",
-            return_value=cache_dir,
-        ):
-            # First call: cache miss, invokes provider
-            compressed1, tokens1 = compress_document("original content", 500, provider, "haiku")
-            assert provider.invoke.call_count == 1
+            "bmad_assist.core.paths.get_paths",
+        ) as mock_get_paths:
+            paths = MagicMock()
+            paths.cache_dir = tmp_path
+            mock_get_paths.return_value = paths
 
-            # Second call: cache hit, skips provider
-            compressed2, tokens2 = compress_document("original content", 500, provider, "haiku")
-            assert provider.invoke.call_count == 1  # still 1, not called again
+            compress_document("content", 500, provider, "haiku")
+            # Create a new .json after first call
+            (cache_dir / "new.json").write_text("{}")
+            compress_document("content", 500, provider, "haiku")
 
-        assert compressed1 == compressed2
-        assert tokens1 == tokens2
+        # Second call should NOT have cleaned up the new file
+        assert (cache_dir / "new.json").exists()
 
-    def test_different_content_different_cache_key(self, tmp_path):
-        """Different content produces different cache entries."""
-        from bmad_assist.compiler.prompt_compression import compress_document
+    def test_cleanup_tolerates_missing_paths(self):
+        """Cleanup is a no-op when project paths aren't initialized."""
+        import bmad_assist.compiler.prompt_compression as mod
 
         provider = self._make_provider("# Compressed")
-        cache_dir = tmp_path / "compressed"
+        mod._json_cache_cleaned = False
 
         with patch(
-            "bmad_assist.compiler.prompt_compression._compression_cache_dir",
-            return_value=cache_dir,
+            "bmad_assist.core.paths.get_paths",
+            side_effect=RuntimeError("not initialized"),
         ):
-            compress_document("content A", 500, provider, "haiku")
-            compress_document("content B", 500, provider, "haiku")
-
-        assert provider.invoke.call_count == 2
-        cache_files = list(cache_dir.glob("*.json"))
-        assert len(cache_files) == 2
-
-    def test_different_target_tokens_different_cache_key(self, tmp_path):
-        """Same content with different target tokens produces different entries."""
-        from bmad_assist.compiler.prompt_compression import compress_document
-
-        provider = self._make_provider("# Compressed")
-        cache_dir = tmp_path / "compressed"
-
-        with patch(
-            "bmad_assist.compiler.prompt_compression._compression_cache_dir",
-            return_value=cache_dir,
-        ):
-            compress_document("same content", 500, provider, "haiku")
-            compress_document("same content", 1000, provider, "haiku")
-
-        assert provider.invoke.call_count == 2
-
-    def test_cache_disabled_when_paths_not_initialized(self):
-        """Caching is transparent when project paths aren't initialized."""
-        from bmad_assist.compiler.prompt_compression import compress_document
-
-        provider = self._make_provider("# Compressed")
-
-        with patch(
-            "bmad_assist.compiler.prompt_compression._compression_cache_dir",
-            return_value=None,
-        ):
-            # Should work without caching
+            # Should not raise
             compressed, tokens = compress_document("content", 500, provider, "haiku")
 
         assert compressed == "# Compressed"
-        provider.invoke.assert_called_once()
 
 
 class TestCompressOrTruncate:
