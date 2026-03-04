@@ -368,7 +368,7 @@ _FINDING_BULLET_PATTERN = re.compile(
 #   ### ISSUE-1 [HIGH] — description
 _SECTION_HEADER_PATTERN = re.compile(
     r"^#{2,6}\s+"
-    r"(?:(?:Finding|ISSUE)\s*[-#]?\s*\d+\s*[—–-]?\s*)?"
+    r"(?:(?:Finding|ISSUE)\s*[-#]?\s*\d+\s*[—–-]?\s*|\d+\.\s+)?"
     r"(?:🔴|🟠|🟡|🔵)?\s*"
     r"\[?\s*(" + _ALL_SEVERITY_LABELS + r")\s*\]?"
     r"(?:\s+Severity)?"
@@ -388,6 +388,15 @@ _TRAILING_BRACKET_SEVERITY_PATTERN = re.compile(
     r"\s*\[\s*(?:🔴|🟠|🟡|🔵)?\s*(" + _ALL_SEVERITY_LABELS + r")"
     r"(?:\s*[—–-]\s*[^\]]+)?"  # optional category after dash (e.g., "— Security")
     r"\s*\]\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Fallback: numbered/bulleted list items with bold severity labels
+# Matches: 1. **HIGH**: Description text
+#           - **MEDIUM**: Some issue here
+#           * **LOW**: Minor finding
+_BOLD_LIST_SEVERITY_PATTERN = re.compile(
+    r"^(?:[-*]|\d+\.)\s+\*{1,2}(" + _ALL_SEVERITY_LABELS + r")\*{1,2}\s*:\s*\*{0,2}(.+)",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -461,10 +470,12 @@ def parse_evidence_findings(
 
     Fallback strategy:
     1. Primary: Parse structured Evidence Score table with severity columns
-    2. Fallback 1: Parse individual CRITICAL/IMPORTANT/MINOR bullet points
-    3. Fallback 2: Parse section headers (## HIGH Severity, ### Finding #N — HIGH: ...)
-    4. Fallback 3: Parse Evidence Score total from heading/footer
-    5. If none work: return None (validator excluded from aggregate)
+    2. Fallback 1: Parse individual CRITICAL/IMPORTANT/MINOR bullet points with score
+    3. Fallback 2: Parse section headers (## HIGH Severity, ### 1. HIGH: desc, ...)
+    4. Fallback 3: Trailing bracket severity (### ISSUE-1: desc [HIGH])
+    5. Fallback 4: Bold severity lines (**Severity:** HIGH)
+    6. Fallback 5: Bold list items (1. **HIGH**: desc, - **MEDIUM**: desc)
+    7. If none work: return None (validator excluded from aggregate)
 
     Accepts both canonical severity names (CRITICAL, IMPORTANT, MINOR) and
     common aliases (HIGH, MEDIUM, LOW).
@@ -603,6 +614,32 @@ def parse_evidence_findings(
         if findings:
             parse_warnings.append(
                 "Used bold-severity-line fallback parser (no Evidence Score table found)"
+            )
+
+    # Fallback: numbered/bulleted list items with bold severity
+    # Matches: 1. **HIGH**: Description  or  - **MEDIUM**: Description
+    if not findings:
+        list_matches = _BOLD_LIST_SEVERITY_PATTERN.findall(content)
+        for severity_str, description in list_matches:
+            try:
+                severity = _resolve_severity(severity_str)
+                score = SEVERITY_SCORES[severity.value]
+                # Strip trailing bold markers and whitespace from description
+                desc = description.strip().rstrip("*").strip()
+                findings.append(
+                    EvidenceFinding(
+                        severity=severity,
+                        score=score,
+                        description=desc,
+                        source="",
+                        validator_id=validator_id,
+                    )
+                )
+            except (ValueError, KeyError) as e:
+                parse_warnings.append(f"Failed to parse bold-list finding: {e}")
+        if findings:
+            parse_warnings.append(
+                "Used bold-list-severity fallback parser (no Evidence Score table found)"
             )
 
     # Parse CLEAN PASS count

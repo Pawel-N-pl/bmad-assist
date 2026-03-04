@@ -467,6 +467,99 @@ Details about the low issue.
         assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
         assert any("bold-severity" in w for w in report.parse_warnings)
 
+    def test_parse_section_header_numbered_prefix(self) -> None:
+        """Test parsing '### 1. HIGH: Description' format (bare numbered prefix)."""
+        content = _PAD + """
+# Code Review Report
+
+## Findings Summary
+- **HIGH**: Documentation completely missing (AC #6).
+- **MEDIUM**: Incomplete MessagePack test coverage (AC #5.1).
+
+## Detailed Findings
+
+### 1. HIGH: Documentation Completely Missing (AC #6)
+None of the documentation requirements have been implemented.
+
+### 2. MEDIUM: Incomplete MessagePack Test Coverage (AC #5.1)
+AC #5.1 explicitly requires MessagePack and JSON round-trip tests.
+
+### 3. MEDIUM: Weak Assertions in Round-trip Tests
+The unit tests perform shallow assertions.
+
+### 4. LOW: `Attachment` Struct Lacks Serialization
+While `AttachmentMetadata` is serializable, the `Attachment` struct is not.
+
+### 5. LOW: Inconsistent Error Context in `ProviderError`
+The error messages are less actionable.
+"""
+        report = parse_evidence_findings(content, "Validator Numbered")
+        assert report is not None
+        assert len(report.findings) == 5
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert "Documentation Completely Missing" in report.findings[0].description
+        assert report.findings[1].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[2].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
+        assert report.findings[4].severity == Severity.MINOR  # LOW → MINOR
+
+    def test_parse_bold_list_severity(self) -> None:
+        """Test parsing numbered/bulleted lists with bold severity labels."""
+        content = _PAD + """
+### Adversarial Code Review Report
+
+**Findings:**
+
+1.  **MEDIUM**: **Incomplete Story File List**.
+    *   **Context**: The file list is missing entries.
+    *   **Impact**: Incomplete transparency.
+
+2.  **HIGH**: **Incomplete serde attribute application**.
+    *   **Context**: AC 1.8 mandates serde(default).
+    *   **Impact**: Potential deserialization failures.
+
+3.  **MEDIUM**: **Missing field attributes**.
+    *   **Context**: AC 2.3 specifies requirements.
+
+4.  **HIGH**: **Incomplete workspace dependency setup**.
+    *   **Context**: Task 1 is incomplete.
+
+5.  **MEDIUM**: **Loss of error detail**.
+    *   **Context**: Error chain is lost.
+
+6.  **LOW**: **Incomplete newtype functionality**.
+    *   **Context**: AC 1.3 omits Default.
+"""
+        report = parse_evidence_findings(content, "Validator BoldList")
+        assert report is not None
+        assert len(report.findings) == 6
+        assert report.findings[0].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[1].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[2].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[4].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[5].severity == Severity.MINOR  # LOW → MINOR
+        assert any("bold-list" in w for w in report.parse_warnings)
+
+    def test_parse_bold_list_bullet_format(self) -> None:
+        """Test parsing '- **HIGH**: Description' bullet format."""
+        content = _PAD + """
+# Code Review
+
+## Findings Summary
+- **HIGH**: Documentation completely missing (AC #6).
+- **MEDIUM**: Incomplete test coverage (AC #5.1).
+- **MEDIUM**: Weak assertions in round-trip tests.
+- **LOW**: Struct lacks serialization.
+"""
+        report = parse_evidence_findings(content, "Validator BulletBold")
+        assert report is not None
+        assert len(report.findings) == 4
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[1].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
+        assert any("bold-list" in w for w in report.parse_warnings)
+
     def test_parse_only_clean_passes(self) -> None:
         """Test parsing report with only CLEAN PASS count."""
         content = _PAD + """
