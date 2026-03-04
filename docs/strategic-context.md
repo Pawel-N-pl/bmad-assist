@@ -93,10 +93,14 @@ The `main_only` flag controls loading behavior:
 
 ## Token Budget
 
-The `budget` setting caps total strategic context size. If documents exceed the budget:
-1. Documents are loaded in order specified by `include`
-2. Loading stops when budget would be exceeded
-3. A warning is logged if budget is tight
+The `budget` setting caps total strategic context size. Documents are loaded in order specified by `include`. If a document exceeds the remaining budget:
+
+1. **LLM compression** — If `prompt_compression` is enabled and a helper provider is configured, the document is compressed via the helper LLM. Compressed results are cached to disk (`.bmad-assist/cache/compressed/`) so unchanged documents are not re-compressed on subsequent runs.
+2. **Truncation fallback** — If compression is disabled, unavailable, or fails, the document is truncated at a markdown heading or paragraph boundary with a notice appended.
+
+The same compression-then-truncate strategy also applies to source files collected for synthesis workflows (validate-story-synthesis, code-review-synthesis).
+
+See [Prompt Compression](configuration.md#prompt-compression) for configuration options.
 
 Recommended budgets:
 - Small projects: 4000-6000 tokens

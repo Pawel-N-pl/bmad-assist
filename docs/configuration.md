@@ -130,6 +130,7 @@ Per-phase timeout configuration (in seconds):
 ```yaml
 timeouts:
   default: 600              # Fallback for phases not listed
+  retries: 2                # Retry count (None=no retry, 0=infinite)
   create_story: 900
   validate_story: 600
   validate_story_synthesis: 300
@@ -137,6 +138,15 @@ timeouts:
   code_review: 900
   code_review_synthesis: 300
   retrospective: 900
+  # Testarch (TEA) phases
+  atdd: 1800
+  test_review: 900
+  tea_test_design: 900
+  tea_framework: 600
+  tea_automate: 900
+  tea_ci: 600
+  tea_nfr_assess: 900
+  trace: 900
 ```
 
 ## External Paths
@@ -168,6 +178,21 @@ paths:
 3. **Relative** (`../shared-docs`) - resolved from project root
 
 ## Compiler Settings
+
+### Prompt Compression
+
+When context documents or source files exceed their token budget, bmad-assist can compress them via the helper LLM instead of naively truncating. Compressed results are cached to disk (`.bmad-assist/cache/compressed/`) so unchanged files are not re-compressed on subsequent runs.
+
+```yaml
+compiler:
+  prompt_compression:
+    enabled: true              # Use LLM compression instead of truncation
+    compression_ratio: 0.5     # Target 50% of original size
+    min_file_tokens: 2000      # Only compress files larger than this
+    timeout: 120               # Per-file compression timeout (seconds)
+```
+
+Requires a `providers.helper` to be configured. Falls back to truncation if compression is disabled, no helper is configured, or the LLM call fails.
 
 ### Source Context
 

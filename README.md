@@ -39,7 +39,7 @@ One LLM (Master) writes all code. The others only validate and review - they nev
 - **AST-aware Truncation** - Intelligent file truncation based on code structure (classes, functions) to fit token budgets
 - **Evidence Score System** - Mathematical validation scoring with anti-bias checks for reliable quality assessment
 - **Antipatterns Module** - Learns from validation and code review findings, injects lessons into subsequent prompts to prevent recurring mistakes
-- **Strategic Context Loading** - Config-driven loading of PRD/Architecture per workflow with intelligent truncation to token limits
+- **Strategic Context Loading** - Config-driven loading of PRD/Architecture per workflow with LLM-based compression (cached to disk) and truncation fallback to fit token limits
 - **Patch System** - Removes interactive elements from BMAD workflows for fully automated execution
 - **Python State Tracking** - Deterministic sequencing maintains sprint status internally instead of relying on LLM inference
 
