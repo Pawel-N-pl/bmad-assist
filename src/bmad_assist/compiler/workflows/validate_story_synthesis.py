@@ -37,6 +37,7 @@ from bmad_assist.compiler.shared_utils import (
     find_sprint_status_file,
     format_dv_findings_for_prompt,
     get_stories_dir,
+    limit_synthesis_source_files,
     load_workflow_template,
     resolve_story_file,
     safe_read_file,
@@ -293,17 +294,9 @@ class ValidateStorySynthesisCompiler:
                 service = SourceContextService(context, "validate_story_synthesis")
                 source_files = service.collect_files(file_list_paths, None)
 
-                # F4-IMPL: Limit source files for synthesis to prevent token explosion
-                max_synthesis_files = 3
-                if len(source_files) > max_synthesis_files:
-                    # Preserve score-based ordering from SourceContextService
-                    limited_files = dict(list(source_files.items())[:max_synthesis_files])
-                    logger.warning(
-                        "Synthesis source files limited: %d → %d (token budget protection)",
-                        len(source_files),
-                        max_synthesis_files,
-                    )
-                    source_files = limited_files
+                source_files = limit_synthesis_source_files(
+                    source_files, 3, service.budget, "validate_story_synthesis"
+                )
 
                 files.update(source_files)
                 if source_files:

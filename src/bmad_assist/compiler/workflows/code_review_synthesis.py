@@ -38,6 +38,7 @@ from bmad_assist.compiler.shared_utils import (
     find_sprint_status_file,
     format_dv_findings_for_prompt,
     get_stories_dir,
+    limit_synthesis_source_files,
     load_workflow_template,
     resolve_story_file,
     safe_read_file,
@@ -49,7 +50,7 @@ from bmad_assist.compiler.source_context import (
     extract_file_paths_from_story,
     get_git_diff_files,
 )
-from bmad_assist.compiler.strategic_context import StrategicContextService, _compress_or_truncate
+from bmad_assist.compiler.strategic_context import StrategicContextService
 from bmad_assist.compiler.types import CompiledWorkflow, CompilerContext
 from bmad_assist.compiler.variable_utils import (
     filter_garbage_variables,
@@ -319,6 +320,8 @@ class CodeReviewSynthesisCompiler:
 
             diff_tokens = estimate_tokens(git_diff)
             if diff_tokens > max_diff_tokens:
+                from bmad_assist.compiler.strategic_context import _compress_or_truncate
+
                 compressed_diff, _actual_tokens = _compress_or_truncate(
                     git_diff, max_diff_tokens, "git-diff"
                 )
@@ -350,17 +353,9 @@ class CodeReviewSynthesisCompiler:
         service = SourceContextService(context, "code_review_synthesis")
         source_files = service.collect_files(file_list_paths, git_diff_files)
 
-        # Hard cap: max 3 files for synthesis
-        max_synthesis_files = 3
-        if len(source_files) > max_synthesis_files:
-            # Preserve score-based ordering from SourceContextService
-            limited_files = dict(list(source_files.items())[:max_synthesis_files])
-            logger.warning(
-                "Synthesis source files limited: %d → %d (token budget protection)",
-                len(source_files),
-                max_synthesis_files,
-            )
-            source_files = limited_files
+        source_files = limit_synthesis_source_files(
+            source_files, 3, service.budget, "code_review_synthesis"
+        )
 
         files.update(source_files)
         if source_files:

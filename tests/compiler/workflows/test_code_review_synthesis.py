@@ -1010,7 +1010,7 @@ class TestGitDiff:
                 return_value=large_diff,
             ),
             patch(
-                "bmad_assist.compiler.workflows.code_review_synthesis._compress_or_truncate",
+                "bmad_assist.compiler.strategic_context._compress_or_truncate",
                 return_value=("compressed-diff-content", 4000),
             ) as mock_compress,
         ):

@@ -206,6 +206,85 @@ def estimate_tokens(content: str) -> int:
     return len(content) // 4
 
 
+def limit_synthesis_source_files(
+    source_files: dict[str, str],
+    max_files: int,
+    token_budget: int,
+    workflow_name: str,
+) -> dict[str, str]:
+    """Limit synthesis source files using a compress-first strategy.
+
+    Three-tier approach:
+    1. Fits as-is — total tokens <= budget → keep all files
+    2. Compress to fit — compress each file, check if compressed total fits
+    3. Cut to fit — slice to max_files (preserving score order)
+
+    Args:
+        source_files: Dict of {path: content} from SourceContextService.
+        max_files: Hard cap on number of files (fallback).
+        token_budget: Token budget from SourceContextService.
+        workflow_name: Workflow name for logging.
+
+    Returns:
+        Possibly compressed or sliced source_files dict.
+
+    """
+    if len(source_files) <= max_files:
+        return source_files
+
+    total_tokens = sum(estimate_tokens(v) for v in source_files.values())
+
+    # Tier 1: fits within budget as-is
+    if total_tokens <= token_budget:
+        logger.info(
+            "Keeping all %d source files for %s (~%d tokens, budget %d)",
+            len(source_files),
+            workflow_name,
+            total_tokens,
+            token_budget,
+        )
+        return source_files
+
+    # Tier 2: try compressing to fit
+    try:
+        from bmad_assist.compiler.strategic_context import _compress_or_truncate
+        from bmad_assist.core.config.loaders import get_config
+
+        compression_ratio = get_config().compiler.prompt_compression.compression_ratio
+
+        compressed: dict[str, str] = {}
+        compressed_total = 0
+        for path, content in source_files.items():
+            file_tokens = estimate_tokens(content)
+            target = int(file_tokens * compression_ratio)
+            comp_content, actual = _compress_or_truncate(content, target, path)
+            compressed[path] = comp_content
+            compressed_total += actual
+
+        if compressed_total <= token_budget:
+            logger.info(
+                "Compressed %d source files for %s: %d → %d tokens (budget %d)",
+                len(source_files),
+                workflow_name,
+                total_tokens,
+                compressed_total,
+                token_budget,
+            )
+            return compressed
+    except Exception as e:
+        logger.debug("Compression unavailable for %s, falling back to cut: %s", workflow_name, e)
+
+    # Tier 3: cut to max_files
+    limited = dict(list(source_files.items())[:max_files])
+    logger.warning(
+        "Synthesis source files limited: %d → %d for %s (token budget protection)",
+        len(source_files),
+        max_files,
+        workflow_name,
+    )
+    return limited
+
+
 def safe_read_file(path: Path, project_root: Path | None = None) -> str:
     """Safely read file content with path validation.
 
