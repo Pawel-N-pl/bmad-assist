@@ -11,6 +11,7 @@ from bmad_assist.core.config.models.features import (
     CompilerConfig,
     QAConfig,
     TimeoutsConfig,
+    ToolGuardConfig,
 )
 from bmad_assist.core.config.models.loop import LoopConfig, SprintConfig, WarningsConfig
 from bmad_assist.core.config.models.paths import (
@@ -144,6 +145,10 @@ class Config(BaseModel):
         "When true, spawned Claude processes can create teammate sub-agents. "
         "WARNING: Each teammate is a separate process at ~100% CPU.",
         json_schema_extra={"security": "safe", "ui_widget": "checkbox"},
+    )
+    tool_guard: ToolGuardConfig = Field(
+        default_factory=ToolGuardConfig,
+        description="ToolCallGuard watchdog thresholds (optional)",
     )
 
     @model_validator(mode="before")

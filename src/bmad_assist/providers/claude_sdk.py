@@ -33,7 +33,10 @@ import threading
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -59,6 +62,7 @@ from bmad_assist.providers.base import (
     validate_settings_file,
     write_progress,
 )
+from bmad_assist.providers.tool_guard import build_termination_fields
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +218,7 @@ class ClaudeSDKProvider(BaseProvider):
         allowed_tools: list[str] | None = None,
         color_index: int | None = None,
         display_model: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> str:
         """Execute SDK query asynchronously using ClaudeSDKClient.
 
@@ -350,7 +355,7 @@ class ClaudeSDKProvider(BaseProvider):
         # take 10-30s. We use asyncio.wait() (not wait_for) to avoid cancelling
         # the coroutine — asyncio.wait_for cancellation breaks anyio's cancel
         # scopes ("exit cancel scope in different task" error).
-        init_timeout = 5  # seconds — normal init takes ~2s, if stuck won't unstick
+        init_timeout = 30  # seconds — MCP servers + CLAUDE.md loading can exceed 5s
 
         client = ClaudeSDKClient(options=options)
         try:
@@ -455,9 +460,18 @@ class ClaudeSDKProvider(BaseProvider):
                                 break  # Exit inner loop
 
                         elif isinstance(block, ToolUseBlock):
-                            # Log tool use
+                            # Guard check before logging
                             tool_name = block.name
                             tool_input = block.input
+                            if guard is not None:
+                                verdict = guard.check(tool_name, tool_input)
+                                if not verdict.allowed:
+                                    logger.warning(
+                                        "ToolCallGuard triggered: %s",
+                                        verdict.reason,
+                                    )
+                                    terminated_early = True
+                                    break
                             if should_print_progress():
                                 tag = format_tag(f"TOOL {tool_name}", color_index)
                                 if is_full_stream():
@@ -506,6 +520,7 @@ class ClaudeSDKProvider(BaseProvider):
         timeout: int,
         color_index: int | None = None,
         display_model: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> str:
         """Execute SDK query with cancel_token support.
 
@@ -534,7 +549,9 @@ class ClaudeSDKProvider(BaseProvider):
 
         """
         sdk_task = asyncio.create_task(
-            self._invoke_async(prompt, model, settings, cwd, allowed_tools, color_index, display_model)
+            self._invoke_async(
+                prompt, model, settings, cwd, allowed_tools, color_index, display_model, guard=guard
+            )
         )
 
         async def _wait_for_cancel() -> None:
@@ -586,6 +603,7 @@ class ClaudeSDKProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute Claude Code SDK with the given prompt.
 
@@ -671,6 +689,7 @@ class ClaudeSDKProvider(BaseProvider):
                 color_index=color_index,
                 display_model=display_model,
                 cancel_token=cancel_token,
+                guard=guard,
             )
 
         # Ignored parameters (SDK doesn't support these)
@@ -739,6 +758,7 @@ class ClaudeSDKProvider(BaseProvider):
                         effective_timeout,
                         color_index,
                         display_model,
+                        guard=guard,
                     )
                 )
             else:
@@ -752,6 +772,7 @@ class ClaudeSDKProvider(BaseProvider):
                             allowed_tools,
                             color_index,
                             display_model,
+                            guard=guard,
                         ),
                         timeout=effective_timeout,
                     )
@@ -833,6 +854,9 @@ class ClaudeSDKProvider(BaseProvider):
             len(response_text),
         )
 
+        # Build termination info from guard if present
+        term_info, term_reason = build_termination_fields(guard)
+
         return ProviderResult(
             stdout=response_text,
             stderr="",  # SDK doesn't separate stderr
@@ -840,6 +864,8 @@ class ClaudeSDKProvider(BaseProvider):
             duration_ms=duration_ms,
             model=shown_model,
             command=command,
+            termination_info=term_info,
+            termination_reason=term_reason,
         )
 
     def parse_output(self, result: ProviderResult) -> str:

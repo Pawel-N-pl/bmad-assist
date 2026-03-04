@@ -107,10 +107,14 @@ Each workflow interprets `auto` differently based on project state:
 
 ### ATDD Eligibility Scoring
 
-When `atdd_mode: auto`, stories are scored for ATDD eligibility using:
+When `atdd_mode: auto`, stories are scored for ATDD eligibility using a hybrid approach:
 
-1. **Keyword detection** (weight: 0.5) - Looks for UI/test-related terms
-2. **LLM assessment** (weight: 0.5) - Uses helper provider to evaluate story
+1. **Keyword detection** - Scans story text for UI/test-related terms
+2. **LLM assessment** - Uses helper provider to evaluate UI score, API score, skip score, and **testability score**
+
+The final hybrid score uses `max(keyword_score, llm_score)` — whichever method scores higher wins. This ensures stories with clear testable patterns (acceptance criteria, state transitions, business rules, CLI commands) are detected even without UI/API indicators.
+
+The **testability score** dimension catches stories that lack UI/API surface but have inherently testable logic (crypto roundtrips, data transformations, configuration validation). The LLM composite is computed as `max(testability, (ui + api) / 2) - skip`.
 
 Stories scoring above threshold (default: 0.5) trigger ATDD workflow.
 
@@ -200,6 +204,27 @@ No TEA code runs. Equivalent to not having `testarch:` section.
 
 **Standalone** workflows run via `bmad-assist tea <workflow>` commands.
 **Loop-integrated** workflows run automatically during `bmad-assist run` phases.
+
+---
+
+## TEA Phase Timeouts
+
+Each TEA workflow respects per-phase timeout configuration. Configure in the `timeouts` section:
+
+```yaml
+timeouts:
+  default: 600            # Fallback for all phases
+  atdd: 900               # ATDD checklist generation
+  test_review: 600        # Test quality review
+  tea_test_design: 600    # Test design document
+  tea_framework: 600      # Framework scaffolding
+  tea_automate: 600       # Test automation
+  tea_ci: 600             # CI pipeline scaffolding
+  tea_nfr_assess: 600     # NFR assessment
+  trace: 600              # Traceability matrix
+```
+
+All TEA timeout fields are optional and fall back to `timeouts.default` when not specified.
 
 ---
 

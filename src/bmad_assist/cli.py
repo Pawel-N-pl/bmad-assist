@@ -336,6 +336,16 @@ def run(
         "--tea",
         help="Enable full TEA (Test Architect Enterprise) loop with all phases",
     ),
+    no_ipc: bool = typer.Option(
+        False,
+        "--no-ipc",
+        help="Disable IPC socket server (no external client connections)",
+    ),
+    plain: bool = typer.Option(
+        False,
+        "--plain",
+        help="Force plain text output (no interactive TUI)",
+    ),
 ) -> None:
     """Execute the main BMAD development loop.
 
@@ -622,7 +632,14 @@ def run(
             raise typer.Exit(code=EXIT_SUCCESS)
 
         # Delegate to main loop
-        exit_reason = run_loop(loaded_config, project_path, epic_list, epic_stories_loader)
+        exit_reason = run_loop(
+            loaded_config,
+            project_path,
+            epic_list,
+            epic_stories_loader,
+            ipc_enabled=not no_ipc,
+            plain=plain,
+        )
 
         # Story 6.6: Handle exit reasons from run_loop
         if exit_reason == LoopExitReason.INTERRUPTED_SIGINT:
@@ -724,20 +741,24 @@ app.command(name="init")(init_command)
 from bmad_assist.commands.benchmark import benchmark_app  # noqa: E402
 from bmad_assist.commands.config import config_app  # noqa: E402
 from bmad_assist.commands.experiment import experiment_app  # noqa: E402
+from bmad_assist.commands.ipc import ipc_app  # noqa: E402
 from bmad_assist.commands.patch import patch_app  # noqa: E402
 from bmad_assist.commands.qa import qa_app  # noqa: E402
 from bmad_assist.commands.sprint import sprint_app  # noqa: E402
 from bmad_assist.commands.test import test_app  # noqa: E402
+from bmad_assist.commands.tui import tui_app  # noqa: E402
 from bmad_assist.commands.verify import verify_app  # noqa: E402
 from bmad_assist.testarch.standalone.cli import tea_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
+app.add_typer(ipc_app, name="ipc")
 app.add_typer(patch_app, name="patch")
 app.add_typer(benchmark_app, name="benchmark")
 app.add_typer(sprint_app, name="sprint")
 app.add_typer(experiment_app, name="experiment")
 app.add_typer(qa_app, name="qa")
 app.add_typer(test_app, name="test")
+app.add_typer(tui_app, name="tui")
 app.add_typer(verify_app, name="verify")
 app.add_typer(tea_app, name="tea")
 

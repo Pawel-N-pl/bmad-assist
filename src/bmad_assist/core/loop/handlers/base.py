@@ -637,7 +637,11 @@ class BaseHandler(ABC):
             return getattr(phase_config, "reasoning_effort", None)
 
     def invoke_provider(
-        self, prompt: str, retry_timeout_minutes: int = 30, retry_delay: int = 60
+        self,
+        prompt: str,
+        retry_timeout_minutes: int = 30,
+        retry_delay: int = 60,
+        allowed_tools: list[str] | None = None,
     ) -> ProviderResult:
         """Invoke the provider with the given prompt, with automatic retry on failure.
 
@@ -699,6 +703,19 @@ class BaseHandler(ABC):
         attempt = 0
         current_delay = retry_delay
 
+        # Create guard ONCE — persists across outer retry loop (counters preserved)
+        from bmad_assist.providers.tool_guard import (
+            GUARD_TERMINATION_PREFIX,
+            ToolCallGuard,
+        )
+
+        tg = self.config.tool_guard
+        guard = ToolCallGuard(
+            max_total_calls=tg.max_total_calls,
+            max_interactions_per_file=tg.max_interactions_per_file,
+            max_calls_per_minute=tg.max_calls_per_minute,
+        )
+
         while True:
             attempt += 1
             elapsed = time.time() - start_time
@@ -726,9 +743,13 @@ class BaseHandler(ABC):
                 fallback_timeout_retries = timeout_retries  # Reset retry count for fallback
                 logger.debug("Configured subprocess fallback for claude-sdk provider")
 
+            # Reset guard for outer retries (preserves counters, clears rate window)
+            if attempt > 1:
+                guard.reset_for_retry()
+
             try:
                 # Use shared timeout retry wrapper for provider invocation
-                return invoke_with_timeout_retry(
+                result = invoke_with_timeout_retry(
                     provider.invoke,
                     timeout_retries=timeout_retries,
                     phase_name=self.phase_name,
@@ -741,7 +762,80 @@ class BaseHandler(ABC):
                     settings_file=settings_file,
                     cwd=self.project_path,
                     reasoning_effort=reasoning_effort,
+                    guard=guard,
+                    allowed_tools=allowed_tools,
                 )
+
+                # Check for guard-triggered termination
+                if (
+                    result.termination_reason
+                    and result.termination_reason.startswith(GUARD_TERMINATION_PREFIX)
+                ):
+                    stats = guard.get_stats()
+                    # Capture reason BEFORE reset clears it
+                    first_attempt_reason = result.termination_reason
+                    logger.warning(
+                        "ToolCallGuard triggered: %s (total_calls=%d, max_file=%s)",
+                        first_attempt_reason,
+                        stats.total_calls,
+                        stats.max_file,
+                    )
+
+                    # Only retry for rate_exceeded — budget/file-cap
+                    # exhaustion means counters are already spent
+                    is_rate_only = stats.terminated_reason is not None and (
+                        stats.terminated_reason.startswith("rate_exceeded")
+                    )
+                    if not is_rate_only:
+                        logger.error(
+                            "ToolCallGuard: non-retriable termination (%s) — "
+                            "returning result as-is",
+                            first_attempt_reason,
+                        )
+                        return result
+
+                    guard.reset_for_retry()
+                    logger.warning(
+                        "ToolCallGuard: retrying invocation "
+                        "(counters preserved, rate window cleared)"
+                    )
+                    result = invoke_with_timeout_retry(
+                        provider.invoke,
+                        timeout_retries=timeout_retries,
+                        phase_name=self.phase_name,
+                        fallback_invoke_fn=fallback_invoke_fn,
+                        fallback_timeout_retries=fallback_timeout_retries,
+                        prompt=prompt,
+                        model=cli_model,
+                        display_model=display_model,
+                        timeout=timeout,
+                        settings_file=settings_file,
+                        cwd=self.project_path,
+                        reasoning_effort=reasoning_effort,
+                        guard=guard,
+                        allowed_tools=allowed_tools,
+                    )
+
+                    if (
+                        result.termination_reason
+                        and result.termination_reason.startswith(
+                            GUARD_TERMINATION_PREFIX
+                        )
+                    ):
+                        stats = guard.get_stats()
+                        logger.error(
+                            "ToolCallGuard: retry also terminated — "
+                            "failing phase (first: %s)",
+                            first_attempt_reason,
+                        )
+                    else:
+                        logger.info(
+                            "ToolCallGuard: retry succeeded "
+                            "(first attempt was terminated: %s)",
+                            first_attempt_reason,
+                        )
+
+                return result
 
             except ProviderExitCodeError as e:
                 last_error = e
@@ -803,6 +897,14 @@ class BaseHandler(ABC):
             result = self.invoke_provider(prompt)
 
             # Check for errors
+            # Build termination_metadata if guard was active
+            term_metadata = None
+            if result.termination_info:
+                term_metadata = {
+                    "termination_info": result.termination_info,
+                    "termination_reason": result.termination_reason,
+                }
+
             if result.exit_code != 0:
                 error_msg = result.stderr or f"Provider exited with code {result.exit_code}"
                 logger.warning(
@@ -810,16 +912,24 @@ class BaseHandler(ABC):
                     result.exit_code,
                     result.stderr[:500] if result.stderr else "(empty)",
                 )
-                phase_result = PhaseResult.fail(error_msg)
+                fail_outputs: dict[str, Any] = {}
+                if term_metadata:
+                    fail_outputs["termination_metadata"] = term_metadata
+                phase_result = PhaseResult(
+                    success=False,
+                    error=error_msg,
+                    outputs=fail_outputs,
+                )
             else:
                 # Success - return output
-                phase_result = PhaseResult.ok(
-                    {
-                        "response": result.stdout,
-                        "model": result.model,
-                        "duration_ms": result.duration_ms,
-                    }
-                )
+                outputs: dict[str, Any] = {
+                    "response": result.stdout,
+                    "model": result.model,
+                    "duration_ms": result.duration_ms,
+                }
+                if term_metadata:
+                    outputs["termination_metadata"] = term_metadata
+                phase_result = PhaseResult.ok(outputs)
 
             # Save timing if enabled and successful
             if start_time and phase_result.success and self.config.benchmarking.enabled:

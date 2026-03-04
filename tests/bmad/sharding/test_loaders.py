@@ -156,6 +156,26 @@ class TestLoadShardedEpics:
         with pytest.raises(DuplicateEpicError, match="Duplicate epic_id 1"):
             load_sharded_epics(epics_dir)
 
+    def test_index_duplicate_links_deduplicated(self, tmp_path: Path) -> None:
+        """Index.md linking same file twice does not cause DuplicateEpicError."""
+        epics_dir = tmp_path / "epics"
+        epics_dir.mkdir()
+        (epics_dir / "index.md").write_text(
+            "# Epics\n\n"
+            "## Summary\n"
+            "- [Epic 1](./epic-01.md)\n\n"
+            "## Details\n"
+            "- [Epic 1: Foundation](./epic-01.md)\n"
+        )
+        (epics_dir / "epic-01.md").write_text(
+            "---\nepic_num: 1\ntitle: Foundation\n---\n\n# Epic 1\n\nContent.\n"
+        )
+
+        epics = load_sharded_epics(epics_dir)
+
+        assert len(epics) == 1
+        assert epics[0].epic_num == 1
+
     def test_skips_malformed_files(self) -> None:
         """Gracefully skips malformed epic files."""
         epics_dir = FIXTURES_PATH / "epics-malformed"

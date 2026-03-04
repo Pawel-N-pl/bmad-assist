@@ -31,7 +31,10 @@ import threading
 import time
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 from bmad_assist.core.debug_logger import DebugJsonLogger
 from bmad_assist.core.exceptions import (
@@ -220,6 +223,7 @@ class AmpProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute Amp CLI with the given prompt using JSON streaming.
 
@@ -467,6 +471,19 @@ class AmpProvider(BaseProvider):
 
                                         elif item.get("type") == "tool_use":
                                             tool_name: str = item.get("name") or "unknown"
+                                            tool_input = item.get("input", {})
+                                            # Guard check
+                                            if guard is not None:
+                                                verdict = guard.check(tool_name, tool_input)
+                                                if not verdict.allowed:
+                                                    logger.warning(
+                                                        "ToolCallGuard triggered: %s",
+                                                        verdict.reason,
+                                                    )
+                                                    if guard_kill_event is not None:
+                                                        guard_kill_event.set()
+                                                    stream.close()
+                                                    return
                                             # Normalize tool name for restriction check
                                             normalized_tool_name: str = _AMP_TOOL_NAME_MAP.get(
                                                 tool_name, tool_name
@@ -485,7 +502,6 @@ class AmpProvider(BaseProvider):
                                                     normalized_tool_name,
                                                 )
                                             if should_print_progress():
-                                                tool_input = item.get("input", {})
                                                 tag = format_tag(
                                                     f"TOOL {normalized_tool_name}", color_idx
                                                 )
@@ -536,6 +552,17 @@ class AmpProvider(BaseProvider):
                             write_progress(f"{tag} {stripped}")
                     stream.close()
 
+                # Guard monitor for blocking-wait termination
+                guard_kill_event = threading.Event() if guard is not None else None
+                guard_done_event = threading.Event() if guard is not None else None
+                guard_monitor = None
+                if guard is not None:
+                    from bmad_assist.providers.tool_guard import (
+                        build_termination_fields,
+                        start_guard_monitor,
+                    )
+                    guard_monitor = start_guard_monitor(process, guard_kill_event, guard_done_event)
+
                 # Start reader threads
                 stdout_thread = threading.Thread(
                     target=process_json_stream,
@@ -567,6 +594,11 @@ class AmpProvider(BaseProvider):
                     returncode = process.wait(timeout=effective_timeout)
                 except TimeoutExpired:
                     process.kill()
+                    # Clean up guard monitor before raising
+                    if guard_done_event is not None:
+                        guard_done_event.set()
+                    if guard_monitor is not None:
+                        guard_monitor.join(timeout=1.0)
                     # Join threads with timeout - should terminate quickly after kill
                     stdout_thread.join(timeout=2)
                     stderr_thread.join(timeout=2)
@@ -601,9 +633,17 @@ class AmpProvider(BaseProvider):
                         partial_result=partial_result,
                     ) from None
 
+                if guard_done_event is not None:
+                    guard_done_event.set()
+                if guard_monitor is not None:
+                    guard_monitor.join(timeout=1.0)
+
                 # Wait for threads to finish (timeout prevents hang if reader stuck)
                 stdout_thread.join(timeout=10)
                 stderr_thread.join(timeout=10)
+
+                if guard_kill_event is not None and guard_kill_event.is_set():
+                    returncode = 0
 
             except FileNotFoundError as e:
                 logger.error("Amp CLI not found in PATH")
@@ -681,6 +721,9 @@ class AmpProvider(BaseProvider):
             len(response_text),
         )
 
+        from bmad_assist.providers.tool_guard import build_termination_fields
+        term_info, term_reason = build_termination_fields(guard)
+
         return ProviderResult(
             stdout=response_text,
             stderr=stderr_content,
@@ -689,6 +732,8 @@ class AmpProvider(BaseProvider):
             model=effective_model,
             command=tuple(command),
             provider_session_id=provider_session_id,
+            termination_info=term_info,
+            termination_reason=term_reason,
         )
 
     def parse_output(self, result: ProviderResult) -> str:

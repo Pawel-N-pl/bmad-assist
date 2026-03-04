@@ -259,6 +259,37 @@ class TestCodeReviewSynthesisHandler:
         session_id = handler._get_session_id_from_cache()
         assert session_id == cached_reviews
 
+    def test_get_session_id_recovers_from_story_reports_when_cache_missing(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+    ) -> None:
+        """Session discovery should fall back to code-review markdown reports."""
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+        from bmad_assist.core.paths import get_paths
+
+        paths = get_paths()
+        report_path = paths.code_reviews_dir / "code-review-14-10-a-20260219T051055Z.md"
+        report_path.write_text(
+            "---\n"
+            "session_id: recovered-session\n"
+            "reviewer_id: Validator A\n"
+            "role_id: a\n"
+            "epic: 14\n"
+            "story: '10'\n"
+            "---\n\n"
+            "# Review\n\n"
+            "Recovered review content.\n",
+            encoding="utf-8",
+        )
+
+        handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+        session_id = handler._get_session_id_from_cache(14, "10")
+        assert session_id == "recovered-session"
+
     def test_execute_success_with_mocked_provider(
         self,
         synthesis_config: Config,
@@ -886,3 +917,887 @@ class TestCodeReviewSynthesisIntegration:
         assert loaded[1].content == "Test content 2"
         assert failed_ids == []  # No failures in this test
         assert evidence_data is not None
+
+
+# =============================================================================
+# Test Adaptive Synthesis Prompt Compression Pipeline
+# =============================================================================
+
+
+class TestCompressionPipelineIntegration:
+    """Integration tests for the adaptive synthesis prompt compression pipeline.
+
+    Tests the render_prompt() compression flow in CodeReviewSynthesisHandler:
+    1. Token estimation and step decision
+    2. Step 0: skip_source_files in resolved_variables
+    3. Step 1: pre_extract_reviews invocation
+    4. Step 2: progressive_synthesize invocation
+    5. Fallback behavior on extraction failure
+    6. Compression metrics storage
+    7. Benchmarking integration with compression metrics
+    """
+
+    @pytest.fixture
+    def mock_reviews(self) -> list:
+        """Create test AnonymizedValidation instances."""
+        from bmad_assist.validation.anonymizer import AnonymizedValidation
+
+        return [
+            AnonymizedValidation(
+                validator_id="Reviewer A",
+                content="Review A content with findings and issues.",
+                original_ref="ref-a",
+            ),
+            AnonymizedValidation(
+                validator_id="Reviewer B",
+                content="Review B content with suggestions.",
+                original_ref="ref-b",
+            ),
+            AnonymizedValidation(
+                validator_id="Reviewer C",
+                content="Review C content clean pass.",
+                original_ref="ref-c",
+            ),
+        ]
+
+    @pytest.fixture
+    def extracted_reviews(self) -> list:
+        """Create extracted (compressed) AnonymizedValidation instances."""
+        from bmad_assist.validation.anonymizer import AnonymizedValidation
+
+        return [
+            AnonymizedValidation(
+                validator_id="Reviewer A",
+                content="Extracted A: issue1, issue2",
+                original_ref="ref-a",
+            ),
+            AnonymizedValidation(
+                validator_id="Reviewer B",
+                content="Extracted B: suggestion1",
+                original_ref="ref-b",
+            ),
+            AnonymizedValidation(
+                validator_id="Reviewer C",
+                content="Extracted C: clean",
+                original_ref="ref-c",
+            ),
+        ]
+
+    @pytest.fixture
+    def progressive_reviews(self) -> list:
+        """Create progressively synthesized AnonymizedValidation instances."""
+        from bmad_assist.validation.anonymizer import AnonymizedValidation
+
+        return [
+            AnonymizedValidation(
+                validator_id="Consolidated Findings (3 reviewers)",
+                content="All findings merged.",
+                original_ref="meta-synthesis",
+            ),
+        ]
+
+    @pytest.fixture
+    def compression_handler(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+    ):
+        """Create a CodeReviewSynthesisHandler for compression tests."""
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        return CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+    @pytest.fixture
+    def compression_state(self) -> State:
+        """State for compression pipeline tests."""
+        return State(
+            current_epic=14,
+            current_story="14.10",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+    def _mock_compiled_workflow(self):
+        """Create a mock CompiledWorkflow return value."""
+        from bmad_assist.compiler.types import CompiledWorkflow
+
+        return CompiledWorkflow(
+            workflow_name="code-review-synthesis",
+            mission="Synthesize code reviews",
+            context="<compiled>mock synthesis prompt</compiled>",
+            variables={},
+            instructions="",
+            output_template="",
+            token_estimate=5000,
+        )
+
+    def test_render_prompt_passthrough_no_compression(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+    ) -> None:
+        """No compression when total tokens are under budget.
+
+        Verify that when estimate_synthesis_tokens returns a value below
+        the token budget, no extraction calls are made, the original
+        anonymized_reviews are passed to the compiler unchanged, and
+        compression_steps_applied is an empty list.
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            mock_total_tokens.return_value = 50_000  # Under default budget of 120K
+            mock_decide.return_value = []  # No compression needed
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            # Create a cache file so _get_session_id_from_cache finds it
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-passthrough-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "passthrough-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            result = compression_handler.render_prompt(compression_state)
+
+            # Verify no extraction calls were made
+            mock_pre_extract.assert_not_called()
+
+            # Verify original reviews passed to compiler unchanged
+            compile_call_args = mock_compile.call_args
+            compiler_context = compile_call_args[0][1]  # Second positional arg
+            assert compiler_context.resolved_variables["anonymized_reviews"] is mock_reviews
+
+            # Verify compression metrics
+            assert compression_handler._compression_metrics["compression_steps_applied"] == []
+            assert result == compiled.context
+
+    def test_render_prompt_step0_sets_skip_source_files(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+    ) -> None:
+        """Step 0 sets skip_source_files=True when base context exceeds limit.
+
+        Verify that when estimate_base_context_tokens returns a value
+        above base_context_limit, skip_source_files=True is set in the
+        resolved_variables passed to compile_workflow.
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            # Base tokens exceeds base_context_limit (default 40K)
+            mock_base_tokens.return_value = 50_000
+            # Total tokens under budget so step1 not triggered (only step0)
+            mock_total_tokens.return_value = 80_000
+            mock_decide.return_value = ["step0"]  # Only step0
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-step0-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "step0-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            compression_handler.render_prompt(compression_state)
+
+            # Verify skip_source_files=True in resolved_variables
+            compile_call_args = mock_compile.call_args
+            compiler_context = compile_call_args[0][1]
+            assert compiler_context.resolved_variables["skip_source_files"] is True
+
+            # Verify step0 in metrics
+            assert "step0" in compression_handler._compression_metrics["compression_steps_applied"]
+
+    def test_render_prompt_step1_calls_pre_extract(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+        extracted_reviews: list,
+    ) -> None:
+        """Step 1 calls pre_extract_reviews when total tokens exceed budget.
+
+        Verify that pre_extract_reviews is called with correct arguments
+        and compressed reviews are passed to the compiler.
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.providers.registry.get_provider"
+            ) as mock_get_provider,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            # First call: total > budget; second call (after extraction): under budget
+            mock_total_tokens.side_effect = [150_000, 80_000]
+            mock_decide.return_value = ["step1"]
+
+            mock_pre_extract.return_value = extracted_reviews
+
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-step1-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "step1-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            compression_handler.render_prompt(compression_state)
+
+            # Verify pre_extract_reviews was called
+            mock_pre_extract.assert_called_once()
+            call_kwargs = mock_pre_extract.call_args
+            assert call_kwargs[1]["reviews"] is mock_reviews
+
+            # Verify extracted reviews passed to compiler
+            compile_call_args = mock_compile.call_args
+            compiler_context = compile_call_args[0][1]
+            assert compiler_context.resolved_variables["anonymized_reviews"] is extracted_reviews
+
+    def test_render_prompt_step1_skip_step2_when_under_budget(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+        extracted_reviews: list,
+    ) -> None:
+        """Step 2 (progressive_synthesize) is NOT called when step 1 reduces tokens below budget.
+
+        Verify that after pre_extract_reviews reduces the token count
+        below the budget, progressive_synthesize is not called.
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.progressive_synthesize"
+            ) as mock_progressive,
+            patch(
+                "bmad_assist.providers.registry.get_provider"
+            ) as mock_get_provider,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            # First call: total > budget; second call (after step1): under budget
+            mock_total_tokens.side_effect = [150_000, 80_000]
+            mock_decide.return_value = ["step1"]
+
+            mock_pre_extract.return_value = extracted_reviews
+
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-skip-step2-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "skip-step2-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            compression_handler.render_prompt(compression_state)
+
+            # Step 1 was called
+            mock_pre_extract.assert_called_once()
+            # Step 2 should NOT be called since tokens dropped below budget
+            mock_progressive.assert_not_called()
+
+    def test_render_prompt_step1_plus_step2(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+        extracted_reviews: list,
+        progressive_reviews: list,
+    ) -> None:
+        """Step 2 (progressive_synthesize) IS called when step 1 still exceeds budget.
+
+        Verify that when pre_extract_reviews does not reduce tokens
+        below the budget, progressive_synthesize is called.
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.progressive_synthesize"
+            ) as mock_progressive,
+            patch(
+                "bmad_assist.providers.registry.get_provider"
+            ) as mock_get_provider,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            # First: total > budget; after step1: still > budget; after step2: under budget
+            mock_total_tokens.side_effect = [150_000, 130_000, 50_000]
+            mock_decide.return_value = ["step1"]
+
+            mock_pre_extract.return_value = extracted_reviews
+            mock_progressive.return_value = progressive_reviews
+
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-step1-step2-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "step1-step2-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            compression_handler.render_prompt(compression_state)
+
+            # Both step 1 and step 2 were called
+            mock_pre_extract.assert_called_once()
+            mock_progressive.assert_called_once()
+
+            # Verify progressive reviews passed to compiler
+            compile_call_args = mock_compile.call_args
+            compiler_context = compile_call_args[0][1]
+            assert (
+                compiler_context.resolved_variables["anonymized_reviews"]
+                is progressive_reviews
+            )
+
+    def test_render_prompt_extraction_failure_fallback(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+    ) -> None:
+        """Extraction failure falls back to raw reviews with [RAW] prefix.
+
+        When pre_extract_reviews returns reviews with [RAW] prefix
+        (internal fallback), the handler should still complete
+        successfully and pass those reviews to the compiler.
+        """
+        from bmad_assist.validation.anonymizer import AnonymizedValidation
+
+        # Simulate pre_extract_reviews fallback: [RAW] prefixed reviews
+        raw_fallback_reviews = [
+            AnonymizedValidation(
+                validator_id="[RAW] Reviewer A",
+                content="Review A content with findings and issues.",
+                original_ref="ref-a",
+            ),
+            AnonymizedValidation(
+                validator_id="[RAW] Reviewer B",
+                content="Review B content with suggestions.",
+                original_ref="ref-b",
+            ),
+            AnonymizedValidation(
+                validator_id="[RAW] Reviewer C",
+                content="Review C content clean pass.",
+                original_ref="ref-c",
+            ),
+        ]
+
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.progressive_synthesize"
+            ) as mock_progressive,
+            patch(
+                "bmad_assist.providers.registry.get_provider"
+            ) as mock_get_provider,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            # First call: over budget; second (after fallback): still over; third (after prog): ok
+            mock_total_tokens.side_effect = [150_000, 150_000, 80_000]
+            mock_decide.return_value = ["step1"]
+
+            # pre_extract_reviews returns raw fallback reviews (mimics internal failure handling)
+            mock_pre_extract.return_value = raw_fallback_reviews
+
+            # progressive_synthesize returns the fallback reviews as-is (further processing)
+            mock_progressive.return_value = raw_fallback_reviews
+
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-fallback-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "fallback-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            result = compression_handler.render_prompt(compression_state)
+
+            # Handler should complete successfully
+            assert result == compiled.context
+
+            # Verify fallback reviews were passed to compiler
+            compile_call_args = mock_compile.call_args
+            compiler_context = compile_call_args[0][1]
+            reviews_in_context = compiler_context.resolved_variables["anonymized_reviews"]
+            # Check that [RAW] prefix is preserved (indicating fallback)
+            assert all(
+                r.validator_id.startswith("[RAW]") for r in reviews_in_context
+            )
+
+    def test_compression_metrics_stored(
+        self,
+        compression_handler,
+        compression_state: State,
+        project_with_story: Path,
+        mock_reviews: list,
+        extracted_reviews: list,
+    ) -> None:
+        """After render_prompt, compression metrics dict has all expected keys.
+
+        Verify that self._compression_metrics contains:
+        - compression_steps_applied
+        - original_token_estimate
+        - compressed_token_estimate
+        - extraction_llm_calls
+        - extraction_duration_ms
+        """
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.load_reviews_for_synthesis"
+            ) as mock_load,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.compile_workflow"
+            ) as mock_compile,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_base_context_tokens"
+            ) as mock_base_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.estimate_synthesis_tokens"
+            ) as mock_total_tokens,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.decide_compression_steps"
+            ) as mock_decide,
+            patch(
+                "bmad_assist.core.loop.handlers.synthesis_utils.pre_extract_reviews"
+            ) as mock_pre_extract,
+            patch(
+                "bmad_assist.providers.registry.get_provider"
+            ) as mock_get_provider,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_paths"
+            ) as mock_get_paths,
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis.get_original_cwd",
+                return_value=project_with_story,
+            ),
+            patch(
+                "bmad_assist.core.loop.handlers.code_review_synthesis."
+                "load_security_findings_from_cache",
+                return_value=None,
+            ),
+        ):
+            mock_load.return_value = (mock_reviews, [], None)
+            mock_base_tokens.return_value = 10_000
+            # First call (initial): 150K; second call (after step1): 80K
+            mock_total_tokens.side_effect = [150_000, 80_000]
+            mock_decide.return_value = ["step1"]
+
+            mock_pre_extract.return_value = extracted_reviews
+
+            mock_provider = MagicMock()
+            mock_get_provider.return_value = mock_provider
+
+            mock_paths = MagicMock()
+            mock_paths.implementation_artifacts = project_with_story / "_bmad-output"
+            mock_paths.project_knowledge = project_with_story / "docs"
+            mock_get_paths.return_value = mock_paths
+
+            mock_compile.return_value = compiled
+
+            cache_dir = project_with_story / ".bmad-assist" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "code-reviews-metrics-session.json"
+            cache_file.write_text(
+                json.dumps({
+                    "cache_version": 2,
+                    "session_id": "metrics-session",
+                    "timestamp": "2026-02-20T00:00:00Z",
+                    "reviews": [],
+                    "failed_reviewers": [],
+                    "evidence_score": None,
+                })
+            )
+
+            compression_handler.render_prompt(compression_state)
+
+            # Verify all expected keys exist in compression_metrics
+            metrics = compression_handler._compression_metrics
+            assert "compression_steps_applied" in metrics
+            assert "original_token_estimate" in metrics
+            assert "compressed_token_estimate" in metrics
+            assert "extraction_llm_calls" in metrics
+            assert "extraction_duration_ms" in metrics
+
+            # Verify values are reasonable
+            assert metrics["compression_steps_applied"] == ["step1"]
+            assert metrics["original_token_estimate"] == 150_000
+            assert metrics["compressed_token_estimate"] == 80_000
+            assert metrics["extraction_llm_calls"] == 1  # ceil(3 reviews / 5 batch_size) = 1
+            assert isinstance(metrics["extraction_duration_ms"], int)
+            assert metrics["extraction_duration_ms"] >= 0
+
+    def test_benchmarking_includes_compression_metrics(
+        self,
+        project_with_story: Path,
+        compression_state: State,
+        cached_reviews: str,
+        mock_reviews: list,
+        extracted_reviews: list,
+    ) -> None:
+        """Benchmarking record includes compression metrics in custom dict.
+
+        Verify that when _save_synthesizer_record is called after
+        render_prompt with compression, the compression metrics
+        are included in the record's custom dict.
+        """
+        from bmad_assist.benchmarking.schema import LLMEvaluationRecord
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        config_with_benchmarking = Config(
+            providers=ProviderConfig(
+                master=MasterProviderConfig(provider="claude", model="opus-4"),
+                multi=[],
+            ),
+            timeout=300,
+            benchmarking=BenchmarkingConfig(enabled=True),
+        )
+
+        handler = CodeReviewSynthesisHandler(config_with_benchmarking, project_with_story)
+
+        # Manually set compression metrics (as render_prompt would)
+        handler._compression_metrics = {
+            "compression_steps_applied": ["step0", "step1"],
+            "original_token_estimate": 200_000,
+            "compressed_token_estimate": 90_000,
+            "extraction_llm_calls": 2,
+            "extraction_duration_ms": 5500,
+        }
+
+        # Track the record passed to save_evaluation_record
+        saved_record: LLMEvaluationRecord | None = None
+
+        def capture_record(record: LLMEvaluationRecord, base_dir: Path) -> Path:
+            nonlocal saved_record
+            saved_record = record
+            return base_dir / "test-record.yaml"
+
+        compiled = self._mock_compiled_workflow()
+
+        with (
+            patch.object(handler, "render_prompt") as mock_render,
+            patch.object(handler, "invoke_provider") as mock_invoke,
+            patch("bmad_assist.core.debug_logger.save_prompt"),
+            patch(
+                "bmad_assist.benchmarking.storage.save_evaluation_record",
+                side_effect=capture_record,
+            ),
+        ):
+            mock_render.return_value = compiled.context
+            mock_invoke.return_value = ProviderResult(
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
+                stderr="",
+                exit_code=0,
+                duration_ms=5000,
+                model="opus-4",
+                command=("claude", "--print"),
+            )
+
+            result = handler.execute(compression_state)
+
+            assert result.success
+
+            # Verify compression metrics are in the saved record
+            assert saved_record is not None
+            assert saved_record.custom is not None
+            assert saved_record.custom.get("compression_steps_applied") == ["step0", "step1"]
+            assert saved_record.custom.get("original_token_estimate") == 200_000
+            assert saved_record.custom.get("compressed_token_estimate") == 90_000
+            assert saved_record.custom.get("extraction_llm_calls") == 2
+            assert saved_record.custom.get("extraction_duration_ms") == 5500
+            # Standard custom fields should also be present
+            assert saved_record.custom.get("phase") == "code-review-synthesis"
+            assert saved_record.custom.get("reviewer_count") == 2  # from cached_reviews fixture

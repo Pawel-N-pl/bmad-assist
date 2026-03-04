@@ -18,6 +18,7 @@ from bmad_assist.core.project_setup import (
     _validate_path_safe,
     check_gitignore_warning,
     ensure_project_setup,
+    reset_project_cache,
 )
 
 
@@ -202,6 +203,31 @@ class TestEnsureProjectSetup:
         assert result.config_created is False
         assert result.gitignore_updated is False
         assert len(result.dirs_created) == 0
+
+
+class TestResetProjectCache:
+    """Tests for template cache reset behavior."""
+
+    def test_reset_keeps_runtime_cache_files(self, tmp_path: Path) -> None:
+        """Reset should preserve runtime JSON cache artifacts."""
+        cache_dir = tmp_path / ".bmad-assist" / "cache"
+        cache_dir.mkdir(parents=True)
+
+        # Template cache files (should be replaced)
+        tpl_path = cache_dir / "code-review.tpl.xml"
+        meta_path = cache_dir / "code-review.tpl.xml.meta.yaml"
+        tpl_path.write_text("old template")
+        meta_path.write_text("old meta")
+
+        # Runtime cache artifact (must survive reset)
+        runtime_path = cache_dir / "code-reviews-session-123.json"
+        runtime_path.write_text("{}")
+
+        reset_project_cache(tmp_path, Console(quiet=True))
+
+        assert tpl_path.exists()
+        assert meta_path.exists()
+        assert runtime_path.exists()
 
 
 class TestSetupResult:

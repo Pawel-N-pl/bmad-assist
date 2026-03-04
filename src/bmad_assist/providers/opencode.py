@@ -29,7 +29,10 @@ import threading
 import time
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 from bmad_assist.core.debug_logger import DebugJsonLogger
 from bmad_assist.core.exceptions import (
@@ -218,6 +221,7 @@ class OpenCodeProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute OpenCode CLI with the given prompt using JSON streaming.
 
@@ -465,10 +469,24 @@ class OpenCodeProvider(BaseProvider):
                             elif msg_type == "tool_use":
                                 part = msg.get("part", {})
                                 tool_name: str = part.get("tool") or "unknown"
+                                state = part.get("state", {})
+                                tool_input = state.get("input", {})
                                 # Normalize tool name for restriction check
                                 normalized_tool_name: str = _OPENCODE_TOOL_NAME_MAP.get(
                                     tool_name.lower(), tool_name.capitalize()
                                 )
+                                # Guard check
+                                if guard is not None:
+                                    verdict = guard.check(normalized_tool_name, tool_input)
+                                    if not verdict.allowed:
+                                        logger.warning(
+                                            "ToolCallGuard triggered: %s",
+                                            verdict.reason,
+                                        )
+                                        if guard_kill_event is not None:
+                                            guard_kill_event.set()
+                                        stream.close()
+                                        return
                                 # Log warning if restricted tools are attempted (once per tool)
                                 if (
                                     restricted_tools
@@ -483,8 +501,6 @@ class OpenCodeProvider(BaseProvider):
                                         normalized_tool_name,
                                     )
                                 if should_print_progress():
-                                    state = part.get("state", {})
-                                    tool_input = state.get("input", {})
                                     tag = format_tag(f"TOOL {normalized_tool_name}", color_idx)
                                     if is_full_stream():
                                         import json as _json
@@ -528,6 +544,14 @@ class OpenCodeProvider(BaseProvider):
                             write_progress(f"{tag} {stripped}")
                     stream.close()
 
+                # Guard monitor for blocking-wait termination
+                guard_kill_event = threading.Event() if guard is not None else None
+                guard_done_event = threading.Event() if guard is not None else None
+                guard_monitor = None
+                if guard is not None:
+                    from bmad_assist.providers.tool_guard import start_guard_monitor
+                    guard_monitor = start_guard_monitor(process, guard_kill_event, guard_done_event)
+
                 # Start reader threads
                 stdout_thread = threading.Thread(
                     target=process_json_stream,
@@ -566,6 +590,10 @@ class OpenCodeProvider(BaseProvider):
                         logger.warning(
                             "OpenCode CLI: Reader threads did not terminate cleanly after timeout"
                         )
+                    if guard_done_event is not None:
+                        guard_done_event.set()
+                    if guard_monitor is not None:
+                        guard_monitor.join(timeout=1.0)
                     duration_ms = int((time.perf_counter() - start_time) * 1000)
                     truncated = _truncate_prompt(prompt)
 
@@ -593,9 +621,19 @@ class OpenCodeProvider(BaseProvider):
                         partial_result=partial_result,
                     ) from None
 
+                # Clean up guard monitor
+                if guard_done_event is not None:
+                    guard_done_event.set()
+                if guard_monitor is not None:
+                    guard_monitor.join(timeout=1.0)
+
                 # Wait for threads to finish (timeout prevents hang if reader stuck)
                 stdout_thread.join(timeout=10)
                 stderr_thread.join(timeout=10)
+
+                # Check if guard terminated the process
+                if guard_kill_event is not None and guard_kill_event.is_set():
+                    returncode = 0  # Guard termination uses exit_code=0
 
             except FileNotFoundError as e:
                 logger.error("OpenCode CLI not found in PATH")
@@ -673,6 +711,11 @@ class OpenCodeProvider(BaseProvider):
             len(response_text),
         )
 
+        # Build termination info from guard if present
+        from bmad_assist.providers.tool_guard import build_termination_fields
+
+        term_info, term_reason = build_termination_fields(guard)
+
         return ProviderResult(
             stdout=response_text,
             stderr=stderr_content,
@@ -681,6 +724,8 @@ class OpenCodeProvider(BaseProvider):
             model=effective_model,
             command=tuple(command),
             provider_session_id=provider_session_id,
+            termination_info=term_info,
+            termination_reason=term_reason,
         )
 
     def parse_output(self, result: ProviderResult) -> str:

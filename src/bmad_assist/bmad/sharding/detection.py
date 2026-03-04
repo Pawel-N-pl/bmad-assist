@@ -60,16 +60,28 @@ def resolve_doc_path(base_path: Path, doc_name: str) -> tuple[Path, bool]:
     single_file = base_path / f"{doc_name}.md"
     sharded_dir = base_path / doc_name
 
-    # PRECEDENCE: Sharded directory takes priority over single file
+    # PRECEDENCE: Sharded directory vs single file
     if sharded_dir.is_dir():
-        # A directory is only truly sharded if it contains markdown files
         has_shards = any(sharded_dir.glob("*.md"))
+        has_index = (sharded_dir / "index.md").exists()
 
-        # If directory has shards, it ALWAYS wins
         if has_shards:
+            if single_file.exists() and not has_index:
+                # Directory has .md files but no index.md — it's a supplemental
+                # directory (e.g., ADRs), not a properly sharded doc.
+                # Single file is the main document.
+                logger.debug(
+                    "Both %s/ and %s exist but dir has no index.md; "
+                    "using single file as main document",
+                    sharded_dir,
+                    single_file,
+                )
+                return single_file, False
+
+            # Properly sharded (has index.md) or no single file → dir wins
             if single_file.exists():
                 logger.debug(
-                    "Both %s/ and %s exist; using sharded directory (precedence rule)",
+                    "Both %s/ and %s exist; using sharded directory (has index.md)",
                     sharded_dir,
                     single_file,
                 )

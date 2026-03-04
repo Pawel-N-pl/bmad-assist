@@ -176,6 +176,74 @@ class TestIsLastStoryInEpic:
 
         assert result is True
 
+    def test_is_last_story_skipped_story_before_current(self) -> None:
+        """Stories before current that are not done should not affect last-story check."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        # Story 2.1 is "skipped" (not in completed_stories), but it's BEFORE 2.3.
+        # is_last_story_in_epic only looks forward, so 2.3 is still "last".
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            completed_stories=["2.2"],  # 2.1 not completed (skipped)
+        )
+        epic_stories = ["2.1", "2.2", "2.3"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is True
+
+    def test_is_last_story_incomplete_after_current(self) -> None:
+        """Incomplete story after current means NOT last story."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        # 2.4 is after 2.3 and not in completed_stories → not last
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            completed_stories=["2.1", "2.2"],
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is False
+
+    def test_is_last_story_incomplete_before_and_after(self) -> None:
+        """Incomplete stories both before and after current — returns False due to after."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        # 2.1 incomplete before, 2.4 incomplete after → False (after matters)
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            completed_stories=["2.2"],  # 2.1 and 2.4 not completed
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is False
+
+    def test_is_last_story_current_not_in_epic_stories(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Current story not in epic_stories returns True (safe default) with warning."""
+        from bmad_assist.core.loop import is_last_story_in_epic
+        from bmad_assist.core.state import State
+
+        state = State(current_epic=2, current_story="2.99")
+        epic_stories = ["2.1", "2.2", "2.3"]
+
+        with caplog.at_level(logging.WARNING):
+            result = is_last_story_in_epic(state, epic_stories)
+
+        assert result is True
+        assert "not found in epic_stories" in caplog.text
+
 
 class TestGetNextStoryId:
     """AC5: get_next_story_id() calculates next story."""
@@ -305,6 +373,39 @@ class TestAdvanceToNextStory:
 
         with pytest.raises(StateError, match="epic has no stories"):
             advance_to_next_story(state, [])
+
+    def test_advance_to_next_story_skips_completed(self) -> None:
+        """Advance skips stories already in completed_stories."""
+        from bmad_assist.core.loop import advance_to_next_story
+        from bmad_assist.core.state import State
+
+        state = State(
+            current_epic=2,
+            current_story="2.2",
+            completed_stories=["2.1", "2.3"],  # 2.3 already done
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        new_state = advance_to_next_story(state, epic_stories)
+
+        assert new_state is not None
+        assert new_state.current_story == "2.4"  # Skipped 2.3
+
+    def test_advance_to_next_story_returns_none_when_all_after_completed(self) -> None:
+        """Advance returns None when all stories after current are completed."""
+        from bmad_assist.core.loop import advance_to_next_story
+        from bmad_assist.core.state import State
+
+        state = State(
+            current_epic=2,
+            current_story="2.2",
+            completed_stories=["2.3", "2.4"],
+        )
+        epic_stories = ["2.1", "2.2", "2.3", "2.4"]
+
+        result = advance_to_next_story(state, epic_stories)
+
+        assert result is None
 
     def test_advance_to_next_story_sets_updated_at(self) -> None:
         """AC3: updated_at is set on transition."""
@@ -474,6 +575,42 @@ class TestHandleStoryCompletion:
         assert new_state.current_phase == Phase.CODE_REVIEW_SYNTHESIS
         assert is_epic_complete is True
 
+    def test_handle_story_completion_orphan_incomplete_treats_as_epic_complete(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Edge case: stories completed in previous runs not in completed_stories.
+
+        When epic_stories includes a story (e.g. 30.1) that was completed in a
+        previous run but isn't tracked in this run's completed_stories, and
+        current story is the last in positional order, treat as epic complete
+        instead of crashing.
+        """
+        from bmad_assist.core.loop import handle_story_completion
+        from bmad_assist.core.state import Phase, State
+
+        # 30.1 was done in a previous run (not in completed_stories)
+        # but is still in epic_stories because sprint-status wasn't synced
+        state = State(
+            current_epic=30,
+            current_story="30.7",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+            completed_stories=["30.2", "30.3", "30.4", "30.5", "30.6"],
+        )
+        epic_stories = ["30.1", "30.2", "30.3", "30.4", "30.5", "30.6", "30.7"]
+        state_path = Path("/tmp/state.yaml")
+
+        with patch("bmad_assist.core.loop.story_transitions.save_state"):
+            with caplog.at_level(logging.WARNING):
+                new_state, is_epic_complete = handle_story_completion(
+                    state, epic_stories, state_path
+                )
+
+        assert is_epic_complete is True
+        assert "30.7" in new_state.completed_stories
+        # With forward-only is_last_story_in_epic(), 30.1 being incomplete
+        # doesn't matter — it's before 30.7, so is_last returns True directly
+        # (no orphan branch needed)
+
     def test_handle_story_completion_raises_on_none_story(self) -> None:
         """AC6: Propagates StateError from complete_story when no current story."""
         from bmad_assist.core.loop import handle_story_completion
@@ -484,6 +621,30 @@ class TestHandleStoryCompletion:
 
         with pytest.raises(StateError, match="no current story set"):
             handle_story_completion(state, ["1.1", "1.2"], state_path)
+
+    def test_handle_story_completion_skipped_story_before_current(self) -> None:
+        """Regression: skipped story before current should NOT cause StateError crash."""
+        from bmad_assist.core.loop import handle_story_completion
+        from bmad_assist.core.state import Phase, State
+
+        # 2.1 was skipped (not in completed_stories), currently on 2.3 (last positional)
+        state = State(
+            current_epic=2,
+            current_story="2.3",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+            completed_stories=["2.2"],  # 2.1 skipped
+        )
+        epic_stories = ["2.1", "2.2", "2.3"]
+        state_path = Path("/tmp/state.yaml")
+
+        with patch("bmad_assist.core.loop.story_transitions.save_state"):
+            # Should not raise StateError
+            new_state, is_epic_complete = handle_story_completion(
+                state, epic_stories, state_path
+            )
+
+        assert "2.3" in new_state.completed_stories
+        assert is_epic_complete is True
 
 
 class TestStory63Exports:

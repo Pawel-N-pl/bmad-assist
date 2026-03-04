@@ -593,10 +593,12 @@ def reset_project_cache(project_path: Path, console: Console) -> None:
     if not cache_dir.exists():
         cache_dir.mkdir(parents=True)
 
-    # Clear existing cache files
+    # Clear only cached templates.
+    # Keep runtime cache artifacts (e.g., code-reviews-*.json) for resume support.
     cleared = 0
     for f in cache_dir.iterdir():
-        if f.is_file() and f.name != "__init__.py":
+        is_template = f.name.endswith(".tpl.xml") or f.name.endswith(".tpl.xml.meta.yaml")
+        if f.is_file() and is_template:
             f.unlink()
             cleared += 1
 
@@ -624,6 +626,90 @@ def reset_project_cache(project_path: Path, console: Console) -> None:
     console.print(
         f"  [green]Installed {installed} bundled template(s) to cache[/green]"
     )
+
+
+def sync_bundled_cache(
+    project_path: Path,
+    force: bool,
+    console: Console,
+) -> int:
+    """Sync bundled pre-compiled templates to project cache.
+
+    Installs missing cache templates silently. For existing cache files
+    that differ from bundled versions, prompts the user before overwriting
+    (unless force=True).
+
+    Args:
+        project_path: Project root directory.
+        force: If True, overwrite differing files without prompts.
+        console: Rich console for output.
+
+    Returns:
+        Number of templates installed or updated.
+
+    """
+    from bmad_assist.workflows import get_bundled_cache, list_bundled_cache
+
+    cache_dir = project_path / ".bmad-assist" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    bundled = list_bundled_cache()
+    if not bundled:
+        return 0
+
+    installed = 0
+    differing: list[tuple[str, str, str]] = []  # (name, tpl_content, meta_content)
+
+    for wf_name in bundled:
+        pair = get_bundled_cache(wf_name)
+        if pair is None:
+            continue
+        tpl_content, meta_content = pair
+        tpl_path = cache_dir / f"{wf_name}.tpl.xml"
+
+        if not tpl_path.exists():
+            # Missing → install silently
+            tpl_path.write_text(tpl_content, encoding="utf-8")
+            meta_path = cache_dir / f"{wf_name}.tpl.xml.meta.yaml"
+            meta_path.write_text(meta_content, encoding="utf-8")
+            installed += 1
+            console.print(f"  [green]Installed cache:[/green] {wf_name}")
+        elif tpl_path.read_text(encoding="utf-8") != tpl_content:
+            # Differs → collect for prompting
+            differing.append((wf_name, tpl_content, meta_content))
+
+    if differing:
+        if force:
+            for wf_name, tpl_content, meta_content in differing:
+                tpl_path = cache_dir / f"{wf_name}.tpl.xml"
+                meta_path = cache_dir / f"{wf_name}.tpl.xml.meta.yaml"
+                tpl_path.write_text(tpl_content, encoding="utf-8")
+                meta_path.write_text(meta_content, encoding="utf-8")
+                installed += 1
+                console.print(f"  [green]Updated cache:[/green] {wf_name}")
+        else:
+            names = ", ".join(n for n, _, _ in differing)
+            console.print(
+                f"\n  [yellow]{len(differing)} cached template(s) differ "
+                f"from bundled: {names}[/yellow]"
+            )
+            response = console.input(
+                "  Overwrite with bundled? [a]ll / [s]kip (default): "
+            ).strip().lower()
+            if response == "a":
+                for wf_name, tpl_content, meta_content in differing:
+                    tpl_path = cache_dir / f"{wf_name}.tpl.xml"
+                    meta_path = cache_dir / f"{wf_name}.tpl.xml.meta.yaml"
+                    tpl_path.write_text(tpl_content, encoding="utf-8")
+                    meta_path.write_text(meta_content, encoding="utf-8")
+                    installed += 1
+                    console.print(f"  [green]Updated cache:[/green] {wf_name}")
+            else:
+                console.print(
+                    f"  [dim]Skipped {len(differing)} differing cache file(s)[/dim]"
+                )
+
+    return installed
 
 
 def ensure_project_setup(
@@ -671,9 +757,11 @@ def ensure_project_setup(
     result.workflows_copied = copy_result.copied
     result.workflows_skipped = copy_result.skipped
 
-    # 4. Reset cache and install bundled templates (force/--reset-workflows only)
+    # 4. Sync or reset bundled cache templates
     if force:
         reset_project_cache(project_path, console)
+    else:
+        sync_bundled_cache(project_path, force, console)
 
     # 5. Setup gitignore (init only)
     if include_gitignore:

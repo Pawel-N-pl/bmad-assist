@@ -120,6 +120,9 @@ def validate_config_file(config_path: Path) -> list[ValidationResult]:
     # Check 5: Pydantic schema
     results.extend(_validate_pydantic_schema(config_data, config_path))
 
+    # Check 6: Synthesis vs source_context budget conflict (FM-7)
+    results.extend(_validate_synthesis_budgets(config_data))
+
     return results
 
 
@@ -393,6 +396,69 @@ def _validate_pydantic_schema(
                 status="error",
                 field_path="(schema)",
                 message=f"Failed to load config: {e}",
+            )
+        )
+
+    return results
+
+
+def _validate_synthesis_budgets(config_data: dict[str, Any]) -> list[ValidationResult]:
+    """Check for potentially conflicting synthesis and source_context budgets."""
+    results: list[ValidationResult] = []
+
+    compiler = config_data.get("compiler", {})
+    if not isinstance(compiler, dict):
+        return results
+
+    synthesis = compiler.get("synthesis", {})
+    source_context = compiler.get("source_context", {})
+
+    if not isinstance(synthesis, dict) or not isinstance(source_context, dict):
+        return results
+
+    token_budget = synthesis.get("token_budget")
+    budgets = source_context.get("budgets", {})
+    if not isinstance(budgets, dict):
+        return results
+
+    if token_budget is None:
+        return results  # Using defaults, no conflict possible
+
+    # Check code_review_synthesis budget
+    cr_budget = budgets.get("code_review_synthesis")
+    if cr_budget is not None and cr_budget > token_budget * 0.5:
+        results.append(
+            ValidationResult(
+                status="warn",
+                field_path="compiler.synthesis.token_budget",
+                message=(
+                    "synthesis.token_budget and source_context.budgets may conflict — "
+                    f"code_review_synthesis source budget ({cr_budget}) is large "
+                    f"relative to synthesis budget ({token_budget})"
+                ),
+                suggestion=(
+                    "Ensure source_context budget for synthesis workflows "
+                    "is well within synthesis.token_budget"
+                ),
+            )
+        )
+
+    # Check validate_story_synthesis budget
+    vs_budget = budgets.get("validate_story_synthesis")
+    if vs_budget is not None and vs_budget > token_budget * 0.5:
+        results.append(
+            ValidationResult(
+                status="warn",
+                field_path="compiler.synthesis.token_budget",
+                message=(
+                    "synthesis.token_budget and source_context.budgets may conflict — "
+                    f"validate_story_synthesis source budget ({vs_budget}) is large "
+                    f"relative to synthesis budget ({token_budget})"
+                ),
+                suggestion=(
+                    "Ensure source_context budget for synthesis workflows "
+                    "is well within synthesis.token_budget"
+                ),
             )
         )
 

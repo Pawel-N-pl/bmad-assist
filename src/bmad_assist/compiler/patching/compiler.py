@@ -72,7 +72,8 @@ def _validate_instructions_xml(compiled_content: str) -> str | None:
         return None  # Empty instructions
 
     # Skip validation for markdown content
-    if not instructions_xml.lstrip().startswith("<"):
+    stripped = re.sub(r"<!--.*?-->", "", instructions_xml, flags=re.DOTALL).lstrip()
+    if not stripped.startswith("<"):
         return None
 
     try:
@@ -88,6 +89,7 @@ _WORKFLOW_LOCATIONS = [
     # New BMAD v6 structure (_bmad/)
     "_bmad/bmm/workflows/4-implementation",  # Implementation workflows
     "_bmad/bmm/workflows/testarch",  # TEA workflows
+    "_bmad/tea/workflows/testarch",  # TEA alternative location
     "_bmad/bmm/workflows/3-solutioning",  # Solutioning workflows
     "_bmad/bmm/workflows",  # Generic workflows
     "_bmad/core/workflows",  # Core workflows
@@ -129,39 +131,45 @@ def _find_workflow_files(
 
     """
     # Use mapping for testarch workflows (testarch-ci -> ci)
+    # Try both the mapped name and the full prefixed name
     bmad_dir_name = _WORKFLOW_TO_BMAD_DIR.get(workflow, workflow)
+    candidates = [bmad_dir_name]
+    if bmad_dir_name != workflow:
+        candidates.append(workflow)
 
     for location in _WORKFLOW_LOCATIONS:
-        workflow_dir = project_root / location / bmad_dir_name
-        workflow_yaml = workflow_dir / "workflow.yaml"
+        for candidate_name in candidates:
+            workflow_dir = project_root / location / candidate_name
+            workflow_yaml = workflow_dir / "workflow.yaml"
 
-        if not workflow_yaml.exists():
-            continue
+            if not workflow_yaml.exists():
+                continue
 
-        # Try instructions.xml first, then .md as fallback
-        instructions_xml = workflow_dir / "instructions.xml"
-        if instructions_xml.exists():
-            return workflow_yaml, instructions_xml
+            # Try instructions.xml first, then .md as fallback
+            instructions_xml = workflow_dir / "instructions.xml"
+            if instructions_xml.exists():
+                return workflow_yaml, instructions_xml
 
-        instructions_md = workflow_dir / "instructions.md"
-        if instructions_md.exists():
-            return workflow_yaml, instructions_md
+            instructions_md = workflow_dir / "instructions.md"
+            if instructions_md.exists():
+                return workflow_yaml, instructions_md
 
     # Not found in project - try global ~/.bmad/
     for location in _WORKFLOW_LOCATIONS:
-        workflow_dir = Path.home() / location / bmad_dir_name
-        workflow_yaml = workflow_dir / "workflow.yaml"
+        for candidate_name in candidates:
+            workflow_dir = Path.home() / location / candidate_name
+            workflow_yaml = workflow_dir / "workflow.yaml"
 
-        if not workflow_yaml.exists():
-            continue
+            if not workflow_yaml.exists():
+                continue
 
-        instructions_xml = workflow_dir / "instructions.xml"
-        if instructions_xml.exists():
-            return workflow_yaml, instructions_xml
+            instructions_xml = workflow_dir / "instructions.xml"
+            if instructions_xml.exists():
+                return workflow_yaml, instructions_xml
 
-        instructions_md = workflow_dir / "instructions.md"
-        if instructions_md.exists():
-            return workflow_yaml, instructions_md
+            instructions_md = workflow_dir / "instructions.md"
+            if instructions_md.exists():
+                return workflow_yaml, instructions_md
 
     # Not found in project or global - try bundled workflows
     from bmad_assist.workflows import get_bundled_workflow_dir

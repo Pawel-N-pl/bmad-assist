@@ -424,6 +424,40 @@ cursor-agent --print --model <model> --force "<prompt>"
 
 ---
 
+## Provider Fallback Chains
+
+Any provider can be configured with a `fallbacks` list for automatic failover. When the primary provider fails (timeout, quota exhaustion, API error), bmad-assist tries each fallback in order:
+
+```yaml
+providers:
+  master:
+    provider: claude-subprocess
+    model: opus
+    fallbacks:
+      - provider: gemini
+        model: gemini-2.5-pro
+      - provider: opencode-sdk
+        model: xai/grok-4
+```
+
+Fallback chains are recursive — each fallback entry supports the same options as a regular provider config, including its own `fallbacks`. The mechanism is implemented as a transparent decorator (`FallbackProvider`), so all phases (single-LLM, multi-LLM, synthesis) benefit without configuration changes.
+
+Fallbacks also work in `phase_models` and `multi` provider lists:
+
+```yaml
+providers:
+  multi:
+    - provider: gemini
+      model: gemini-2.5-flash
+      fallbacks:
+        - provider: gemini
+          model: gemini-3-flash-preview
+    - provider: codex
+      model: o3-mini
+```
+
+---
+
 ## Provider Options Reference
 
 All providers support these configuration options:
@@ -435,6 +469,7 @@ All providers support these configuration options:
 | `model_name` | No | Display name in logs/benchmarks (overrides model) |
 | `settings` | No | Path to settings file (claude-subprocess only) |
 | `thinking` | No | Enable thinking mode (kimi only) |
+| `fallbacks` | No | List of fallback provider configs for automatic failover |
 
 ---
 

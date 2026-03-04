@@ -235,6 +235,7 @@ class FakeConfig:
             self.testarch = FakeTestarchConfig(**testarch_kwargs)
         self.benchmarking = MagicMock()
         self.benchmarking.enabled = False
+        self.timeouts = None
         # Apply any remaining kwargs to self (not testarch)
         for key, value in kwargs.items():
             if key not in testarch_keys:

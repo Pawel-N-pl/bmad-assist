@@ -1,0 +1,212 @@
+"""IPC package for bmad-assist JSON-RPC 2.0 Unix domain socket protocol.
+
+Public API re-exported from protocol.py (wire format, constants, socket paths),
+types.py (Pydantic message models), server.py (socket server + thread bridge),
+client.py (async/sync socket clients), cleanup.py (stale socket management),
+and discovery.py (instance discovery and state probing).
+"""
+
+from bmad_assist.ipc.cleanup import (
+    cleanup_orphaned_sockets,
+    cleanup_socket,
+    cleanup_stale_sockets_on_startup,
+    clear_active_socket,
+    find_orphaned_sockets,
+    get_active_socket,
+    is_socket_stale,
+    read_socket_pid,
+    set_active_socket,
+    signal_safe_cleanup,
+)
+from bmad_assist.ipc.discovery import (
+    DiscoveredInstance,
+    DiscoveryService,
+    discover_instances,
+    discover_instances_async,
+    probe_instance,
+)
+from bmad_assist.ipc.client import (
+    ConnectionState,
+    IPCCommandError,
+    IPCConnectionError,
+    IPCReconnectError,
+    IPCTimeoutError,
+    SocketClient,
+    SyncSocketClient,
+)
+from bmad_assist.ipc.protocol import (
+    CONNECT_TIMEOUT,
+    EVENT_RATE_LIMIT,
+    IDLE_TIMEOUT,
+    MAX_CONNECTIONS,
+    MAX_MESSAGE_SIZE,
+    MAX_PARSE_ERRORS,
+    PROTOCOL_VERSION,
+    READ_COMMANDS,
+    SOCKET_DIR,
+    SUPPORTED_METHODS,
+    WRITE_COMMANDS,
+    ErrorCode,
+    IPCError,
+    MessageTooLargeError,
+    compute_project_hash,
+    deserialize,
+    get_socket_dir,
+    get_socket_path,
+    make_error_response,
+    make_event,
+    make_success_response,
+    read_message,
+    serialize,
+    validate_socket_path_length,
+    write_message,
+)
+from bmad_assist.ipc.types import (
+    ErrorData,
+    EventParams,
+    EventPriority,
+    GetCapabilitiesParams,
+    GetCapabilitiesResult,
+    GetStateParams,
+    GetStateResult,
+    GoodbyeData,
+    LogData,
+    MetricsData,
+    PauseParams,
+    PauseResult,
+    PhaseCompletedData,
+    PhaseStartedData,
+    PingParams,
+    PingResult,
+    ReloadConfigParams,
+    ReloadConfigResult,
+    ResumeParams,
+    ResumeResult,
+    RPCError,
+    RPCEvent,
+    RPCRequest,
+    RPCResponse,
+    RunnerState,
+    SetLogLevelParams,
+    SetLogLevelResult,
+    StateChangedData,
+    StopParams,
+    StopResult,
+    get_event_priority,
+)
+from bmad_assist.ipc.commands import (
+    CommandHandlerImpl,
+)
+from bmad_assist.ipc.events import (
+    EventEmitter,
+    IPCLogHandler,
+)
+from bmad_assist.ipc.server import (
+    CommandHandler,
+    IPCServerThread,
+    SocketServer,
+)
+
+__all__ = [
+    # protocol.py - Error codes
+    "ErrorCode",
+    # protocol.py - Constants
+    "PROTOCOL_VERSION",
+    "MAX_MESSAGE_SIZE",
+    "MAX_CONNECTIONS",
+    "IDLE_TIMEOUT",
+    "CONNECT_TIMEOUT",
+    "MAX_PARSE_ERRORS",
+    "EVENT_RATE_LIMIT",
+    "SOCKET_DIR",
+    "WRITE_COMMANDS",
+    "READ_COMMANDS",
+    "SUPPORTED_METHODS",
+    # protocol.py - Exceptions
+    "IPCError",
+    "MessageTooLargeError",
+    # protocol.py - Serialization
+    "serialize",
+    "deserialize",
+    "read_message",
+    "write_message",
+    # protocol.py - Response/event builders
+    "make_error_response",
+    "make_success_response",
+    "make_event",
+    # protocol.py - Socket path utilities
+    "get_socket_dir",
+    "compute_project_hash",
+    "get_socket_path",
+    "validate_socket_path_length",
+    # types.py - Enums
+    "RunnerState",
+    "EventPriority",
+    # types.py - Request types
+    "RPCRequest",
+    "PauseParams",
+    "ResumeParams",
+    "StopParams",
+    "SetLogLevelParams",
+    "ReloadConfigParams",
+    "GetStateParams",
+    "GetCapabilitiesParams",
+    "PingParams",
+    # types.py - Response types
+    "RPCError",
+    "RPCResponse",
+    "PauseResult",
+    "ResumeResult",
+    "StopResult",
+    "SetLogLevelResult",
+    "ReloadConfigResult",
+    "GetStateResult",
+    "GetCapabilitiesResult",
+    "PingResult",
+    # types.py - Event types
+    "EventParams",
+    "RPCEvent",
+    "PhaseStartedData",
+    "PhaseCompletedData",
+    "LogData",
+    "StateChangedData",
+    "MetricsData",
+    "ErrorData",
+    "GoodbyeData",
+    # types.py - Helpers
+    "get_event_priority",
+    # events.py - Event emission
+    "EventEmitter",
+    "IPCLogHandler",
+    # commands.py - Command handler
+    "CommandHandlerImpl",
+    # server.py - Socket server
+    "SocketServer",
+    "IPCServerThread",
+    "CommandHandler",
+    # client.py - Socket client
+    "SocketClient",
+    "SyncSocketClient",
+    "ConnectionState",
+    "IPCConnectionError",
+    "IPCTimeoutError",
+    "IPCCommandError",
+    "IPCReconnectError",
+    # cleanup.py - Socket cleanup utilities
+    "is_socket_stale",
+    "read_socket_pid",
+    "find_orphaned_sockets",
+    "cleanup_socket",
+    "cleanup_orphaned_sockets",
+    "cleanup_stale_sockets_on_startup",
+    "set_active_socket",
+    "get_active_socket",
+    "clear_active_socket",
+    "signal_safe_cleanup",
+    # discovery.py - Instance discovery
+    "DiscoveredInstance",
+    "DiscoveryService",
+    "discover_instances",
+    "discover_instances_async",
+    "probe_instance",
+]

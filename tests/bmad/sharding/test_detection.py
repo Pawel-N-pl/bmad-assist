@@ -65,18 +65,32 @@ class TestResolveDocPath:
         assert path == sharded_dir
         assert is_sharded is True
 
-    def test_both_exist_sharded_dir_wins_if_not_empty(self, tmp_path: Path) -> None:
-        """Sharded directory takes precedence when it contains files."""
+    def test_both_exist_sharded_dir_wins_with_index(self, tmp_path: Path) -> None:
+        """Sharded directory takes precedence when it has index.md."""
         single_file = tmp_path / "epics.md"
         single_file.touch()
         sharded_dir = tmp_path / "epics"
         sharded_dir.mkdir()
-        (sharded_dir / "epic-1.md").touch()  # Add a shard
+        (sharded_dir / "index.md").touch()
+        (sharded_dir / "epic-1.md").touch()
 
         path, is_sharded = resolve_doc_path(tmp_path, "epics")
 
         assert path == sharded_dir
         assert is_sharded is True
+
+    def test_both_exist_no_index_single_file_wins(self, tmp_path: Path) -> None:
+        """Single file wins when dir has .md files but no index.md (supplemental dir)."""
+        single_file = tmp_path / "architecture.md"
+        single_file.touch()
+        supplemental_dir = tmp_path / "architecture"
+        supplemental_dir.mkdir()
+        (supplemental_dir / "adr-001.md").touch()
+
+        path, is_sharded = resolve_doc_path(tmp_path, "architecture")
+
+        assert path == single_file
+        assert is_sharded is False
 
     def test_both_exist_empty_dir_loses(self, tmp_path: Path) -> None:
         """Single file takes precedence if sharded directory is empty."""

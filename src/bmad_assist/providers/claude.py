@@ -25,7 +25,10 @@ import threading
 import time
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 from bmad_assist.core.debug_logger import DebugJsonLogger
 from bmad_assist.core.exceptions import (
@@ -46,6 +49,7 @@ from bmad_assist.providers.base import (
     validate_settings_file,
     write_progress,
 )
+from bmad_assist.providers.tool_guard import build_termination_fields
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +265,7 @@ class ClaudeSubprocessProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute Claude Code CLI with the given prompt.
 
@@ -579,6 +584,17 @@ class ClaudeSubprocessProvider(BaseProvider):
                                 elif block.get("type") == "tool_use":
                                     tool_name = block.get("name", "?")
                                     tool_input = block.get("input", {})
+                                    # Guard check
+                                    if guard is not None:
+                                        verdict = guard.check(tool_name, tool_input)
+                                        if not verdict.allowed:
+                                            logger.warning(
+                                                "ToolCallGuard triggered: %s",
+                                                verdict.reason,
+                                            )
+                                            guard_triggered_event.set()
+                                            stream.close()
+                                            return
                                     if should_print_progress():
                                         if is_full_stream():
                                             import json as _json
@@ -630,6 +646,8 @@ class ClaudeSubprocessProvider(BaseProvider):
 
             # Event signaled by stdout reader on early termination
             early_term_event = threading.Event()
+            # Event signaled by stdout reader when guard triggers
+            guard_triggered_event = threading.Event()
 
             # Start reader threads
             stdout_thread = threading.Thread(
@@ -671,6 +689,13 @@ class ClaudeSubprocessProvider(BaseProvider):
                     self._terminate_process(process)
                     cancelled = True
                     returncode = -15  # SIGTERM
+                    break
+
+                # Check for guard-triggered termination (priority over early term)
+                if guard_triggered_event.is_set():
+                    logger.info("Guard-triggered termination, killing process")
+                    self._terminate_process(process)
+                    returncode = 0  # Guard uses exit_code=0
                     break
 
                 # Check for early termination (end marker detected)
@@ -838,6 +863,9 @@ class ClaudeSubprocessProvider(BaseProvider):
         # Close debug logger on success
         debug_json_logger.close()
 
+        # Build termination info from guard if present
+        term_info, term_reason = build_termination_fields(guard)
+
         return ProviderResult(
             stdout=final_stdout,
             stderr=final_stderr,
@@ -846,6 +874,8 @@ class ClaudeSubprocessProvider(BaseProvider):
             model=display_model or effective_model,
             command=tuple(command),
             provider_session_id=provider_session_id,
+            termination_info=term_info,
+            termination_reason=term_reason,
         )
 
     def parse_output(self, result: ProviderResult) -> str:

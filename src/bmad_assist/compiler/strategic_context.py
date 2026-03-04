@@ -19,7 +19,9 @@ Token budget behavior:
 - Slight budget overruns (~10%) are acceptable for better cut points
 """
 
+import hashlib
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -55,16 +57,16 @@ class _LoadedConfig(NamedTuple):
     budget: int  # Token budget cap
 
 
-# Doc type -> (file_patterns, dir_name, sharding_doc_type) mapping
+# Doc type -> (file_patterns, dir_names, sharding_doc_type) mapping
 # file_patterns: list of patterns to try IN ORDER (first match wins)
-# dir_name: directory name for sharded docs
+# dir_names: directory names for sharded docs (tried in order, first match wins)
 # sharding_doc_type: DocType for load_sharded_content (or None if not applicable)
-DOC_PATTERNS: dict[str, tuple[list[str] | None, str | None, DocType | None]] = {
+DOC_PATTERNS: dict[str, tuple[list[str] | None, list[str] | None, DocType | None]] = {
     "project-context": (None, None, None),  # Special handling via find_project_context_file()
-    "prd": (["prd.md"], "prd", "prd"),  # prd.md or prd/ directory
-    "architecture": (["architecture.md"], "architecture", "architecture"),
+    "prd": (["prd.md"], ["prd"], "prd"),  # prd.md or prd/ directory
+    "architecture": (["architecture.md"], ["architecture"], "architecture"),
     # Prioritized patterns - try specific first, then fallback
-    "ux": (["ux.md", "ux-design.md", "ux-*.md"], "ux", "ux"),
+    "ux": (["ux.md", "ux-design.md", "ux-*.md"], ["ux", "ux-design-specification", "ux-design"], "ux"),
     "project-tree": (None, None, None),  # Special handling via ProjectTreeService
 }
 
@@ -133,6 +135,210 @@ def _truncate_content(content: str, target_tokens: int) -> tuple[str, int]:
     actual_tokens = estimate_tokens(truncated)
 
     return truncated, actual_tokens
+
+
+def _compute_content_hash(content: str) -> str:
+    """Compute SHA-256 hex digest of content string."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _get_compression_cache_dir(project_root: Path) -> Path:
+    """Return path to compression cache directory."""
+    return project_root / ".bmad-assist" / "cache" / "compressed"
+
+
+def _load_cached_compression(
+    project_root: Path, doc_type: str, content_hash: str
+) -> tuple[str, int] | None:
+    """Load cached compression result if available and valid.
+
+    Args:
+        project_root: Project root directory.
+        doc_type: Document type (e.g., "ux", "prd").
+        content_hash: Full SHA-256 hash of the source content.
+
+    Returns:
+        Tuple of (compressed_content, compressed_tokens) or None if not cached.
+
+    """
+    try:
+        cache_dir = _get_compression_cache_dir(project_root)
+        prefix = content_hash[:16]
+        cache_file = cache_dir / f"{doc_type}-{prefix}.md"
+        meta_file = cache_dir / f"{doc_type}-{prefix}.meta.yaml"
+
+        if not cache_file.exists() or not meta_file.exists():
+            return None
+
+        import yaml
+
+        meta = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+        if not meta or meta.get("content_hash") != content_hash:
+            return None
+
+        content = cache_file.read_text(encoding="utf-8")
+        return content, meta.get("compressed_tokens", estimate_tokens(content))
+    except Exception as e:
+        logger.warning("Failed to load compression cache for %s: %s", doc_type, e)
+        return None
+
+
+def _save_cached_compression(
+    project_root: Path,
+    doc_type: str,
+    content_hash: str,
+    compressed: str,
+    original_tokens: int,
+) -> None:
+    """Save compressed content to disk cache.
+
+    Writes atomically (tmp + rename) and cleans up stale entries for the same doc_type.
+
+    Args:
+        project_root: Project root directory.
+        doc_type: Document type (e.g., "ux", "prd").
+        content_hash: Full SHA-256 hash of the source content.
+        compressed: Compressed content to cache.
+        original_tokens: Token count of the original content.
+
+    """
+    try:
+        from datetime import UTC, datetime
+
+        import yaml
+
+        cache_dir = _get_compression_cache_dir(project_root)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        prefix = content_hash[:16]
+        cache_file = cache_dir / f"{doc_type}-{prefix}.md"
+        meta_file = cache_dir / f"{doc_type}-{prefix}.meta.yaml"
+
+        # Atomic write: content
+        tmp_file = cache_file.with_suffix(".tmp")
+        tmp_file.write_text(compressed, encoding="utf-8")
+        os.rename(tmp_file, cache_file)
+
+        # Write metadata
+        compressed_tokens = estimate_tokens(compressed)
+        meta = {
+            "content_hash": content_hash,
+            "original_tokens": original_tokens,
+            "compressed_tokens": compressed_tokens,
+            "compressed_at": datetime.now(UTC).isoformat(),
+        }
+        tmp_meta = meta_file.with_suffix(".tmp")
+        tmp_meta.write_text(yaml.safe_dump(meta, default_flow_style=False), encoding="utf-8")
+        os.rename(tmp_meta, meta_file)
+
+        # Clean up stale entries for the same doc_type (different hash)
+        for stale in cache_dir.glob(f"{doc_type}-*.md"):
+            if stale.name != cache_file.name:
+                stale.unlink(missing_ok=True)
+        for stale in cache_dir.glob(f"{doc_type}-*.meta.yaml"):
+            if stale.name != meta_file.name:
+                stale.unlink(missing_ok=True)
+        for stale in cache_dir.glob(f"{doc_type}-*.tmp"):
+            stale.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning("Failed to save compression cache for %s: %s", doc_type, e)
+
+
+def _compress_or_truncate(
+    content: str, target_tokens: int, doc_type: str, project_root: Path | None = None
+) -> tuple[str, int]:
+    """Try LLM compression first, fall back to truncation.
+
+    Uses the helper provider (if configured) to compress the document
+    while preserving key information. On any failure, falls back to
+    simple truncation. Results are cached on disk keyed by SHA-256
+    content hash.
+
+    Args:
+        content: Full document content.
+        target_tokens: Target token count.
+        doc_type: Document type name (for logging and caching).
+        project_root: Project root for disk caching (None to disable caching).
+
+    Returns:
+        Tuple of (compressed_or_truncated_content, actual_tokens).
+
+    """
+    original_tokens = estimate_tokens(content)
+
+    try:
+        from bmad_assist.core.config.loaders import get_config
+        from bmad_assist.providers.registry import get_provider
+
+        config = get_config()
+        helper = config.providers.helper
+        if not helper:
+            logger.debug("No helper provider configured, using truncation for %s", doc_type)
+            return _truncate_and_log(content, target_tokens, doc_type, original_tokens)
+
+        # Check cache before calling LLM
+        content_hash = _compute_content_hash(content)
+        if project_root is not None:
+            cached = _load_cached_compression(project_root, doc_type, content_hash)
+            if cached is not None:
+                cached_content, cached_tokens = cached
+                if cached_tokens <= target_tokens * BUDGET_OVERRUN_FACTOR:
+                    logger.info("Using cached compression for %s", doc_type)
+                    return cached_content, cached_tokens
+                else:
+                    logger.info("Truncating cached compression for %s", doc_type)
+                    return _truncate_content(cached_content, target_tokens)
+
+        # Cache miss: compress via helper LLM
+        provider = get_provider(helper.provider)
+        target_chars = target_tokens * 4
+        prompt = (
+            f"Compress the following {doc_type} document to approximately "
+            f"{target_chars} characters (~{target_tokens} tokens). "
+            f"Preserve all key decisions, requirements, constraints, and technical details. "
+            f"Remove verbose explanations, examples, and redundant content. "
+            f"Output ONLY the compressed document, no preamble.\n\n"
+            f"---\n{content}\n---"
+        )
+        result = provider.invoke(prompt, model=helper.model, timeout=120)
+        compressed = provider.parse_output(result).strip()
+        actual = estimate_tokens(compressed)
+
+        logger.info(
+            "Compressed %s from %d to ~%d tokens via helper LLM (budget: %d)",
+            doc_type, original_tokens, actual, target_tokens,
+        )
+
+        # Save to cache
+        if project_root is not None:
+            _save_cached_compression(
+                project_root, doc_type, content_hash, compressed, original_tokens
+            )
+
+        # If compression result still exceeds budget, truncate it
+        if actual > target_tokens * BUDGET_OVERRUN_FACTOR:
+            return _truncate_content(compressed, target_tokens)
+
+        return compressed, actual
+
+    except Exception as e:
+        logger.warning(
+            "LLM compression failed for %s, falling back to truncation: %s",
+            doc_type, e,
+        )
+        return _truncate_and_log(content, target_tokens, doc_type, original_tokens)
+
+
+def _truncate_and_log(
+    content: str, target_tokens: int, doc_type: str, original_tokens: int
+) -> tuple[str, int]:
+    """Truncate content and log the result."""
+    result, actual = _truncate_content(content, target_tokens)
+    logger.info(
+        "Truncated %s from %d to %d tokens (budget remaining: %d)",
+        doc_type, original_tokens, actual, target_tokens,
+    )
+    return result, actual
 
 
 class StrategicContextService:
@@ -296,19 +502,14 @@ class StrategicContextService:
                 total_tokens += tokens
                 loaded_docs.append(doc_type)
             elif remaining_budget >= 500:  # Only truncate if meaningful space remains
-                # Truncate to fit remaining budget
-                truncated_content, actual_tokens = _truncate_content(content, remaining_budget)
-                files[path] = truncated_content
+                # Compress (or truncate as fallback) to fit remaining budget
+                compressed_content, actual_tokens = _compress_or_truncate(
+                    content, remaining_budget, doc_type, self.context.project_root
+                )
+                files[path] = compressed_content
                 total_tokens += actual_tokens
                 loaded_docs.append(doc_type)
                 truncated_docs.append(f"{doc_type}:{tokens}->{actual_tokens}")
-                logger.info(
-                    "Truncated %s from %d to %d tokens (budget remaining: %d)",
-                    doc_type,
-                    tokens,
-                    actual_tokens,
-                    remaining_budget,
-                )
             else:
                 # Not enough budget for meaningful truncation
                 logger.debug(
@@ -381,11 +582,11 @@ class StrategicContextService:
                 logger.warning("Unknown doc type: %s", doc_type)
                 return "", ""
 
-            file_patterns, dir_name, sharding_doc_type = patterns
+            file_patterns, dir_names, sharding_doc_type = patterns
 
             # Step 1: Check for SHARDED directory first
             # This prevents missing sharded docs when glob finds nothing
-            if dir_name:
+            if dir_names:
                 planning_dir = get_planning_artifacts_dir(self.context)
 
                 # Try planning_artifacts, project_knowledge, then docs/ fallback
@@ -399,10 +600,11 @@ class StrategicContextService:
                 for base_dir in search_dirs:
                     if base_dir is None:
                         continue
-                    shard_dir = base_dir / dir_name
-                    if shard_dir.is_dir():
-                        logger.debug("Found sharded %s at %s", doc_type, shard_dir)
-                        return self._load_sharded_doc(shard_dir, main_only, sharding_doc_type)
+                    for dir_name in dir_names:
+                        shard_dir = base_dir / dir_name
+                        if shard_dir.is_dir():
+                            logger.debug("Found sharded %s at %s", doc_type, shard_dir)
+                            return self._load_sharded_doc(shard_dir, main_only, sharding_doc_type)
 
             # Step 2: Check for non-sharded file
             # Try patterns in order (prioritized matching)
@@ -414,7 +616,7 @@ class StrategicContextService:
                         return str(path), content
 
             logger.debug(
-                "Doc %s not found (checked dir=%s, patterns=%s)", doc_type, dir_name, file_patterns
+                "Doc %s not found (checked dirs=%s, patterns=%s)", doc_type, dir_names, file_patterns
             )
             return "", ""
 

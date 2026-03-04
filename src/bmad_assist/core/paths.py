@@ -139,15 +139,14 @@ class ProjectPaths:
     def project_knowledge(self) -> Path:
         """Project knowledge/documentation folder.
 
-        Resolution: explicit config → planning_artifacts (if exists) → docs/ fallback.
-        File discovery functions add docs/ as additional fallback.
+        Resolution: explicit config → docs/ fallback.
+        planning_artifacts is searched separately via _knowledge_search_dirs().
         """
         configured = self._config.get("project_knowledge")
         if configured is not None:
             return self._resolve_path(configured)
-        # Default: planning_artifacts if it exists, else docs/ fallback
-        if self.planning_artifacts.exists():
-            return self.planning_artifacts
+        # Default to docs/ (canonical project documentation location).
+        # planning_artifacts is an output dir, not a documentation source.
         return self.project_docs_fallback
 
     @cached_property
@@ -201,12 +200,20 @@ class ProjectPaths:
     def _knowledge_search_dirs(self) -> list[Path]:
         """Return deduplicated list of dirs to search for project knowledge.
 
-        Returns project_knowledge followed by docs/ fallback (if different).
+        Search order: project_knowledge → planning_artifacts → docs/ fallback.
+        Deduplicates by resolved path so the same directory isn't searched twice.
         """
-        dirs: list[Path] = [self.project_knowledge]
-        fallback = self.project_docs_fallback
-        if fallback.resolve() != self.project_knowledge.resolve():
-            dirs.append(fallback)
+        seen: set[Path] = set()
+        dirs: list[Path] = []
+        for candidate in [
+            self.project_knowledge,
+            self.planning_artifacts,
+            self.project_docs_fallback,
+        ]:
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                dirs.append(candidate)
         return dirs
 
     def _find_epics_dir(self, base: Path, max_depth: int) -> Path | None:

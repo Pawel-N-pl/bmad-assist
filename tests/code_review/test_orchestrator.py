@@ -145,6 +145,7 @@ class TestRunCodeReviewPhaseWorkflowId:
         mock_result.stderr = None
         mock_result.model = "test-model"
         mock_result.provider_session_id = "session-123"
+        mock_result.termination_reason = None
 
         mock_provider = MagicMock()
         mock_provider.invoke.return_value = mock_result
@@ -204,6 +205,7 @@ class TestRunCodeReviewPhaseDeterministicMetrics:
         mock_result.stderr = None
         mock_result.model = "test-model"
         mock_result.provider_session_id = "session-123"
+        mock_result.termination_reason = None
 
         mock_provider = MagicMock()
         mock_provider.invoke.return_value = mock_result
@@ -277,6 +279,7 @@ class TestRunCodeReviewPhaseHandleFailures:
                 mock_result.stderr = None
             mock_result.model = "test-model"
             mock_result.provider_session_id = f"session-{call_count}"
+            mock_result.termination_reason = None
             return mock_result
 
         mock_provider = MagicMock()
@@ -336,6 +339,7 @@ class TestRunCodeReviewPhaseInsufficientReviewers:
             mock_result.stdout = ""
             mock_result.model = "test"
             mock_result.provider_session_id = "session"
+            mock_result.termination_reason = None
             return mock_result
 
         mock_provider = MagicMock()

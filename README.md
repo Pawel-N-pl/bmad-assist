@@ -57,6 +57,12 @@ pip install -e .
 
 > **Platform:** Linux and macOS only. Windows is not supported — the subprocess management layer depends on POSIX APIs (`os.killpg`, `signal.SIGKILL`, process groups, `start_new_session`) throughout the codebase. On Windows, use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install).
 
+> **WSL2 Notes:**
+> - Keep your projects on the **Linux filesystem** (`/home/...`), not on Windows drives (`/mnt/c/...`), for correct Unix socket permissions and optimal IPC performance
+> - The IPC socket directory (`~/.bmad-assist/sockets/`) is always on the Linux filesystem by default
+> - DrvFS (Windows filesystem) does not properly support Unix socket file permissions — bmad-assist will warn if it detects this configuration
+> - All WSL2 terminals (Windows Terminal tabs, VS Code integrated terminal) share the same bmad-assist IPC socket
+
 ## Quick Start
 
 ```bash

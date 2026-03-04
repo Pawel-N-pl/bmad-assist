@@ -65,15 +65,17 @@ class TestProjectPaths:
         expected = project_root.resolve() / "_bmad-output" / "implementation-artifacts"
         assert paths.implementation_artifacts == expected
 
-    def test_default_project_knowledge_with_planning(self, project_root: Path):
-        """Default project knowledge uses planning_artifacts when it exists."""
+    def test_default_project_knowledge_is_docs(self, project_root: Path):
+        """Default project knowledge is docs/, not planning_artifacts."""
         project_root.mkdir(parents=True)
         (project_root / "_bmad-output" / "planning-artifacts").mkdir(parents=True)
         paths = ProjectPaths(project_root)
-        assert paths.project_knowledge == paths.planning_artifacts
+        # docs/ is the canonical location for project documentation,
+        # planning_artifacts is an output dir searched separately
+        assert paths.project_knowledge == project_root.resolve() / "docs"
 
-    def test_default_project_knowledge_fallback_to_docs(self, project_root: Path):
-        """Default project knowledge falls back to docs/ when planning_artifacts absent."""
+    def test_default_project_knowledge_without_planning(self, project_root: Path):
+        """Default project knowledge is docs/ even without planning_artifacts."""
         project_root.mkdir(parents=True)
         paths = ProjectPaths(project_root)
         assert paths.project_knowledge == project_root.resolve() / "docs"
@@ -178,11 +180,10 @@ class TestProjectKnowledgePaths:
     """Tests for project knowledge paths."""
 
     def test_prd_file(self, project_root: Path):
-        """PRD file path derives from project_knowledge."""
+        """PRD file path derives from project_knowledge (docs/)."""
         project_root.mkdir(parents=True)
-        (project_root / "_bmad-output" / "planning-artifacts").mkdir(parents=True)
         paths = ProjectPaths(project_root)
-        assert paths.prd_file == paths.planning_artifacts / "prd.md"
+        assert paths.prd_file == project_root.resolve() / "docs" / "prd.md"
 
     def test_prd_file_fallback(self, project_root: Path):
         """PRD file falls back to docs/ when planning_artifacts absent."""
@@ -191,18 +192,16 @@ class TestProjectKnowledgePaths:
         assert paths.prd_file == project_root.resolve() / "docs" / "prd.md"
 
     def test_architecture_file(self, project_root: Path):
-        """Architecture file path derives from project_knowledge."""
+        """Architecture file path derives from project_knowledge (docs/)."""
         project_root.mkdir(parents=True)
-        (project_root / "_bmad-output" / "planning-artifacts").mkdir(parents=True)
         paths = ProjectPaths(project_root)
-        assert paths.architecture_file == paths.planning_artifacts / "architecture.md"
+        assert paths.architecture_file == project_root.resolve() / "docs" / "architecture.md"
 
     def test_project_context_file(self, project_root: Path):
-        """Project context file path derives from project_knowledge."""
+        """Project context file path derives from project_knowledge (docs/)."""
         project_root.mkdir(parents=True)
-        (project_root / "_bmad-output" / "planning-artifacts").mkdir(parents=True)
         paths = ProjectPaths(project_root)
-        assert paths.project_context_file == paths.planning_artifacts / "project_context.md"
+        assert paths.project_context_file == project_root.resolve() / "docs" / "project_context.md"
 
 
 class TestInternalStatePaths:

@@ -34,6 +34,7 @@ class ATDDEligibilityOutput(BaseModel):
     Attributes:
         ui_score: UI involvement score (0.0-1.0)
         api_score: API involvement score (0.0-1.0)
+        testability_score: General testability score (0.0-1.0)
         skip_score: Skip indicator score (0.0-1.0)
         reasoning: Explanation of assessment
 
@@ -41,6 +42,7 @@ class ATDDEligibilityOutput(BaseModel):
 
     ui_score: float = Field(ge=0.0, le=1.0, description="UI involvement score")
     api_score: float = Field(ge=0.0, le=1.0, description="API involvement score")
+    testability_score: float = Field(default=0.0, ge=0.0, le=1.0, description="General testability score")
     skip_score: float = Field(ge=0.0, le=1.0, description="Skip indicator score")
     reasoning: str = Field(..., min_length=1, description="Explanation of assessment")
 

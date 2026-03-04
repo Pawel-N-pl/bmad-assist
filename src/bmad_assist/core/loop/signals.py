@@ -1,6 +1,7 @@
 """Signal handling for immediate shutdown.
 
 Story 6.6: Signal handling for shutdown (SIGINT, SIGTERM).
+Story 29.6: Socket cleanup on crash — pre-kill cleanup step and SIGHUP handler.
 Updated: Hard kill on Ctrl+C - no graceful shutdown, immediate exit.
 
 """
@@ -37,6 +38,29 @@ _received_signal: int | None = None
 # Type is the return type of signal.signal() - can be Handler or special int values
 _previous_sigint_handler: Callable[[int, FrameType | None], None] | int | None = None
 _previous_sigterm_handler: Callable[[int, FrameType | None], None] | int | None = None
+_previous_sighup_handler: Callable[[int, FrameType | None], None] | int | None = None
+
+# Story 29.6: Pre-stored reference to IPC socket cleanup function.
+# Set during register_signal_handlers() via pre-import — avoids lazy import inside
+# signal handlers which can deadlock if the import lock is held when signal fires.
+_ipc_signal_safe_cleanup: Callable[[], None] | None = None
+
+# Pre-stored reference to kill_all_child_pgids — same pattern as above.
+# Avoids lazy import inside signal handlers (import lock deadlock risk).
+_kill_all_child_pgids: Callable[[], None] | None = None
+
+
+def _register_ipc_cleanup(fn: Callable[[], None]) -> None:
+    """Store a reference to the IPC signal-safe cleanup function.
+
+    Called from register_signal_handlers() after pre-importing ipc.cleanup.
+
+    Args:
+        fn: The signal_safe_cleanup function from ipc.cleanup.
+
+    """
+    global _ipc_signal_safe_cleanup
+    _ipc_signal_safe_cleanup = fn
 
 
 def shutdown_requested() -> bool:
@@ -135,6 +159,7 @@ def _get_interrupt_exit_reason() -> LoopExitReason:
 def _handle_sigint(signum: int, frame: FrameType | None) -> None:
     """Handle SIGINT (Ctrl+C) signal with immediate hard kill.
 
+    Story 29.6: Best-effort socket cleanup before kill.
     Kills all child processes (including those in separate sessions)
     and exits immediately. No graceful shutdown, no waiting for loops.
 
@@ -143,10 +168,14 @@ def _handle_sigint(signum: int, frame: FrameType | None) -> None:
         frame: Current stack frame (unused).
 
     """
-    from bmad_assist.providers.base import kill_all_child_pgids
+    # Story 29.6: Best-effort socket cleanup via pre-stored reference (no import)
+    if _ipc_signal_safe_cleanup is not None:
+        _ipc_signal_safe_cleanup()
 
     # Kill child processes in separate sessions (start_new_session=True)
-    kill_all_child_pgids()
+    # Uses pre-stored reference — no import inside handler (import lock deadlock risk)
+    if _kill_all_child_pgids is not None:
+        _kill_all_child_pgids()
     # Kill our own process group
     pid = os.getpid()
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
@@ -158,6 +187,7 @@ def _handle_sigint(signum: int, frame: FrameType | None) -> None:
 def _handle_sigterm(signum: int, frame: FrameType | None) -> None:
     """Handle SIGTERM (kill) signal with immediate hard kill.
 
+    Story 29.6: Best-effort socket cleanup before kill.
     Kills all child processes (including those in separate sessions)
     and exits immediately.
 
@@ -166,20 +196,52 @@ def _handle_sigterm(signum: int, frame: FrameType | None) -> None:
         frame: Current stack frame (unused).
 
     """
-    from bmad_assist.providers.base import kill_all_child_pgids
+    # Story 29.6: Best-effort socket cleanup via pre-stored reference (no import)
+    if _ipc_signal_safe_cleanup is not None:
+        _ipc_signal_safe_cleanup()
 
-    kill_all_child_pgids()
+    # Uses pre-stored reference — no import inside handler (import lock deadlock risk)
+    if _kill_all_child_pgids is not None:
+        _kill_all_child_pgids()
     pid = os.getpid()
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         os.killpg(os.getpgid(pid), signal.SIGKILL)
     os._exit(143)  # 128 + SIGTERM(15) = 143
 
 
+def _handle_sighup(signum: int, frame: FrameType | None) -> None:
+    """Handle SIGHUP (terminal disconnect) with cleanup.
+
+    Story 29.6: Same pattern as SIGINT/SIGTERM — best-effort socket cleanup
+    followed by hard kill. Exit code 129 (128 + SIGHUP=1).
+
+    Args:
+        signum: Signal number (always signal.SIGHUP=1).
+        frame: Current stack frame (unused).
+
+    """
+    # Story 29.6: Best-effort socket cleanup via pre-stored reference (no import)
+    if _ipc_signal_safe_cleanup is not None:
+        _ipc_signal_safe_cleanup()
+
+    # Uses pre-stored reference — no import inside handler (import lock deadlock risk)
+    if _kill_all_child_pgids is not None:
+        _kill_all_child_pgids()
+    pid = os.getpid()
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    os._exit(129)  # 128 + SIGHUP(1) = 129
+
+
 def register_signal_handlers() -> None:
     """Register signal handlers for immediate hard kill on Ctrl+C.
 
-    Installs handlers for SIGINT and SIGTERM that immediately kill
+    Installs handlers for SIGINT, SIGTERM, and SIGHUP that immediately kill
     all child processes and exit. No graceful shutdown.
+
+    Story 29.6: Pre-imports ipc.cleanup and stores a reference to
+    signal_safe_cleanup() so signal handlers can call it without importing
+    (avoids import lock deadlock).
 
     Must be called from the main thread (signal.signal() requirement).
 
@@ -194,10 +256,35 @@ def register_signal_handlers() -> None:
             "Ensure run_loop() is called from the main thread."
         )
 
-    global _previous_sigint_handler, _previous_sigterm_handler
+    global _previous_sigint_handler, _previous_sigterm_handler, _previous_sighup_handler
+
+    # Story 29.6: Pre-import ipc.cleanup so the module is in sys.modules
+    # before any signal fires. Store a direct reference — no import needed
+    # inside handler. ImportError is caught for minimal installs without IPC.
+    try:
+        from bmad_assist.ipc.cleanup import signal_safe_cleanup
+
+        _register_ipc_cleanup(signal_safe_cleanup)
+    except ImportError:
+        pass  # IPC module not available (e.g., minimal install)
+
+    # Pre-import kill_all_child_pgids — same pattern as ipc.cleanup above.
+    # Avoids lazy import inside signal handlers (import lock deadlock risk).
+    global _kill_all_child_pgids
+    try:
+        from bmad_assist.providers.base import kill_all_child_pgids
+
+        _kill_all_child_pgids = kill_all_child_pgids
+    except ImportError:
+        pass  # Provider module not available
 
     _previous_sigint_handler = signal.signal(signal.SIGINT, _handle_sigint)
     _previous_sigterm_handler = signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    # Story 29.6: Register SIGHUP handler (terminal disconnect)
+    # SIGHUP does not exist on Windows — guard with hasattr
+    if hasattr(signal, "SIGHUP"):
+        _previous_sighup_handler = signal.signal(signal.SIGHUP, _handle_sighup)
 
 
 def unregister_signal_handlers() -> None:
@@ -221,3 +308,10 @@ def unregister_signal_handlers() -> None:
         signal.signal(signal.SIGTERM, _previous_sigterm_handler)
     else:
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    # Story 29.6: Restore SIGHUP handler
+    if hasattr(signal, "SIGHUP"):
+        if _previous_sighup_handler is not None:
+            signal.signal(signal.SIGHUP, _previous_sighup_handler)
+        else:
+            signal.signal(signal.SIGHUP, signal.SIG_DFL)

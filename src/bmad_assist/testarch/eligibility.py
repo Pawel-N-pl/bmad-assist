@@ -222,6 +222,7 @@ class ATDDEligibilityResult:
         reasoning: Human-readable explanation of decision.
         ui_score: UI involvement score from LLM.
         api_score: API involvement score from LLM.
+        testability_score: General testability score from LLM.
         skip_score: Skip indicator score from LLM.
 
     Raises:
@@ -236,6 +237,7 @@ class ATDDEligibilityResult:
     reasoning: str
     ui_score: float
     api_score: float
+    testability_score: float
     skip_score: float
 
     def __post_init__(self) -> None:
@@ -246,6 +248,7 @@ class ATDDEligibilityResult:
             "final_score",
             "ui_score",
             "api_score",
+            "testability_score",
             "skip_score",
         ):
             value = getattr(self, name)
@@ -278,17 +281,18 @@ class ATDDEligibilityDetector:
     def _compute_llm_composite_score(self, output: "ATDDEligibilityOutput") -> float:
         """Compute composite LLM score from individual scores.
 
-        Formula: max(0, (ui_score + api_score) / 2 - skip_score)
+        Formula: max(testability_score, (ui_score + api_score) / 2) - skip_score
         Clamped to [0.0, 1.0].
 
         Args:
-            output: Validated LLM output with ui/api/skip scores.
+            output: Validated LLM output with ui/api/testability/skip scores.
 
         Returns:
             Composite score in [0.0, 1.0].
 
         """
-        raw = (output.ui_score + output.api_score) / 2 - output.skip_score
+        ui_api_avg = (output.ui_score + output.api_score) / 2
+        raw = max(output.testability_score, ui_api_avg) - output.skip_score
         return max(0.0, min(1.0, raw))
 
     def _invoke_llm(self, text: str) -> tuple["ATDDEligibilityOutput | None", str | None]:
@@ -361,18 +365,18 @@ class ATDDEligibilityDetector:
             llm_score = self._compute_llm_composite_score(llm_output)
             ui_score = llm_output.ui_score
             api_score = llm_output.api_score
+            testability_score = llm_output.testability_score
             skip_score = llm_output.skip_score
             llm_reasoning = llm_output.reasoning
 
-            # Hybrid calculation (normal path)
-            final_score = (
-                self.config.keyword_weight * keyword_score + self.config.llm_weight * llm_score
-            )
+            # Hybrid calculation: max of keyword and LLM scores
+            final_score = max(keyword_score, llm_score)
         else:
             # Fallback: keyword-only scoring (ignore weights per AC#6)
             llm_score = 0.0
             ui_score = 0.0
             api_score = 0.0
+            testability_score = 0.0
             skip_score = 0.0
             llm_reasoning = f"LLM assessment failed ({error_type}), using keyword-only scoring"
             final_score = keyword_score  # Direct use, no weight multiplication
@@ -393,5 +397,6 @@ class ATDDEligibilityDetector:
             reasoning=reasoning,
             ui_score=ui_score,
             api_score=api_score,
+            testability_score=testability_score,
             skip_score=skip_score,
         )

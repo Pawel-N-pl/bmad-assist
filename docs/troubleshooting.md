@@ -119,6 +119,18 @@ bmad-assist sprint validate
 bmad-assist sprint sync
 ```
 
+## Claude SDK Init Timeout
+
+**Symptoms:**
+- `TimeoutError: SDK initialization exceeded timeout`
+- Provider fails on first invocation but works after retry
+
+**Cause:** Claude SDK initialization includes loading MCP servers and CLAUDE.md, which can exceed the init timeout on complex projects.
+
+**Solution:** The init timeout is 30s by default (increased from 5s in v0.4.32). If your project has many MCP servers or a very large CLAUDE.md, the SDK will automatically fall back to subprocess mode on timeout. No configuration needed.
+
+---
+
 ## Multi-LLM Validation Failures
 
 **Symptoms:**
@@ -156,6 +168,8 @@ multi:
    <!-- VALIDATION_REPORT_END -->
    ```
 
+**Note:** Since v0.4.32, the evidence score parser accepts severity aliases (HIGH→CRITICAL, MEDIUM→IMPORTANT, LOW→MINOR) and section header fallback formats, so most LLM output variations are now handled automatically.
+
 ## Dashboard Not Loading
 
 **Symptoms:**
@@ -185,6 +199,28 @@ ls .bmad-assist/state.yaml
      project_knowledge: /path/that/exists
      output_folder: /writable/path
    ```
+
+## Provider Quota Exhaustion
+
+**Symptoms:**
+- `QuotaExhaustedError` or rate limit errors from LLM provider
+- Long runs failing mid-epic due to API limits
+
+**Solution:** Configure provider fallback chains to automatically switch to an alternative provider:
+
+```yaml
+providers:
+  master:
+    provider: claude-subprocess
+    model: opus
+    fallbacks:
+      - provider: gemini
+        model: gemini-2.5-pro
+```
+
+See [Providers Reference](providers.md#provider-fallback-chains) for details.
+
+---
 
 ## Debug Mode
 

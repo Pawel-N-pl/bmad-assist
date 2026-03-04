@@ -134,9 +134,18 @@ class TestCodexProviderInvoke:
         call_args = mock_popen_success.call_args
         command = call_args[0][0]
 
-        # Command should include --json for JSONL streaming
-        # platform_command places prompt after base_args
-        assert command == ["codex", "exec", "--json", "--full-auto", "-m", "o3-mini", "Review code"]
+        # Prompt is passed via stdin, not as a command argument
+        assert command == ["codex", "exec", "--json", "--full-auto", "-m", "o3-mini"]
+
+    def test_invoke_writes_prompt_to_stdin(
+        self, provider: CodexProvider, mock_popen_success: MagicMock
+    ) -> None:
+        """Test AC5: invoke() passes prompt via stdin to avoid ARG_MAX limits."""
+        provider.invoke("Review code", model="o3-mini")
+
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with("Review code")
+        mock_process.stdin.close.assert_called()
 
     def test_invoke_uses_default_model_when_none(
         self, provider: CodexProvider, mock_popen_success: MagicMock
@@ -145,7 +154,7 @@ class TestCodexProviderInvoke:
         provider.invoke("Hello", model=None)
 
         command = mock_popen_success.call_args[0][0]
-        # platform_command places prompt after base_args
+        # Prompt is passed via stdin, not as a command argument
         assert command == [
             "codex",
             "exec",
@@ -153,7 +162,6 @@ class TestCodexProviderInvoke:
             "--full-auto",
             "-m",
             "gpt-5.1-codex-max",
-            "Hello",
         ]
 
     def test_invoke_uses_default_model_when_not_specified(
@@ -598,8 +606,9 @@ class TestCodexProviderUnicode:
         """Test invoke() handles emoji in prompt correctly."""
         result = provider.invoke("Review code 🔍")
 
-        command = mock_popen_success.call_args[0][0]
-        assert "Review code 🔍" in command
+        # Prompt is passed via stdin, not command args
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with("Review code 🔍")
         assert isinstance(result.stdout, str)
 
     def test_invoke_with_chinese_characters(
@@ -608,8 +617,8 @@ class TestCodexProviderUnicode:
         """Test invoke() handles Chinese characters correctly."""
         result = provider.invoke("代码审查")
 
-        command = mock_popen_success.call_args[0][0]
-        assert "代码审查" in command
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with("代码审查")
         assert isinstance(result.stdout, str)
 
     def test_invoke_with_cyrillic_characters(
@@ -618,8 +627,8 @@ class TestCodexProviderUnicode:
         """Test invoke() handles Cyrillic characters correctly."""
         result = provider.invoke("Проверка кода")
 
-        command = mock_popen_success.call_args[0][0]
-        assert "Проверка кода" in command
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with("Проверка кода")
         assert isinstance(result.stdout, str)
 
     def test_invoke_with_newlines_in_prompt(
@@ -629,8 +638,8 @@ class TestCodexProviderUnicode:
         prompt = "Line 1\nLine 2\nLine 3"
         result = provider.invoke(prompt)
 
-        command = mock_popen_success.call_args[0][0]
-        assert prompt in command
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with(prompt)
         assert isinstance(result.stdout, str)
 
     def test_invoke_with_special_characters(
@@ -640,8 +649,8 @@ class TestCodexProviderUnicode:
         prompt = 'Review: "code" with $pecial ch@rs & <brackets>'
         result = provider.invoke(prompt)
 
-        command = mock_popen_success.call_args[0][0]
-        assert prompt in command
+        mock_process = mock_popen_success.return_value
+        mock_process.stdin.write.assert_called_once_with(prompt)
         assert isinstance(result.stdout, str)
 
     def test_invoke_handles_replacement_chars_in_output(self, provider: CodexProvider) -> None:

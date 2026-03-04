@@ -11,6 +11,7 @@ from bmad_assist.core.config.models.features import (
     PlaywrightConfig,
     PlaywrightServerConfig,
     QAConfig,
+    SynthesisConfig,
     TimeoutsConfig,
 )
 from bmad_assist.core.config.models.loop import (
@@ -84,6 +85,7 @@ __all__ = [
     # features.py
     "AntipatternConfig",
     "CompilerConfig",
+    "SynthesisConfig",
     "TimeoutsConfig",
     "BenchmarkingConfig",
     "PlaywrightServerConfig",

@@ -6,6 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from bmad_assist.antipatterns.extractor import (
+    BLOCK_FIX_PATTERN,
+    BLOCK_ISSUE_PATTERN,
+    BLOCK_START_PATTERN,
     CODE_ANTIPATTERNS_HEADER,
     ISSUE_WITH_FIX_PATTERN,
     ISSUES_SECTION_PATTERN,
@@ -88,6 +91,64 @@ Dismissed stuff.
         line = "- **Issue**: Unused receiver | **Source**: D | **Status**: DEFERRED"
         match = ISSUE_WITH_FIX_PATTERN.match(line)
         assert match is None
+
+
+class TestBlockPatterns:
+    """Tests for multi-line block format regex patterns."""
+
+    def test_block_start_numbered(self):
+        """Test numbered block start: '1. **Title**'."""
+        match = BLOCK_START_PATTERN.match('1. **PaymentIntent amount-sync verification**')
+        assert match is not None
+        assert "PaymentIntent" in match.group(1)
+
+    def test_block_start_bold_numbered(self):
+        """Test bold-numbered block start: '**1. Title**'."""
+        match = BLOCK_START_PATTERN.match('**1. Status/Lifecycle Contradiction (Validator B)**')
+        assert match is not None
+        assert "Status/Lifecycle" in match.group(1)
+
+    def test_block_start_bullet(self):
+        """Test bullet block start: '- **Title**'."""
+        match = BLOCK_START_PATTERN.match('- **Memory Leak for Inactive Destinations**')
+        assert match is not None
+        assert "Memory Leak" in match.group(1)
+
+    def test_block_fix_pattern_basic(self):
+        """Test fix line: '  - **Fix**: description'."""
+        match = BLOCK_FIX_PATTERN.match('   - **Fix**: Added bounds check')
+        assert match is not None
+        assert "Added bounds check" in match.group(1)
+
+    def test_block_fix_pattern_applied(self):
+        """Test fix line with APPLIED marker."""
+        line = '   - **Fix**: \u2705 **APPLIED** \u2014 Removed misleading checkbox'
+        match = BLOCK_FIX_PATTERN.match(line)
+        assert match is not None
+        assert "APPLIED" in match.group(1)
+
+    def test_block_fix_pattern_fix_applied_keyword(self):
+        """Test 'Fix Applied' variant from validation synthesis."""
+        match = BLOCK_FIX_PATTERN.match('- **Fix Applied**: Changed AC8 wording')
+        assert match is not None
+        assert "Changed AC8" in match.group(1)
+
+    def test_block_fix_pattern_no_match_source(self):
+        """Test that non-fix lines don't match."""
+        assert BLOCK_FIX_PATTERN.match('   - **Source**: Reviewer A') is None
+        assert BLOCK_FIX_PATTERN.match('   - **Files**: `path/to/file`') is None
+
+    def test_block_issue_pattern(self):
+        """Test issue description line: '- **Issue**: description'."""
+        match = BLOCK_ISSUE_PATTERN.match('- **Issue**: Story header says Ready for Dev')
+        assert match is not None
+        assert "Story header" in match.group(1)
+
+    def test_block_issue_pattern_indented(self):
+        """Test indented issue line."""
+        match = BLOCK_ISSUE_PATTERN.match('   - **Issue**: JSON Duration mismatch')
+        assert match is not None
+        assert "JSON Duration" in match.group(1)
 
 
 class TestExtractAntipatterns:
@@ -240,6 +301,186 @@ Everything looks good, no issues found.
         )
 
         assert len(issues) == 1
+
+    def test_extract_code_review_multiline_format(self, mock_config):
+        """Test extraction from code review synthesis multi-line format."""
+        content = """
+## Issues Verified (by severity)
+
+### Critical
+
+1. **PaymentIntent amount-sync verification marked complete but not implemented**
+   - **Source**: Reviewer A (+3), Reviewer B (+3)
+   - **Files**: `apps/storefront/CheckoutForm.tsx:306-312`
+   - **Evidence**: DoD claims implemented but code has TODO
+   - **Fix**: \u2705 **APPLIED** \u2014 Removed misleading DoD checkbox
+
+2. **NOT_SURE stage incorrectly treated as blocking**
+   - **Source**: Reviewer B (+3) via Antipatterns log
+   - **Files**: `apps/storefront/stage-safety.ts:34`
+   - **Fix**: \u2705 **DEFERRED** \u2014 Code already fixed per Antipatterns log
+
+### High
+
+3. **CheckoutForm is a 522-line god component**
+   - **Source**: Reviewer A (+1), Reviewer B (+1)
+   - **Fix**: \u23ed\ufe0f **DEFERRED** \u2014 Architectural refactor beyond synthesis scope
+
+4. **E2E test mocked payment, not real flow**
+   - **Source**: Reviewer A (+1)
+   - **Fix**: \u2705 **APPLIED** \u2014 Added comment documenting limited scope
+"""
+        issues = extract_antipatterns(content, epic_id=4, story_id="4-4", config=mock_config)
+
+        # Should extract 2: #1 (APPLIED) and #4 (APPLIED)
+        # Skip #2 (DEFERRED without APPLIED) and #3 (DEFERRED without APPLIED)
+        assert len(issues) == 2
+
+        assert issues[0]["severity"] == "critical"
+        assert "PaymentIntent" in issues[0]["issue"]
+        assert "Removed misleading" in issues[0]["fix"]
+
+        assert issues[1]["severity"] == "high"
+        assert "E2E test" in issues[1]["issue"]
+        assert "Added comment" in issues[1]["fix"]
+
+    def test_extract_validation_multiline_format(self, mock_config):
+        """Test extraction from validation synthesis multi-line format."""
+        content = """
+## Issues Verified (by severity)
+
+### Critical
+
+**1. Status/Lifecycle Contradiction (Validator B + supported by DoD analysis)**
+- **Issue**: Story header says Ready for Dev but Dev Agent Record claims implementation verified
+- **Source**: Validator B, lines 5, 1047
+- **Impact**: Creates execution ambiguity
+- **Fix Applied**: Clarified status to Ready for Dev and reconciled Dev Agent Record
+
+**2. AC8 Backend Enforcement Ambiguity (Validator B + Deep Verify F5)**
+- **Issue**: AC8 says backend validation is ideally present, making it optional
+- **Source**: Validator B, line 97
+- **Fix Applied**: Changed AC8 from ideally to MUST include
+
+### High
+
+**3. Cart Expiry Redirect Contract Incomplete (Validator B)**
+- **Issue**: AC6 requires redirect but implementation uses different approach
+- **Source**: Validator B
+- **Fix Applied**: Clarified AC6 to align with implementation
+"""
+        issues = extract_antipatterns(content, epic_id=4, story_id="4-4", config=mock_config)
+
+        assert len(issues) == 3
+
+        assert issues[0]["severity"] == "critical"
+        assert "Ready for Dev" in issues[0]["issue"]
+        assert "Clarified status" in issues[0]["fix"]
+
+        assert issues[1]["severity"] == "critical"
+        assert "optional" in issues[1]["issue"]
+        assert "MUST include" in issues[1]["fix"]
+
+        assert issues[2]["severity"] == "high"
+        assert "redirect" in issues[2]["issue"]
+
+    def test_extract_mixed_formats(self, mock_config):
+        """Test extraction handles both legacy pipe and multi-line in same section."""
+        content = """
+## Issues Verified
+
+### Critical
+- **Buffer overflow risk** | **Source**: A | **Fix**: Added bounds check
+
+### High
+
+1. **Memory leak in event handler**
+   - **Source**: Reviewer B
+   - **Fix**: \u2705 **APPLIED** \u2014 Added cleanup on unmount
+"""
+        issues = extract_antipatterns(content, epic_id=1, story_id="1-1", config=mock_config)
+
+        assert len(issues) == 2
+        assert issues[0]["severity"] == "critical"
+        assert "Buffer overflow" in issues[0]["issue"]
+        assert issues[1]["severity"] == "high"
+        assert "Memory leak" in issues[1]["issue"]
+        assert "Added cleanup" in issues[1]["fix"]
+
+    def test_multiline_deferred_skipped(self, mock_config):
+        """Test that DEFERRED items in multi-line format are skipped."""
+        content = """
+## Issues Verified
+
+### High
+
+1. **Applied issue**
+   - **Fix**: \u2705 **APPLIED** \u2014 Fixed the thing
+
+2. **Deferred issue**
+   - **Fix**: \u23ed\ufe0f **DEFERRED** \u2014 Too complex for now
+
+3. **Another applied**
+   - **Fix**: \u2705 **APPLIED** \u2014 Also fixed
+"""
+        issues = extract_antipatterns(content, epic_id=1, story_id="1-1", config=mock_config)
+
+        assert len(issues) == 2
+        assert "Applied issue" in issues[0]["issue"]
+        assert "Another applied" in issues[1]["issue"]
+
+    def test_fix_desc_cleaned_of_status_markers(self, mock_config):
+        """Test that status emoji and markers are removed from fix descriptions."""
+        content = """
+## Issues Verified
+
+### Critical
+
+1. **Test issue**
+   - **Fix**: \u2705 **APPLIED** \u2014 Removed misleading DoD checkbox
+"""
+        issues = extract_antipatterns(content, epic_id=1, story_id="1-1", config=mock_config)
+
+        assert len(issues) == 1
+        assert issues[0]["fix"] == "Removed misleading DoD checkbox"
+        assert "\u2705" not in issues[0]["fix"]
+        assert "APPLIED" not in issues[0]["fix"]
+
+    def test_extract_numbered_pipe_delimited_format(self, mock_config):
+        """Test extraction from numbered pipe-delimited format."""
+        content = """
+## Issues Verified (by severity)
+
+### Medium
+
+1. **Magic number 300ms scattered across files** | **Validator B** | **Files**: `CartItemRow.tsx:145` | **Fix**: Extracted constant
+
+2. **Stagger animation delay unbounded** | **Validator B** | **File**: `CartItemRow.tsx:167` | **Fix**: Added cap at 1000ms
+
+### Low
+
+1. **CTA routes to wrong page** | **Validator A** | **File**: `cart.tsx:420` | **Severity**: Minor UX concern
+"""
+        issues = extract_antipatterns(content, epic_id=4, story_id="4-9", config=mock_config)
+
+        # Should extract 2 medium issues (all have **Fix**:)
+        # Low item has **Severity**: not **Fix**: so it's skipped
+        assert len(issues) == 2
+
+        assert issues[0]["severity"] == "medium"
+        assert "Magic number" in issues[0]["issue"]
+        assert "Extracted" in issues[0]["fix"]
+
+        assert issues[1]["severity"] == "medium"
+        assert "Stagger animation" in issues[1]["issue"]
+
+    def test_numbered_pipe_with_fix_pattern_regex(self):
+        """Test that ISSUE_WITH_FIX_PATTERN matches numbered pipe-delimited lines."""
+        line = '1. **Magic number 300ms** | **Validator B** | **Fix**: Extracted constant'
+        match = ISSUE_WITH_FIX_PATTERN.match(line)
+        assert match is not None
+        assert "Magic number" in match.group(1)
+        assert "Extracted constant" in match.group(2)
 
 
 class TestAppendToAntipatterns:

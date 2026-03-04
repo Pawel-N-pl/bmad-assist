@@ -332,6 +332,11 @@ async def _invoke_reviewer(
         start_time = datetime.now(UTC)
         review_timestamp = run_timestamp or start_time
 
+        # Per-provider guard for multi-LLM independence
+        from bmad_assist.providers.tool_guard import ToolCallGuard
+
+        guard = ToolCallGuard()
+
         # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
         fallback_invoke_fn = None
         if provider.provider_name == "claude":
@@ -357,7 +362,46 @@ async def _invoke_reviewer(
             display_model=display_model,
             thinking=thinking,
             reasoning_effort=reasoning_effort,
+            guard=guard,
         )
+
+        # Retry once if reviewer's guard fired
+        from bmad_assist.providers.tool_guard import GUARD_TERMINATION_PREFIX
+
+        if result.termination_reason and result.termination_reason.startswith(
+            GUARD_TERMINATION_PREFIX
+        ):
+            logger.warning(
+                "ToolCallGuard triggered for reviewer %s: %s — retrying once",
+                reviewer_id,
+                result.termination_reason,
+            )
+            guard.reset_for_retry()
+            result = await asyncio.to_thread(
+                invoke_with_timeout_retry,
+                provider.invoke,
+                timeout_retries=timeout_retries,
+                phase_name="code_review",
+                fallback_invoke_fn=fallback_invoke_fn,
+                prompt=prompt,
+                model=model,
+                timeout=timeout,
+                allowed_tools=allowed_tools,
+                settings_file=settings_file,
+                color_index=color_index,
+                cwd=cwd,
+                display_model=display_model,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+                guard=guard,
+            )
+            if result.termination_reason and result.termination_reason.startswith(
+                GUARD_TERMINATION_PREFIX
+            ):
+                logger.error(
+                    "ToolCallGuard: retry also terminated for reviewer %s — using partial output",
+                    reviewer_id,
+                )
 
         duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
@@ -1434,6 +1478,15 @@ def load_reviews_for_synthesis(
     file_path = cache_dir / f"code-reviews-{session_id}.json"
 
     if not file_path.exists():
+        recovered = _recover_reviews_from_reports(session_id, project_root)
+        if recovered:
+            logger.warning(
+                "Recovered %d code review report(s) from markdown for session %s "
+                "(cache JSON missing)",
+                len(recovered),
+                session_id,
+            )
+            return recovered, [], None
         raise CodeReviewError(f"Reviews not found for session: {session_id}")
 
     try:
@@ -1483,3 +1536,72 @@ def load_reviews_for_synthesis(
         session_id,
     )
     return reviews, failed_reviewers, evidence_score
+
+
+def _recover_reviews_from_reports(
+    session_id: str,
+    project_root: Path,
+) -> list[AnonymizedValidation]:
+    """Recover reviews from persisted code-review markdown reports.
+
+    Used as a fallback when `.bmad-assist/cache/code-reviews-{session_id}.json`
+    is missing (for example after a template-cache reset).
+    """
+    import frontmatter
+
+    # Prefer new BMAD layout, then legacy fallbacks.
+    candidate_dirs = [
+        project_root / "_bmad-output" / "implementation-artifacts" / "code-reviews",
+        project_root / "docs" / "sprint-artifacts" / "code-reviews",
+        project_root / "docs" / "code-reviews",
+    ]
+
+    report_files: list[Path] = []
+    for directory in candidate_dirs:
+        if directory.exists():
+            report_files.extend(directory.glob("code-review-*.md"))
+
+    if not report_files:
+        return []
+
+    # Keep latest per reviewer_id to avoid duplicates from copied archives.
+    reviews_by_id: dict[str, tuple[float, AnonymizedValidation]] = {}
+
+    for report_path in report_files:
+        try:
+            post = frontmatter.load(report_path, handler=frontmatter.YAMLHandler())
+        except Exception:
+            continue
+
+        metadata = post.metadata if isinstance(post.metadata, dict) else {}
+        report_session = metadata.get("session_id")
+        if str(report_session) != session_id:
+            continue
+
+        content = str(post.content or "").strip()
+        if not content:
+            continue
+
+        role_id = str(metadata.get("role_id") or "").strip()
+        reviewer_id = str(metadata.get("reviewer_id") or "").strip()
+        if not reviewer_id:
+            reviewer_id = f"Validator {role_id.upper()}" if role_id else "Validator ?"
+
+        original_ref = f"report:{report_path.name}:{role_id or reviewer_id}"
+        validation = AnonymizedValidation(
+            validator_id=reviewer_id,
+            content=content,
+            original_ref=original_ref,
+        )
+
+        try:
+            mtime = report_path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+
+        previous = reviews_by_id.get(reviewer_id)
+        if previous is None or mtime >= previous[0]:
+            reviews_by_id[reviewer_id] = (mtime, validation)
+
+    recovered = [item[1] for item in sorted(reviews_by_id.values(), key=lambda x: x[1].validator_id)]
+    return recovered

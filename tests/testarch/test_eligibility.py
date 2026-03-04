@@ -575,6 +575,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Test reasoning",
             ui_score=0.7,
             api_score=0.5,
+            testability_score=0.0,
             skip_score=0.1,
         )
         with pytest.raises(FrozenInstanceError):
@@ -592,6 +593,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Test reasoning",
             ui_score=0.7,
             api_score=0.5,
+            testability_score=0.0,
             skip_score=0.1,
         )
         assert result.keyword_score == 0.5
@@ -601,6 +603,7 @@ class TestATDDEligibilityResultDataclass:
         assert result.reasoning == "Test reasoning"
         assert result.ui_score == 0.7
         assert result.api_score == 0.5
+        assert result.testability_score == 0.0
         assert result.skip_score == 0.1
 
     def test_result_scores_in_valid_range(self) -> None:
@@ -616,6 +619,7 @@ class TestATDDEligibilityResultDataclass:
             reasoning="Boundary test",
             ui_score=0.0,
             api_score=1.0,
+            testability_score=0.5,
             skip_score=0.5,
         )
         assert 0.0 <= result.keyword_score <= 1.0
@@ -639,6 +643,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -652,6 +657,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -665,6 +671,7 @@ class TestATDDEligibilityResultDataclass:
                 reasoning="Test",
                 ui_score=0.5,
                 api_score=0.5,
+                testability_score=0.5,
                 skip_score=0.5,
             )
 
@@ -739,7 +746,7 @@ class TestCompositeLLMScoreFormula:
     """Test AC4: LLM composite score calculation."""
 
     def test_composite_score_formula(self) -> None:
-        """Composite LLM score = max(0, (ui + api) / 2 - skip)."""
+        """Composite LLM score = max(0, max(testability, (ui + api) / 2) - skip)."""
         from unittest.mock import MagicMock, patch
 
         from bmad_assist.testarch.config import EligibilityConfig
@@ -749,12 +756,12 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (0.8 + 0.6) / 2 - 0.3 = 0.7 - 0.3 = 0.4
+        # Test formula: max(0.0, (0.8 + 0.6) / 2) - 0.3 = 0.7 - 0.3 = 0.4
         output = ATDDEligibilityOutput(
             ui_score=0.8, api_score=0.6, skip_score=0.3, reasoning="Test"
         )
         result = detector._compute_llm_composite_score(output)
-        expected = (0.8 + 0.6) / 2 - 0.3
+        expected = max(0.0, (0.8 + 0.6) / 2) - 0.3
         assert abs(result - expected) < 0.001
 
     def test_composite_score_clamped_to_zero(self) -> None:
@@ -766,7 +773,7 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (0.2 + 0.2) / 2 - 0.9 = 0.2 - 0.9 = -0.7 → 0.0
+        # Test formula: max(0.0, (0.2 + 0.2) / 2) - 0.9 = 0.2 - 0.9 = -0.7 → 0.0
         output = ATDDEligibilityOutput(
             ui_score=0.2, api_score=0.2, skip_score=0.9, reasoning="Skip-heavy"
         )
@@ -782,14 +789,52 @@ class TestCompositeLLMScoreFormula:
         config = EligibilityConfig()
         detector = ATDDEligibilityDetector(config)
 
-        # Test formula: (1.0 + 1.0) / 2 - 0.0 = 1.0 (exactly at cap)
+        # Test formula: max(0.0, (1.0 + 1.0) / 2) - 0.0 = 1.0 (exactly at cap)
         output = ATDDEligibilityOutput(ui_score=1.0, api_score=1.0, skip_score=0.0, reasoning="Max")
         result = detector._compute_llm_composite_score(output)
         assert result == 1.0
 
+    def test_composite_score_testability_dominates(self) -> None:
+        """Testability score dominates when higher than ui/api average."""
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
+
+        config = EligibilityConfig()
+        detector = ATDDEligibilityDetector(config)
+
+        # testability=0.9 > (0.2 + 0.3) / 2 = 0.25
+        # composite = max(0.9, 0.25) - 0.1 = 0.9 - 0.1 = 0.8
+        output = ATDDEligibilityOutput(
+            ui_score=0.2, api_score=0.3, testability_score=0.9, skip_score=0.1, reasoning="Test"
+        )
+        result = detector._compute_llm_composite_score(output)
+        expected = max(0.9, (0.2 + 0.3) / 2) - 0.1
+        assert abs(result - expected) < 0.001
+        assert abs(result - 0.8) < 0.001
+
+    def test_composite_score_ui_api_dominates(self) -> None:
+        """UI/API average dominates when higher than testability score."""
+        from bmad_assist.testarch.config import EligibilityConfig
+        from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
+        from bmad_assist.testarch.prompts import ATDDEligibilityOutput
+
+        config = EligibilityConfig()
+        detector = ATDDEligibilityDetector(config)
+
+        # (0.8 + 0.9) / 2 = 0.85 > testability=0.2
+        # composite = max(0.2, 0.85) - 0.0 = 0.85
+        output = ATDDEligibilityOutput(
+            ui_score=0.8, api_score=0.9, testability_score=0.2, skip_score=0.0, reasoning="Test"
+        )
+        result = detector._compute_llm_composite_score(output)
+        expected = max(0.2, (0.8 + 0.9) / 2) - 0.0
+        assert abs(result - expected) < 0.001
+        assert abs(result - 0.85) < 0.001
+
 
 class TestHybridScoreCalculation:
-    """Test AC3: Hybrid score calculation with weights."""
+    """Test AC3: Hybrid score calculation using max(keyword, llm)."""
 
     @pytest.fixture(autouse=True)
     def mock_get_config(self):
@@ -800,16 +845,15 @@ class TestHybridScoreCalculation:
         with patch("bmad_assist.core.get_config", return_value=mock_config):
             yield
 
-    def test_hybrid_score_weights_applied(self) -> None:
-        """Final score = (keyword_weight * keyword) + (llm_weight * llm)."""
+    def test_hybrid_score_max_applied(self) -> None:
+        """Final score = max(keyword_score, llm_score)."""
         from unittest.mock import MagicMock, patch
 
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
         from bmad_assist.testarch.prompts import ATDDEligibilityOutput
 
-        # Custom weights: keyword=0.3, llm=0.7
-        config = EligibilityConfig(keyword_weight=0.3, llm_weight=0.7, threshold=0.5)
+        config = EligibilityConfig(threshold=0.5)
 
         # Mock provider to return controlled LLM output
         mock_provider = MagicMock()
@@ -828,9 +872,9 @@ class TestHybridScoreCalculation:
             # "button" = 0.12 keyword score
             result = detector.detect("button")
 
-        # keyword_score = 0.12, llm_score = (0.8 + 0.6) / 2 - 0.0 = 0.7
-        # final_score = 0.3 * 0.12 + 0.7 * 0.7 = 0.036 + 0.49 = 0.526
-        expected_final = 0.3 * 0.12 + 0.7 * 0.7
+        # keyword_score = 0.12, llm_score = max(0.0, (0.8 + 0.6) / 2) - 0.0 = 0.7
+        # final_score = max(0.12, 0.7) = 0.7
+        expected_final = max(0.12, 0.7)
         assert abs(result.final_score - expected_final) < 0.001
 
     def test_detect_threshold_boundary_not_eligible(self) -> None:
@@ -841,10 +885,9 @@ class TestHybridScoreCalculation:
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
         # Set up scenario where final_score exactly equals threshold
-        config = EligibilityConfig(keyword_weight=1.0, llm_weight=0.0, threshold=0.12)
+        config = EligibilityConfig(threshold=0.12)
 
-        # Mock LLM to not be called (weight=0.0 means keyword only in practice)
-        # but we still mock it since detect() calls it
+        # Mock LLM to return zeros so max(keyword, llm) = keyword
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
@@ -860,7 +903,7 @@ class TestHybridScoreCalculation:
             detector = ATDDEligibilityDetector(config)
             result = detector.detect("button")  # 0.12 keyword score
 
-        # final_score = 1.0 * 0.12 + 0.0 * 0.0 = 0.12, threshold = 0.12
+        # final_score = max(0.12, 0.0) = 0.12, threshold = 0.12
         # eligible = 0.12 > 0.12 → False
         assert result.final_score == pytest.approx(0.12, abs=0.001)
         assert result.eligible is False
@@ -872,11 +915,10 @@ class TestHybridScoreCalculation:
         from bmad_assist.testarch.config import EligibilityConfig
         from bmad_assist.testarch.eligibility import ATDDEligibilityDetector
 
-        # Balanced: keyword=0.5, llm=0.5, equal weights
-        config = EligibilityConfig(keyword_weight=0.5, llm_weight=0.5, threshold=0.4)
+        config = EligibilityConfig(threshold=0.4)
 
         # LLM returns balanced scores: ui=0.5, api=0.5, skip=0.3
-        # llm_composite = (0.5 + 0.5) / 2 - 0.3 = 0.2
+        # llm_composite = max(0.0, (0.5 + 0.5) / 2) - 0.3 = 0.2
         mock_provider = MagicMock()
         mock_provider.provider_name = "mock"
         mock_provider.invoke.return_value = MagicMock(
@@ -894,21 +936,21 @@ class TestHybridScoreCalculation:
             result = detector.detect("form endpoint")
 
         # keyword_score ~= 0.30, llm_score = 0.2
-        # final = 0.5 * 0.30 + 0.5 * 0.2 = 0.15 + 0.10 = 0.25
+        # final = max(0.30, 0.2) = 0.30
         # threshold = 0.4, so NOT eligible
         assert result.keyword_score == pytest.approx(0.30, abs=0.01)
         assert result.llm_score == pytest.approx(0.2, abs=0.001)
-        assert result.final_score == pytest.approx(0.25, abs=0.01)
-        assert result.eligible is False  # 0.25 < 0.4
+        assert result.final_score == pytest.approx(0.30, abs=0.01)
+        assert result.eligible is False  # 0.30 < 0.4
 
         # Now test with lower threshold where it WOULD be eligible
-        config_low = EligibilityConfig(keyword_weight=0.5, llm_weight=0.5, threshold=0.2)
+        config_low = EligibilityConfig(threshold=0.2)
         with patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider):
             detector_low = ATDDEligibilityDetector(config_low)
             result_low = detector_low.detect("form endpoint")
 
         # Same scores, but threshold = 0.2
-        # 0.25 > 0.2 → eligible
+        # 0.30 > 0.2 → eligible
         assert result_low.eligible is True  # Threshold is deciding factor
 
     def test_detect_high_ui_score_eligible(self) -> None:
@@ -936,8 +978,8 @@ class TestHybridScoreCalculation:
             result = detector.detect("Create a button component with form validation")
 
         # keyword_score > 0 (button, component, form)
-        # llm_score = (0.9 + 0.7) / 2 - 0.0 = 0.8
-        # final_score should be > 0.5
+        # llm_score = max(0.0, (0.9 + 0.7) / 2) - 0.0 = 0.8
+        # final_score = max(keyword_score, 0.8) should be > 0.5
         assert result.eligible is True
         assert result.ui_score == 0.9
         assert result.api_score == 0.7
@@ -968,7 +1010,7 @@ class TestHybridScoreCalculation:
             result = detector.detect("Update configuration schema")
 
         # keyword_score low (config is negative)
-        # llm_score = (0.1 + 0.1) / 2 - 0.9 = -0.8 → clamped to 0.0
+        # llm_score = max(0.0, (0.1 + 0.1) / 2) - 0.9 = -0.8 → clamped to 0.0
         assert result.eligible is False
         assert result.skip_score == 0.9
 
@@ -1281,7 +1323,7 @@ class TestIntegrationWithMockProvider:
 
         # Verify all result fields populated correctly
         assert result.keyword_score > 0  # "button", "component" matched
-        assert result.llm_score == pytest.approx((0.7 + 0.5) / 2 - 0.1, abs=0.001)
+        assert result.llm_score == pytest.approx(max(0.0, (0.7 + 0.5) / 2) - 0.1, abs=0.001)
         assert result.ui_score == 0.7
         assert result.api_score == 0.5
         assert result.skip_score == 0.1

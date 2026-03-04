@@ -10,6 +10,7 @@ This module provides:
 """
 
 import csv
+import json
 import logging
 import os
 import re
@@ -64,6 +65,7 @@ class PhaseEvent(BaseModel):
     duration_ms: int | None = None
     status: PhaseStatus | None = None  # success/error/timeout
     error_type: str | None = None
+    termination_metadata: dict | None = None  # opaque termination data (guard stats, etc.)
 
 
 class PhaseInvocation(BaseModel):
@@ -77,6 +79,7 @@ class PhaseInvocation(BaseModel):
     model: str
     status: PhaseStatus
     error_type: str | None = None
+    provider_count: int = 1  # Actual LLM invocations (>1 for multi-LLM phases)
 
 
 class CurrentPhase(BaseModel):
@@ -253,11 +256,17 @@ def _write_csv(run_log: RunLog, path: Path) -> None:
                 "duration_ms",
                 "status",
                 "error_type",
+                "termination_metadata",
             ]
         )
 
         # Phase event rows (chronological timeline)
         for event in run_log.phase_events:
+            term_meta_str = ""
+            if event.termination_metadata is not None:
+                term_meta_str = _sanitize_csv_value(
+                    json.dumps(event.termination_metadata, default=str)
+                )
             writer.writerow(
                 [
                     run_log.run_id,
@@ -271,6 +280,7 @@ def _write_csv(run_log: RunLog, path: Path) -> None:
                     event.duration_ms or "",
                     event.status.value if event.status else "",
                     event.error_type or "",
+                    term_meta_str,
                 ]
             )
 

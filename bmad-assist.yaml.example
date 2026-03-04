@@ -59,13 +59,13 @@ providers:
 
     # Claude subprocess providers
     - provider: claude
-      model: sonnet
+      model: opud
       model_name: glm-5
-      settings: ~/.claude/glm.json
+      settings: ~/.claude/glm5.json
     - provider: claude
-      model: sonnet
+      model: opud
       model_name: glm-5
-      settings: ~/.claude/glm.json
+      settings: ~/.claude/glm5.json
 
     # OpenCode providers (NEW)
     # - provider: opencode
@@ -108,9 +108,9 @@ phase_models:
     model: opus
   validate_story_synthesis:
     provider: claude
-    model: opus
-    model_name: glm-5
-    settings: ~/.claude/glm5.json
+    model: claude-sonnet-4-6
+    # model_name: glm-5
+    # settings: ~/.claude/glm5.json
   dev_story:
     provider: claude
     model: opus
@@ -135,14 +135,15 @@ phase_models:
       model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
-    - provider: gemini
-      model: gemini-2.5-flash-lite
+    # - provider: gemini
+    #   model: gemini-2.5-flash-lite
     - provider: kimi
       model: kimi-code/kimi-for-coding
       thinking: true
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
+    - provider: claude
+      model: opus
+      model_name: MiniMax-M2.5
+      settings: ~/.claude/minimax.json
     - provider: claude
       model: opus
       model_name: glm-5
@@ -163,14 +164,15 @@ phase_models:
       model: gemini-2.5-flash
     - provider: gemini
       model: gemini-2.5-flash-lite
-    - provider: gemini
-      model: gemini-2.5-flash-lite
+    # - provider: gemini
+    #   model: gemini-2.5-flash-lite
     - provider: kimi
       model: kimi-code/kimi-for-coding
       thinking: true
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
+    - provider: claude
+      model: opus
+      model_name: MiniMax-M2.5
+      settings: ~/.claude/minimax.json
     - provider: claude
       model: opus
       model_name: glm-5
@@ -189,13 +191,13 @@ compiler:
   source_context:
     # Per-workflow token budgets (0-99 = disabled)
     budgets:
-      create_story: 60000
-      validate_story: 15000
-      validate_story_synthesis: 15000
-      dev_story: 15000
-      code_review: 30000
-      code_review_synthesis: 30000
-      default: 30000             # Fallback for unlisted workflows
+      create_story: 20000
+      validate_story: 20000
+      validate_story_synthesis: 0
+      dev_story: 10000
+      code_review: 20000
+      code_review_synthesis: 0
+      default: 20000             # Fallback for unlisted workflows
 
     # File prioritization scoring weights
     scoring:
@@ -220,18 +222,18 @@ compiler:
     tree_budget: 0            # Total token cap for project tree (0 = disabled)
     # Default settings for all workflows
     defaults:
-      include: [project-tree, project-context, architecture] # Doc types to include (order matters)
+      include: [project-context] # Doc types to include (order matters)
       main_only: true            # For sharded docs: load only index.md
 
     # Per-workflow overrides (null fields inherit from defaults)
     create_story:
-      include: [project-tree, project-context, architecture, ux, prd]
+      include: [project-context]
     validate_story:
-      include: [project-tree, project-context, architecture, ux, prd]
+      include: [project-context]
     dev_story:
-      include: [project-tree, project-context, architecture, ux, prd]
+      include: [project-context]
     code_review:
-      include: [project-tree, project-context, architecture, ux, prd]
+      include: [project-context]
 
 
 benchmarking:
@@ -240,21 +242,21 @@ benchmarking:
 # Loop configuration - full TEA Enterprise integration
 loop:
   epic_setup:
-    - tea_framework           # Initialize Playwright/Cypress (once per epic)
-    - tea_ci                  # Scaffold CI pipeline
-    - tea_test_design         # Generate system/epic test design
+    # - tea_framework           # Initialize Playwright/Cypress (once per epic)
+    # - tea_ci                  # Scaffold CI pipeline
+    # - tea_test_design         # Generate system/epic test design
   story:
     - create_story
     - validate_story
     - validate_story_synthesis
-    - atdd                    # Generate ATDD checklist before implementation
+    # - atdd                    # Generate ATDD checklist before implementation
     - dev_story
     - code_review
     - code_review_synthesis
-    - test_review             # Review test quality after code review
+    # - test_review             # Review test quality after code review
   epic_teardown:
-    - trace                   # Generate traceability matrix
-    - tea_nfr_assess          # NFR assessment before release
+    # - trace                   # Generate traceability matrix
+    # - tea_nfr_assess          # NFR assessment before release
     - retrospective
     # - qa_plan_generate        # Generate E2E test plan
     # - qa_plan_execute         # Execute E2E tests

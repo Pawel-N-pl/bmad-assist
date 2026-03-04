@@ -70,6 +70,7 @@ class TestPromptOutputSectionHasSchema:
         # Check for schema fields
         assert "ui_score" in prompt
         assert "api_score" in prompt
+        assert "testability_score" in prompt
         assert "skip_score" in prompt
         assert "reasoning" in prompt
 
@@ -212,13 +213,63 @@ class TestATDDEligibilityOutput:
         model = ATDDEligibilityOutput(
             ui_score=0.8,
             api_score=0.6,
+            testability_score=0.5,
             skip_score=0.0,
             reasoning="Direct creation test",
         )
         assert model.ui_score == 0.8
         assert model.api_score == 0.6
+        assert model.testability_score == 0.5
         assert model.skip_score == 0.0
         assert model.reasoning == "Direct creation test"
+
+    def test_testability_score_defaults_to_zero(self) -> None:
+        """Verify testability_score defaults to 0.0 when not provided."""
+        model = ATDDEligibilityOutput(
+            ui_score=0.5,
+            api_score=0.5,
+            skip_score=0.0,
+            reasoning="No testability provided",
+        )
+        assert model.testability_score == 0.0
+
+    def test_testability_score_above_range_raises_validation_error(self) -> None:
+        """Verify testability_score > 1.0 raises ValidationError."""
+        with pytest.raises(ValidationError) as exc_info:
+            ATDDEligibilityOutput(
+                ui_score=0.5,
+                api_score=0.5,
+                testability_score=1.5,
+                skip_score=0.0,
+                reasoning="Invalid testability",
+            )
+        assert "testability_score" in str(exc_info.value)
+
+    def test_testability_score_below_range_raises_validation_error(self) -> None:
+        """Verify testability_score < 0.0 raises ValidationError."""
+        with pytest.raises(ValidationError) as exc_info:
+            ATDDEligibilityOutput(
+                ui_score=0.5,
+                api_score=0.5,
+                testability_score=-0.1,
+                skip_score=0.0,
+                reasoning="Invalid testability",
+            )
+        assert "testability_score" in str(exc_info.value)
+
+    def test_testability_score_at_boundaries(self) -> None:
+        """Verify testability_score at 0.0 and 1.0 are valid."""
+        model_zero = ATDDEligibilityOutput(
+            ui_score=0.5, api_score=0.5, testability_score=0.0,
+            skip_score=0.0, reasoning="Min testability",
+        )
+        assert model_zero.testability_score == 0.0
+
+        model_one = ATDDEligibilityOutput(
+            ui_score=0.5, api_score=0.5, testability_score=1.0,
+            skip_score=0.0, reasoning="Max testability",
+        )
+        assert model_one.testability_score == 1.0
 
 
 class TestMarkdownParsingEdgeCases:

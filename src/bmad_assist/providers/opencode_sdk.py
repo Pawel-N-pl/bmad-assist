@@ -35,6 +35,7 @@ import threading
 import time
 from pathlib import Path
 from subprocess import DEVNULL, Popen
+from typing import TYPE_CHECKING, Any
 
 from bmad_assist.core.exceptions import (
     ProviderError,
@@ -52,6 +53,9 @@ from bmad_assist.providers.base import (
     validate_settings_file,
     write_progress,
 )
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 logger = logging.getLogger(__name__)
 
@@ -118,9 +122,7 @@ def _basic_auth_header(password: str) -> str:
         Header value string, e.g. "Basic b3BlbmNvZGU6cGFzcw==".
 
     """
-    credentials = base64.b64encode(
-        f"{_BASIC_AUTH_USERNAME}:{password}".encode()
-    ).decode()
+    credentials = base64.b64encode(f"{_BASIC_AUTH_USERNAME}:{password}".encode()).decode()
     return f"Basic {credentials}"
 
 
@@ -535,6 +537,7 @@ class OpenCodeSDKProvider(BaseProvider):
         color_index: int | None = None,
         display_model: str | None = None,
         timeout: int = DEFAULT_TIMEOUT,
+        guard: "ToolCallGuard | None" = None,
     ) -> tuple[str, str | None]:
         """Execute SDK query with live SSE event streaming for progress.
 
@@ -645,10 +648,11 @@ class OpenCodeSDKProvider(BaseProvider):
             # Accumulate text from events (used as primary response source)
             streamed_text: dict[str, str] = {}  # part_id -> full text
             restricted_warned: set[str] = set()
+            _guard_triggered: bool = False
 
             async def _consume_events() -> None:
                 """Consume SSE events for live progress display."""
-                nonlocal event_stream
+                nonlocal event_stream, _guard_triggered
                 text_lens: dict[str, int] = {}  # part_id -> last seen char count
                 try:
                     assert event_stream is not None
@@ -680,6 +684,23 @@ class OpenCodeSDKProvider(BaseProvider):
                                 tool_name = _TOOL_NAME_MAP.get(
                                     raw_tool.lower(), raw_tool.capitalize()
                                 )
+                                # Guard check before proceeding
+                                if guard is not None:
+                                    tool_input_dict: dict[str, Any] | None = None
+                                    state_input_raw = getattr(part.state, "input", None)
+                                    if state_input_raw:
+                                        tool_input_dict = dict(state_input_raw)
+                                    verdict = guard.check(tool_name, tool_input_dict)
+                                    if not verdict.allowed:
+                                        _guard_triggered = True
+                                        logger.warning(
+                                            "ToolCallGuard triggered: %s",
+                                            verdict.reason,
+                                        )
+                                        # Try to abort the session so chat() unblocks
+                                        with contextlib.suppress(Exception):
+                                            await client.session.abort(id=session_id)
+                                        break
                                 # Log restricted tool violations
                                 if (
                                     allowed_tools is not None
@@ -697,10 +718,7 @@ class OpenCodeSDKProvider(BaseProvider):
                                     details = ""
                                     state_input = getattr(part.state, "input", None)
                                     if state_input:
-                                        details = extract_tool_details(
-                                            tool_name,
-                                            dict(state_input)
-                                        )
+                                        details = extract_tool_details(tool_name, dict(state_input))
                                     if details:
                                         write_progress(f"{tag} {details}")
                                     else:
@@ -711,9 +729,7 @@ class OpenCodeSDKProvider(BaseProvider):
                                     tag = format_tag("RESULT", color_index)
                                     cost = part.cost or 0
                                     tokens = part.tokens
-                                    write_progress(
-                                        f"{tag} cost={cost:.4f} tokens={tokens}"
-                                    )
+                                    write_progress(f"{tag} cost={cost:.4f} tokens={tokens}")
 
                         elif isinstance(event, EventSessionIdle):
                             if event.properties.session_id == session_id:
@@ -760,6 +776,11 @@ class OpenCodeSDKProvider(BaseProvider):
             if event_stream is not None:
                 with contextlib.suppress(Exception):
                     await event_stream.close()
+
+            # Log guard termination (server is NOT killed, just event consumption stopped)
+            if _guard_triggered and guard is not None:
+                term_reason = f"guard:{guard.get_stats().terminated_reason}"
+                logger.warning("OpenCode SDK: guard terminated session: %s", term_reason)
 
             # Check for error in response
             if response.error is not None:
@@ -816,6 +837,7 @@ class OpenCodeSDKProvider(BaseProvider):
         timeout: int,
         color_index: int | None = None,
         display_model: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> tuple[str, str | None]:
         """Execute SDK query with cancel_token support.
 
@@ -824,7 +846,14 @@ class OpenCodeSDKProvider(BaseProvider):
         """
         sdk_task = asyncio.create_task(
             self._invoke_async(
-                prompt, model, cwd, allowed_tools, color_index, display_model, timeout
+                prompt,
+                model,
+                cwd,
+                allowed_tools,
+                color_index,
+                display_model,
+                timeout,
+                guard=guard,
             )
         )
 
@@ -899,6 +928,7 @@ class OpenCodeSDKProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute OpenCode SDK with the given prompt.
 
@@ -916,6 +946,7 @@ class OpenCodeSDKProvider(BaseProvider):
             thinking: Ignored.
             cancel_token: Threading event for cancellation.
             reasoning_effort: Ignored.
+            guard: Optional ToolCallGuard for runaway tool call detection.
 
         Returns:
             ProviderResult with response text.
@@ -1017,6 +1048,7 @@ class OpenCodeSDKProvider(BaseProvider):
                         effective_timeout,
                         color_index,
                         display_model,
+                        guard=guard,
                     )
                 )
             else:
@@ -1030,6 +1062,7 @@ class OpenCodeSDKProvider(BaseProvider):
                             color_index,
                             display_model,
                             effective_timeout,
+                            guard=guard,
                         ),
                         timeout=effective_timeout,
                     )
@@ -1094,6 +1127,11 @@ class OpenCodeSDKProvider(BaseProvider):
             len(response_text),
         )
 
+        # Build termination info from guard if present
+        from bmad_assist.providers.tool_guard import build_termination_fields
+
+        term_info, term_reason = build_termination_fields(guard)
+
         return ProviderResult(
             stdout=response_text,
             stderr="",
@@ -1102,6 +1140,8 @@ class OpenCodeSDKProvider(BaseProvider):
             model=shown_model,
             command=command,
             provider_session_id=session_id,
+            termination_info=term_info,
+            termination_reason=term_reason,
         )
 
     def parse_output(self, result: ProviderResult) -> str:

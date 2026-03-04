@@ -317,10 +317,13 @@ class CodeReviewSynthesisCompiler:
             if len(git_diff) > max_diff_chars:
                 truncated = git_diff[:max_diff_chars]
                 # Find last complete line
-                last_nl = truncated.rfind('\n')
+                last_nl = truncated.rfind("\n")
                 if last_nl > 0:
                     truncated = truncated[:last_nl]
-                files["[git-diff]"] = truncated + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
+                files["[git-diff]"] = (
+                    truncated
+                    + "\n\n[... Git diff truncated due to size - see full diff with git command ...]"
+                )
                 logger.warning(
                     "Git diff truncated for synthesis: %d → %d chars (%.0f%%)",
                     len(git_diff),
@@ -349,27 +352,32 @@ class CodeReviewSynthesisCompiler:
             if modified_files:
                 git_diff_files = get_git_diff_files(project_root, git_diff)
 
-        # F4-IMPL: Limit source files for synthesis to prevent token explosion
-        # Synthesis only needs git diff + max 3 key files (not all modified files)
-        service = SourceContextService(context, "code_review_synthesis")
-        source_files = service.collect_files(file_list_paths, git_diff_files)
+        # Step 0: Skip source files if compression pipeline determined base context is too large
+        skip_source_files = context.resolved_variables.get("skip_source_files", False)
+        if not skip_source_files:
+            # F4-IMPL: Limit source files for synthesis to prevent token explosion
+            # Synthesis only needs git diff + max 3 key files (not all modified files)
+            service = SourceContextService(context, "code_review_synthesis")
+            source_files = service.collect_files(file_list_paths, git_diff_files)
 
-        # Hard cap: max 3 files for synthesis (prioritized by score)
-        max_synthesis_files = 3
-        if len(source_files) > max_synthesis_files:
-            # Sort by file path (deterministic) and take first 3
-            sorted_files = sorted(source_files.items(), key=lambda x: x[0])
-            limited_files = dict(sorted_files[:max_synthesis_files])
-            logger.warning(
-                "Synthesis source files limited: %d → %d (token budget protection)",
-                len(source_files),
-                max_synthesis_files,
-            )
-            source_files = limited_files
+            # Hard cap: max 3 files for synthesis (prioritized by score)
+            max_synthesis_files = 3
+            if len(source_files) > max_synthesis_files:
+                # Sort by file path (deterministic) and take first 3
+                sorted_files = sorted(source_files.items(), key=lambda x: x[0])
+                limited_files = dict(sorted_files[:max_synthesis_files])
+                logger.warning(
+                    "Synthesis source files limited: %d → %d (token budget protection)",
+                    len(source_files),
+                    max_synthesis_files,
+                )
+                source_files = limited_files
 
-        files.update(source_files)
-        if source_files:
-            logger.debug("Added %d source files to synthesis context", len(source_files))
+            files.update(source_files)
+            if source_files:
+                logger.debug("Added %d source files to synthesis context", len(source_files))
+        else:
+            logger.info("Step 0 compression: skipping source files (base context exceeds limit)")
 
         # 5. Story file (LAST - closest to instructions per recency-bias, REQUIRED)
         # story_matches already populated above for File List extraction
@@ -540,6 +548,7 @@ Output format:
             )
             dv_findings = context.resolved_variables.get("deep_verify_findings")
             security_findings = context.resolved_variables.get("security_findings")
+            skip_source_files = context.resolved_variables.get("skip_source_files", False)
 
             # Step 3b: Resolve ALL workflow variables (communication_language, etc.)
             invocation_params = {
@@ -577,6 +586,8 @@ Output format:
                 resolved["deep_verify_findings"] = dv_findings
             if security_findings:
                 resolved["security_findings"] = security_findings
+            if skip_source_files:
+                resolved["skip_source_files"] = skip_source_files
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Resolved %d variables", len(resolved))

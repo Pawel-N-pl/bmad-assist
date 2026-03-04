@@ -49,7 +49,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 logger = logging.getLogger(__name__)
 
@@ -730,6 +733,8 @@ class ProviderResult:
     model: str | None
     command: tuple[str, ...]
     provider_session_id: str | None = None
+    termination_info: dict[str, Any] | None = None
+    termination_reason: str | None = None
 
 
 class BaseProvider(ABC):
@@ -805,6 +810,7 @@ class BaseProvider(ABC):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute LLM provider with the given prompt.
 

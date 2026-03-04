@@ -323,11 +323,19 @@ def determine_verdict(score: float) -> Verdict:
 # Parsing Functions
 # =============================================================================
 
+# Severity alias mapping: alternative labels → canonical severity
+_SEVERITY_ALIASES: dict[str, str] = {
+    "CRITICAL": "CRITICAL", "HIGH": "CRITICAL",
+    "IMPORTANT": "IMPORTANT", "MEDIUM": "IMPORTANT",
+    "MINOR": "MINOR", "LOW": "MINOR",
+}
+_ALL_SEVERITY_LABELS = "|".join(_SEVERITY_ALIASES.keys())
+
 # Regex patterns for Evidence Score parsing
 # Pattern for Evidence Score table format:
 # | 🔴 CRITICAL | description | source | +3 |
 _FINDING_TABLE_PATTERN = re.compile(
-    r"\|\s*(?:🔴|🟠|🟡)\s*(CRITICAL|IMPORTANT|MINOR)\s*\|"
+    rf"\|\s*(?:🔴|🟠|🟡)?\s*({_ALL_SEVERITY_LABELS})\s*\|"
     r"\s*([^|]+)\s*\|"  # description
     r"\s*([^|]*)\s*\|"  # source (optional)
     r"\s*\+?(\d+(?:\.\d+)?)\s*\|",  # score
@@ -337,10 +345,17 @@ _FINDING_TABLE_PATTERN = re.compile(
 # Alternative pattern: bullet point format
 # - 🔴 **CRITICAL** (+3): Description [source]
 _FINDING_BULLET_PATTERN = re.compile(
-    r"[-*]\s*(?:🔴|🟠|🟡)?\s*\*?\*?(CRITICAL|IMPORTANT|MINOR)\*?\*?\s*"
+    rf"[-*]\s*(?:🔴|🟠|🟡)?\s*\*?\*?({_ALL_SEVERITY_LABELS})\*?\*?\s*"
     r"\(\+?(\d+(?:\.\d+)?)\):\s*"
     r"([^\[]+)"  # description
     r"(?:\[([^\]]+)\])?",  # source (optional)
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Section header fallback pattern:
+# ## HIGH Severity Findings  /  ### [CRITICAL] desc  /  ### ISSUE-1 [HIGH] — desc
+_SECTION_HEADER_PATTERN = re.compile(
+    rf"^#{{2,5}}\s+(?:ISSUE-\d+\s+)?(?:\[({_ALL_SEVERITY_LABELS})\]|({_ALL_SEVERITY_LABELS})\s*(?:Severity|\(|:|$))",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -360,6 +375,14 @@ _EVIDENCE_SCORE_PATTERN = re.compile(
     r"|\|\s*\*?\*?Evidence Score\*?\*?\s*\|\s*\*?\*?(-?\d+(?:\.\d+)?)\*?\*?\s*\|)",
     re.IGNORECASE,
 )
+
+
+def _resolve_severity(label: str) -> Severity:
+    """Resolve severity aliases (HIGH->CRITICAL, MEDIUM->IMPORTANT, LOW->MINOR)."""
+    canonical = _SEVERITY_ALIASES.get(label.upper())
+    if canonical is None:
+        raise ValueError(f"Unknown severity: {label}")
+    return Severity(canonical)
 
 
 def _normalize_description(description: str) -> str:
@@ -392,8 +415,9 @@ def parse_evidence_findings(
     Fallback strategy:
     1. Primary: Parse structured Evidence Score table with severity columns
     2. Fallback 1: Parse individual CRITICAL/IMPORTANT/MINOR bullet points
-    3. Fallback 2: Parse Evidence Score total from heading/footer
-    4. If none work: return None (validator excluded from aggregate)
+    3. Fallback 2: Parse section-header format (## HIGH Severity Findings)
+    4. Fallback 3: Parse Evidence Score total from heading/footer
+    5. If none work: return None (validator excluded from aggregate)
 
     Args:
         content: Markdown content of validation/review report.
@@ -413,7 +437,7 @@ def parse_evidence_findings(
     table_matches = _FINDING_TABLE_PATTERN.findall(content)
     for severity_str, description, source, score_str in table_matches:
         try:
-            severity = Severity(severity_str.upper())
+            severity = _resolve_severity(severity_str)
             score = float(score_str)
             findings.append(
                 EvidenceFinding(
@@ -432,7 +456,7 @@ def parse_evidence_findings(
         bullet_matches = _FINDING_BULLET_PATTERN.findall(content)
         for severity_str, score_str, description, source in bullet_matches:
             try:
-                severity = Severity(severity_str.upper())
+                severity = _resolve_severity(severity_str)
                 score = float(score_str)
                 findings.append(
                     EvidenceFinding(
@@ -445,6 +469,35 @@ def parse_evidence_findings(
                 )
             except (ValueError, KeyError) as e:
                 parse_warnings.append(f"Failed to parse bullet finding: {e}")
+
+    # Try section-header fallback if no findings yet
+    if not findings:
+        header_matches = list(_SECTION_HEADER_PATTERN.finditer(content))
+        for i, header_match in enumerate(header_matches):
+            try:
+                severity_label = header_match.group(1) or header_match.group(2)
+                severity = _resolve_severity(severity_label)
+                score = SEVERITY_SCORES[severity.value]
+                # Extract text between this header and the next header (or end)
+                start = header_match.end()
+                end = header_matches[i + 1].start() if i + 1 < len(header_matches) else len(content)
+                section_text = content[start:end]
+                # Find bullet points or numbered items in the section
+                bullets = re.findall(r"[-*]\s+(.+?)(?:\n|$)", section_text)
+                if not bullets:
+                    bullets = re.findall(r"\d+[.)]\s+(.+?)(?:\n|$)", section_text)
+                for bullet_text in bullets:
+                    findings.append(
+                        EvidenceFinding(
+                            severity=severity,
+                            score=score,
+                            description=bullet_text.strip(),
+                            source="",
+                            validator_id=validator_id,
+                        )
+                    )
+            except (ValueError, KeyError) as e:
+                parse_warnings.append(f"Failed to parse section-header finding: {e}")
 
     # Parse CLEAN PASS count
     clean_pass_match = _CLEAN_PASS_TABLE_PATTERN.search(content)

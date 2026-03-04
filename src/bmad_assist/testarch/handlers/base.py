@@ -24,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from bmad_assist.core.config.loaders import get_phase_timeout
 from bmad_assist.core.exceptions import CompilerError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.handlers.base import BaseHandler
@@ -683,8 +684,9 @@ class TestarchBaseHandler(BaseHandler):
             except OSError as e:
                 logger.warning("Failed to save prompt (continuing): %s", e)
 
-            # 3. Invoke provider
-            result = self._invoke_workflow(compiled)
+            # 3. Invoke provider with phase-specific timeout
+            phase_timeout = get_phase_timeout(self.config, self.phase_name)
+            result = self._invoke_workflow(compiled, timeout=phase_timeout)
 
             # 3. Check for PhaseResult failure (returned from _invoke_workflow on error)
             if isinstance(result, PhaseResult):

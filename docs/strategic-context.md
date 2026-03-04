@@ -93,10 +93,12 @@ The `main_only` flag controls loading behavior:
 
 ## Token Budget
 
-The `budget` setting caps total strategic context size. If documents exceed the budget:
-1. Documents are loaded in order specified by `include`
-2. Loading stops when budget would be exceeded
-3. A warning is logged if budget is tight
+The `budget` setting caps total strategic context size. When a document exceeds remaining budget, bmad-assist uses **LLM-based compression** to distill it down to fit, preserving key information. Compressed results are cached to disk (SHA-256 content hash) so repeated compilations skip the LLM call.
+
+Compression fallback chain:
+1. Document fits within budget → included as-is
+2. Document exceeds budget → LLM compression attempted (uses helper or master provider)
+3. LLM compression fails → raw truncation to budget
 
 Recommended budgets:
 - Small projects: 4000-6000 tokens

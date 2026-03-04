@@ -4,9 +4,9 @@ This module implements the CodexProvider class that adapts Codex CLI
 for use within bmad-assist via subprocess invocation. Codex serves as
 a Multi LLM validator for story validation and code review phases.
 
-Uses platform_command module for prompts >=100KB to avoid ARG_MAX limits
-on POSIX systems. The prompt is passed as a positional argument to
-``codex exec``, which hits OS limits with large compiled BMAD prompts.
+The prompt is passed via stdin to avoid ARG_MAX / MAX_ARG_STRLEN limits
+on POSIX systems. Large compiled BMAD prompts (>128KB) exceed the Linux
+per-argument limit and cannot be passed as positional arguments.
 
 ⚠️ SECURITY WARNING: When CodexProvider is used as a Multi-LLM validator,
 the orchestrator MUST ensure read-only behavior. The --full-auto flag
@@ -26,23 +26,23 @@ Example:
 
 """
 
+import contextlib
 import json
 import logging
 import threading
 import time
 from pathlib import Path
 from subprocess import PIPE, Popen, TimeoutExpired
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bmad_assist.providers.tool_guard import ToolCallGuard
 
 from bmad_assist.core.debug_logger import DebugJsonLogger
 from bmad_assist.core.exceptions import (
     ProviderError,
     ProviderExitCodeError,
     ProviderTimeoutError,
-)
-from bmad_assist.core.platform_command import (
-    build_cross_platform_command,
-    cleanup_temp_file,
 )
 from bmad_assist.providers.base import (
     BaseProvider,
@@ -206,6 +206,7 @@ class CodexProvider(BaseProvider):
         thinking: bool | None = None,
         cancel_token: threading.Event | None = None,
         reasoning_effort: str | None = None,
+        guard: "ToolCallGuard | None" = None,
     ) -> ProviderResult:
         """Execute Codex CLI with the given prompt using JSON streaming.
 
@@ -299,32 +300,22 @@ class CodexProvider(BaseProvider):
             reasoning_effort = None
 
         # Build command with --json for JSONL streaming
-        # Uses platform_command for large prompt handling (>=100KB temp file)
+        # Note: prompt passed via stdin to avoid "Argument list too long" error
+        # (Linux MAX_ARG_STRLEN is 128KB per argument, compiled prompts exceed this)
+        command: list[str] = ["codex", "exec", "--json"]
+
         if use_sandbox:
-            base_args = [
-                "exec",
-                "--json",
-                "--sandbox",
-                "read-only",
-                "-m",
-                effective_model,
-            ]
+            command.extend(["--sandbox", "read-only"])
         else:
-            base_args = [
-                "exec",
-                "--json",
-                "--full-auto",
-                "-m",
-                effective_model,
-            ]
+            command.append("--full-auto")
+
+        command.extend(["-m", effective_model])
 
         # Add reasoning effort config override if specified
         if reasoning_effort is not None:
-            base_args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+            command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
 
-        command, temp_file = build_cross_platform_command("codex", base_args, prompt)
-
-        # For ProviderResult, store original command structure (without shell wrapper)
+        # For ProviderResult, store original command structure
         original_command: tuple[str, ...] = (
             "codex",
             "exec",
@@ -355,6 +346,7 @@ class CodexProvider(BaseProvider):
         try:
             process = Popen(
                 command,
+                stdin=PIPE,
                 stdout=PIPE,
                 stderr=PIPE,
                 text=True,
@@ -472,11 +464,34 @@ class CodexProvider(BaseProvider):
             stdout_thread.start()
             stderr_thread.start()
 
+            # Write prompt to stdin in a separate thread to avoid deadlock
+            # (if prompt > pipe buffer size and codex writes stdout before
+            # finishing stdin read, both sides block without concurrent I/O)
+            def write_stdin(
+                stream: Any,
+                data: str,
+            ) -> None:
+                """Write prompt to stdin and close."""
+                try:
+                    stream.write(data)
+                except (BrokenPipeError, OSError):
+                    pass  # Process died before reading all input
+                finally:
+                    with contextlib.suppress(OSError):
+                        stream.close()
+
+            stdin_thread = threading.Thread(
+                target=write_stdin,
+                args=(process.stdin, prompt),
+            )
+            stdin_thread.start()
+
             # Wait for process with timeout
             try:
                 returncode = process.wait(timeout=effective_timeout)
             except TimeoutExpired:
                 process.kill()
+                stdin_thread.join(timeout=1)
                 stdout_thread.join(timeout=1)
                 stderr_thread.join(timeout=1)
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -507,6 +522,7 @@ class CodexProvider(BaseProvider):
                 ) from None
 
             # Wait for threads to finish (timeout prevents hang if reader stuck)
+            stdin_thread.join(timeout=5)
             stdout_thread.join(timeout=10)
             stderr_thread.join(timeout=10)
 
@@ -515,7 +531,6 @@ class CodexProvider(BaseProvider):
             raise ProviderError("Codex CLI not found. Is 'codex' in PATH?") from e
         finally:
             debug_json_logger.close()
-            cleanup_temp_file(temp_file)
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         stderr_content = "".join(stderr_chunks)

@@ -287,39 +287,46 @@ class ValidateStorySynthesisCompiler:
             )
 
         # 2a. Source files from story's File List (before story for recency-bias)
-        file_list_paths = extract_file_paths_from_story(story_content)
-        if file_list_paths:
-            try:
-                service = SourceContextService(context, "validate_story_synthesis")
-                source_files = service.collect_files(file_list_paths, None)
+        # Step 0: Skip source files if compression pipeline determined base context is too large
+        skip_source_files = context.resolved_variables.get("skip_source_files", False)
+        if not skip_source_files:
+            file_list_paths = extract_file_paths_from_story(story_content)
+            if file_list_paths:
+                try:
+                    service = SourceContextService(context, "validate_story_synthesis")
+                    source_files = service.collect_files(file_list_paths, None)
 
-                # F4-IMPL: Limit source files for synthesis to prevent token explosion
-                max_synthesis_files = 3
-                if len(source_files) > max_synthesis_files:
-                    sorted_files = sorted(source_files.items(), key=lambda x: x[0])
-                    limited_files = dict(sorted_files[:max_synthesis_files])
-                    logger.warning(
-                        "Synthesis source files limited: %d → %d (token budget protection)",
-                        len(source_files),
-                        max_synthesis_files,
-                    )
-                    source_files = limited_files
+                    # F4-IMPL: Limit source files for synthesis to prevent token explosion
+                    max_synthesis_files = 3
+                    if len(source_files) > max_synthesis_files:
+                        sorted_files = sorted(source_files.items(), key=lambda x: x[0])
+                        limited_files = dict(sorted_files[:max_synthesis_files])
+                        logger.warning(
+                            "Synthesis source files limited: %d → %d (token budget protection)",
+                            len(source_files),
+                            max_synthesis_files,
+                        )
+                        source_files = limited_files
 
-                files.update(source_files)
-                if source_files:
-                    logger.debug(
-                        "Added %d source files to context for validate_story_synthesis",
-                        len(source_files),
-                    )
-                else:
+                    files.update(source_files)
+                    if source_files:
+                        logger.debug(
+                            "Added %d source files to context for validate_story_synthesis",
+                            len(source_files),
+                        )
+                    else:
+                        logger.warning(
+                            "No source files collected for validate_story_synthesis "
+                            "(budget=%d, candidates=%d)",
+                            service.budget,
+                            len(file_list_paths),
+                        )
+                except Exception as e:
                     logger.warning(
-                        "No source files collected for validate_story_synthesis "
-                        "(budget=%d, candidates=%d)",
-                        service.budget,
-                        len(file_list_paths),
+                        "Failed to collect source files for validate_story_synthesis: %s", e
                     )
-            except Exception as e:
-                logger.warning("Failed to collect source files for validate_story_synthesis: %s", e)
+        else:
+            logger.info("Step 0 compression: skipping source files (base context exceeds limit)")
 
         # 2b. Story file
         files[str(story_path)] = story_content
@@ -343,12 +350,19 @@ class ValidateStorySynthesisCompiler:
         # 5. Deep Verify findings (if available) - high priority technical validation
         # Look in resolved dict (passed from compile()) where DV findings are preserved
         dv_findings = resolved.get("deep_verify_findings")
-        logger.debug("DV findings check: dv_findings=%s, type=%s", dv_findings is not None, type(dv_findings).__name__ if dv_findings else None)
+        logger.debug(
+            "DV findings check: dv_findings=%s, type=%s",
+            dv_findings is not None,
+            type(dv_findings).__name__ if dv_findings else None,
+        )
         if dv_findings:
             dv_content = format_dv_findings_for_prompt(dv_findings)
             files["[Deep Verify Findings]"] = dv_content
-            logger.info("Added Deep Verify findings to synthesis context: verdict=%s, findings=%d",
-                        dv_findings.get("verdict", "?"), len(dv_findings.get("findings", [])))
+            logger.info(
+                "Added Deep Verify findings to synthesis context: verdict=%s, findings=%d",
+                dv_findings.get("verdict", "?"),
+                len(dv_findings.get("findings", [])),
+            )
         else:
             logger.debug("No Deep Verify findings in resolved_variables for synthesis")
 
@@ -468,6 +482,7 @@ Output format:
                 "anonymized_validations", []
             )
             dv_findings = context.resolved_variables.get("deep_verify_findings")
+            skip_source_files = context.resolved_variables.get("skip_source_files", False)
 
             # Step 3b: Resolve ALL workflow variables (communication_language, etc.)
             invocation_params = {
@@ -499,6 +514,8 @@ Output format:
             # Add handler-provided variables (not computed by resolve_variables)
             if dv_findings:
                 resolved["deep_verify_findings"] = dv_findings
+            if skip_source_files:
+                resolved["skip_source_files"] = skip_source_files
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Resolved %d variables", len(resolved))
@@ -526,7 +543,9 @@ Output format:
             # to avoid duplication (e.g., deep_verify_findings is embedded as [Deep Verify Findings])
             if dv_findings and "deep_verify_findings" in filtered_vars:
                 del filtered_vars["deep_verify_findings"]
-                logger.debug("Removed deep_verify_findings from variables (already embedded as file)")
+                logger.debug(
+                    "Removed deep_verify_findings from variables (already embedded as file)"
+                )
 
             # Step 8: Generate XML output
             compiled = CompiledWorkflow(

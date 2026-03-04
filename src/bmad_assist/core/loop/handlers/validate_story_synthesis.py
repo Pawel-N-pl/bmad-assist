@@ -166,17 +166,185 @@ class ValidateStorySynthesisHandler(BaseHandler):
             len(anonymized_validations),
         )
 
+        # === Adaptive Synthesis Prompt Compression Pipeline ===
+        import math
+        import time
+
+        from bmad_assist.core.loop.handlers.synthesis_utils import (
+            decide_compression_steps,
+            estimate_base_context_tokens,
+            estimate_synthesis_tokens,
+            pre_extract_reviews,
+            progressive_synthesize,
+        )
+        from bmad_assist.core.retry import invoke_with_timeout_retry
+        from bmad_assist.providers.registry import get_provider
+
+        synthesis_config = self.config.compiler.synthesis
+        base_tokens = estimate_base_context_tokens(
+            self.project_path, self.config, "validate_story_synthesis"
+        )
+        total_tokens = estimate_synthesis_tokens(
+            anonymized_validations, base_tokens, synthesis_config.safety_factor
+        )
+        steps = decide_compression_steps(
+            total_tokens,
+            base_tokens,
+            synthesis_config.token_budget,
+            synthesis_config.base_context_limit,
+        )
+
+        skip_source_files = False
+        compression_start = time.monotonic()
+        original_token_estimate = total_tokens
+        extraction_llm_calls = 0
+        validations_to_use = anonymized_validations
+
+        if steps:
+            logger.info(
+                "Compression pipeline: steps=%s, total=%d, budget=%d, base=%d",
+                steps,
+                total_tokens,
+                synthesis_config.token_budget,
+                base_tokens,
+            )
+
+            if "step0" in steps:
+                skip_source_files = True
+                base_tokens = max(base_tokens - 5000, 0)
+                total_tokens = estimate_synthesis_tokens(
+                    anonymized_validations, base_tokens, synthesis_config.safety_factor
+                )
+                logger.info("Step 0: skip_source_files, revised total=%d", total_tokens)
+
+            if "step1" in steps:
+                # Provider resolution: extraction_provider > helper > master
+                if synthesis_config.extraction_provider:
+                    ext_provider = get_provider(synthesis_config.extraction_provider)
+                    ext_model = synthesis_config.extraction_model or (
+                        self.config.providers.helper.model
+                        if self.config.providers.helper
+                        else self.config.providers.master.model
+                    )
+                elif self.config.providers.helper:
+                    ext_provider = get_provider(self.config.providers.helper.provider)
+                    ext_model = (
+                        synthesis_config.extraction_model or self.config.providers.helper.model
+                    )
+                else:
+                    ext_provider = get_provider(self.config.providers.master.provider)
+                    ext_model = (
+                        synthesis_config.extraction_model or self.config.providers.master.model
+                    )
+
+                expected_calls = (
+                    math.ceil(len(anonymized_validations) / synthesis_config.extraction_batch_size)
+                    + 2
+                )
+                per_call_timeout = max(
+                    synthesis_config.max_compression_timeout // max(expected_calls, 1),
+                    30,
+                )
+
+                def invoke_fn(prompt: str) -> str:
+                    res = invoke_with_timeout_retry(
+                        ext_provider.invoke,
+                        timeout_retries=1,
+                        phase_name=f"{self.phase_name}_extraction",
+                        prompt=prompt,
+                        model=ext_model,
+                        timeout=per_call_timeout,
+                        disable_tools=True,
+                        cwd=self.project_path,
+                    )
+                    if res.exit_code != 0:
+                        raise RuntimeError(
+                            f"Extraction failed: {res.stderr[:200] if res.stderr else 'unknown'}"
+                        )
+                    return res.stdout
+
+                cache_dir = self.project_path / ".bmad-assist" / "cache"
+                validations_to_use = pre_extract_reviews(
+                    reviews=anonymized_validations,
+                    batch_size=synthesis_config.extraction_batch_size,
+                    base_context_summary=f"Project at {self.project_path.name}",
+                    invoke_fn=invoke_fn,
+                    log=logger,
+                    cache_dir=cache_dir,
+                    session_id=session_id,
+                )
+                extraction_llm_calls = math.ceil(
+                    len(anonymized_validations) / synthesis_config.extraction_batch_size
+                )
+
+                total_tokens = estimate_synthesis_tokens(
+                    validations_to_use, base_tokens, synthesis_config.safety_factor
+                )
+                logger.info(
+                    "Step 1: %d validations in %d batches, revised total=%d",
+                    len(validations_to_use),
+                    extraction_llm_calls,
+                    total_tokens,
+                )
+
+                elapsed = time.monotonic() - compression_start
+                if elapsed > synthesis_config.max_compression_timeout:
+                    logger.warning(
+                        "Compression timeout after Step 1 (%.1fs > %ds)",
+                        elapsed,
+                        synthesis_config.max_compression_timeout,
+                    )
+                elif total_tokens > synthesis_config.token_budget:
+                    validations_to_use = progressive_synthesize(
+                        extracted_reviews=validations_to_use,
+                        batch_size=synthesis_config.progressive_batch_size,
+                        base_context_summary=f"Project at {self.project_path.name}",
+                        token_budget=synthesis_config.token_budget,
+                        invoke_fn=invoke_fn,
+                        log=logger,
+                        cache_dir=cache_dir,
+                        session_id=session_id,
+                    )
+                    prog_calls = (
+                        math.ceil(
+                            len(anonymized_validations) / synthesis_config.progressive_batch_size
+                        )
+                        + 1
+                    )
+                    extraction_llm_calls += prog_calls
+                    total_tokens = estimate_synthesis_tokens(
+                        validations_to_use, base_tokens, synthesis_config.safety_factor
+                    )
+                    logger.info("Step 2: progressive synthesis, final=%d", total_tokens)
+        else:
+            logger.info(
+                "Compression: passthrough (total=%d <= budget=%d)",
+                total_tokens,
+                synthesis_config.token_budget,
+            )
+
+        compression_end = time.monotonic()
+        self._compressed_reviews = validations_to_use
+        self._compression_metrics: dict[str, object] = {
+            "compression_steps_applied": steps,
+            "original_token_estimate": original_token_estimate,
+            "compressed_token_estimate": total_tokens,
+            "extraction_llm_calls": extraction_llm_calls,
+            "extraction_duration_ms": int((compression_end - compression_start) * 1000),
+        }
+
         # Get configured paths
         paths = get_paths()
 
-        # Build compiler context with validations
+        # Build compiler context with (possibly compressed) validations
         # Use get_original_cwd() to preserve original CWD when running as subprocess
         # Story 26.16: Include Deep Verify findings in synthesis context
         resolved_vars: dict[str, Any] = {
             "epic_num": epic_num,
             "story_num": story_num,
             "session_id": session_id,
-            "anonymized_validations": anonymized_validations,
+            "anonymized_validations": validations_to_use,
+            "skip_source_files": skip_source_files,
         }
 
         # Add DV findings to synthesis context if available
@@ -508,6 +676,18 @@ class ValidateStorySynthesisHandler(BaseHandler):
                 output_tokens=output_tokens,
                 validator_count=validator_count,
             )
+
+            # Add compression metrics if available
+            compression_metrics = getattr(self, "_compression_metrics", None)
+            if compression_metrics:
+                custom: dict[str, object] = {
+                    "phase": "validate-story-synthesis",
+                    "validator_count": validator_count,
+                }
+                custom.update(compression_metrics)
+                if record.custom is not None:
+                    custom = {**record.custom, **custom}
+                record = record.model_copy(update={"custom": custom})
 
             # Get base directory for storage
             # CRITICAL: Use centralized path utility, not get_paths() singleton!

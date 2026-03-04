@@ -378,7 +378,7 @@ def validate_resume_state(
                     "All stories in epic %s are done but epic not marked done in sprint-status",
                     current_epic,
                 )
-                # Force epic completion check in next iteration
+                # Mark epic as completed and advance to the next epic
                 if current_epic not in current_state.completed_epics:
                     epics_skipped.append(current_epic)
                     current_state = current_state.model_copy(
@@ -390,6 +390,48 @@ def validate_resume_state(
                             "updated_at": now,
                         }
                     )
+
+                # Find next epic that's not done
+                next_epic = _find_next_incomplete_epic(
+                    current_epic,
+                    epic_list,
+                    current_state.completed_epics,
+                    sprint_status,
+                )
+
+                if next_epic is None:
+                    # All epics done
+                    logger.info("All epics are done (all stories completed)")
+                    return ResumeValidationResult(
+                        state=current_state,
+                        stories_skipped=stories_skipped,
+                        epics_skipped=epics_skipped,
+                        advanced=bool(stories_skipped or epics_skipped),
+                        project_complete=True,
+                    )
+
+                # Advance to next epic
+                try:
+                    next_epic_stories = epic_stories_loader(next_epic)
+                except Exception as e:
+                    raise StateError(f"Failed to load stories for epic {next_epic}: {e}") from e
+
+                if not next_epic_stories:
+                    raise StateError(f"No stories found in epic {next_epic}")
+
+                current_state = current_state.model_copy(
+                    update={
+                        "current_epic": next_epic,
+                        "current_story": next_epic_stories[0],
+                        "current_phase": Phase.CREATE_STORY,
+                        "updated_at": now,
+                    }
+                )
+                logger.info(
+                    "Advanced to epic %s, story %s",
+                    next_epic,
+                    next_epic_stories[0],
+                )
                 continue
 
             # Advance to next story

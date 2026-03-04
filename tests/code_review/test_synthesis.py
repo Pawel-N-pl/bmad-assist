@@ -122,6 +122,50 @@ class TestReviewsForSynthesis:
         assert session_id
         assert len(session_id) == 36  # UUID format
 
+    def test_load_recovers_from_code_review_reports_when_cache_missing(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Fallback loads reviews from markdown reports when cache JSON is missing."""
+        reports_dir = tmp_path / "_bmad-output" / "implementation-artifacts" / "code-reviews"
+        reports_dir.mkdir(parents=True)
+
+        session_id = "session-from-reports"
+        report_a = reports_dir / "code-review-29-11-a-20260219T051055Z.md"
+        report_b = reports_dir / "code-review-29-11-b-20260219T051055Z.md"
+
+        report_a.write_text(
+            "---\n"
+            "session_id: session-from-reports\n"
+            "reviewer_id: Validator A\n"
+            "role_id: a\n"
+            "epic: 29\n"
+            "story: '11'\n"
+            "---\n\n"
+            "# Review A\n\n"
+            "A findings.\n",
+            encoding="utf-8",
+        )
+        report_b.write_text(
+            "---\n"
+            "session_id: session-from-reports\n"
+            "reviewer_id: Validator B\n"
+            "role_id: b\n"
+            "epic: 29\n"
+            "story: '11'\n"
+            "---\n\n"
+            "# Review B\n\n"
+            "B findings.\n",
+            encoding="utf-8",
+        )
+
+        loaded, failed_reviewers, evidence_data = load_reviews_for_synthesis(session_id, tmp_path)
+
+        assert len(loaded) == 2
+        assert {r.validator_id for r in loaded} == {"Validator A", "Validator B"}
+        assert failed_reviewers == []
+        assert evidence_data is None
+
 
 # ============================================================================
 # Tests for synthesis workflow ID constant

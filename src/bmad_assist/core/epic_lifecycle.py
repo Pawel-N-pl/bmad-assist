@@ -123,7 +123,7 @@ def _check_retro_exists(epic_id: EpicId, project_path: Path) -> bool:
 
     # Check 1: Retrospective file exists
     paths = get_paths()
-    retro_pattern = f"retro-epic-{epic_id}-*.md"
+    retro_pattern = f"epic-{epic_id}-retro-*.md"
     retro_files = list(paths.retrospectives_dir.glob(retro_pattern))
     if retro_files:
         logger.debug("Retro exists for epic %s: found file(s)", epic_id)

@@ -20,6 +20,7 @@ import contextlib
 import logging
 import os
 import sys
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ import yaml
 
 if TYPE_CHECKING:
     from bmad_assist.core.loop.cancellation import CancellationContext
+    from bmad_assist.ipc.server import IPCServerThread
 
 from bmad_assist import __version__
 from bmad_assist.core.config import Config
@@ -114,12 +116,14 @@ _REDACTED_VALUE = "***REDACTED***"
 def _get_dangerous_field_paths(
     model: type,
     prefix: str = "",
+    _seen: set[type] | None = None,
 ) -> set[str]:
     """Recursively find all field paths marked as security: dangerous.
 
     Args:
         model: Pydantic model class to inspect.
         prefix: Dot-separated prefix for nested paths.
+        _seen: Already-visited model classes (prevents infinite recursion on self-referencing models).
 
     Returns:
         Set of dot-separated field paths (e.g., "state_path", "providers.settings").
@@ -127,10 +131,17 @@ def _get_dangerous_field_paths(
     """
     from pydantic import BaseModel
 
+    if _seen is None:
+        _seen = set()
+
     dangerous_paths: set[str] = set()
 
     if not hasattr(model, "model_fields"):
         return dangerous_paths
+
+    if model in _seen:
+        return dangerous_paths
+    _seen.add(model)
 
     for field_name, field_info in model.model_fields.items():
         field_path = f"{prefix}.{field_name}" if prefix else field_name
@@ -150,11 +161,11 @@ def _get_dangerous_field_paths(
                     continue
                 # Recurse into BaseModel types (handles Optional[X], Union[X, Y], list[X])
                 if isinstance(arg, type) and issubclass(arg, BaseModel):
-                    dangerous_paths.update(_get_dangerous_field_paths(arg, field_path))
+                    dangerous_paths.update(_get_dangerous_field_paths(arg, field_path, _seen))
 
         # Direct Pydantic model (not wrapped in generic)
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            dangerous_paths.update(_get_dangerous_field_paths(annotation, field_path))
+            dangerous_paths.update(_get_dangerous_field_paths(annotation, field_path, _seen))
 
     return dangerous_paths
 
@@ -272,6 +283,92 @@ LoopState = State
 
 
 # =============================================================================
+# IPC Server Helper - Story 29.2
+# =============================================================================
+
+
+def _start_ipc_server(
+    project_path: Path,
+    cancel_ctx: CancellationContext | None = None,
+) -> IPCServerThread | None:
+    """Start the IPC socket server in a daemon thread.
+
+    Non-blocking: if the server fails to start (e.g., stale socket from live
+    process, socket path too long), logs a warning and returns None.
+    run_loop() continues without IPC.
+
+    Story 29.6: Runs stale socket cleanup before server creation, sets module-level
+    active socket path for signal handler cleanup, and clears it on failure.
+
+    Args:
+        project_path: Project root directory.
+        cancel_ctx: Optional CancellationContext for stop command support.
+
+    Returns:
+        IPCServerThread instance if started successfully, None on failure.
+
+    """
+    # Story 29.7: Import IPCError before try block so it's available in except clause.
+    # IPCError is a BmadAssistError subclass (not OSError), raised by
+    # validate_socket_path_length() when socket path exceeds 107-byte sun_path limit.
+    try:
+        from bmad_assist.ipc.protocol import IPCError as _IPCError
+    except ImportError:
+        _IPCError = OSError  # type: ignore[misc, assignment]  # Fallback if ipc not available
+
+    try:
+        from bmad_assist.ipc.cleanup import (
+            cleanup_stale_sockets_on_startup,
+            clear_active_socket,
+            set_active_socket,
+        )
+        from bmad_assist.ipc.commands import CommandHandlerImpl
+        from bmad_assist.ipc.protocol import get_socket_path
+        from bmad_assist.ipc.server import IPCServerThread as _IPCServerThread
+
+        # Story 29.6: Pre-cleanup stale socket for this project
+        cleanup_stale_sockets_on_startup(project_path)
+
+        handler = CommandHandlerImpl(
+            project_root=project_path,
+            cancel_ctx=cancel_ctx,
+        )
+        socket_path = get_socket_path(project_path)
+
+        # Story 29.6: Set BEFORE start() — eliminates the window where a signal
+        # fires during start() with path still None. If start() fails, we clear
+        # it in the except block.
+        set_active_socket(socket_path)
+
+        ipc_thread = _IPCServerThread(
+            socket_path=socket_path,
+            project_root=project_path,
+            handler=handler,
+        )
+        ipc_thread.start(timeout=5.0)
+        # Give handler access to server for state reads
+        if ipc_thread._server is not None:
+            handler.set_server(ipc_thread._server)
+        logger.info("IPC server started on %s", socket_path)
+        from bmad_assist.cli_utils import console
+
+        console.print("[dim]TUI available: run [bold]bmad-assist tui[/bold] in another terminal[/dim]")
+        console.print(f"[dim]  Socket: {socket_path}[/dim]")
+        return ipc_thread
+    except (StateError, OSError, TimeoutError, _IPCError) as e:
+        logger.warning("Failed to start IPC server: %s", e)
+        # Story 29.6: Clear the active socket path if set_active_socket was called
+        # before failure
+        try:
+            from bmad_assist.ipc.cleanup import clear_active_socket
+
+            clear_active_socket()
+        except ImportError:
+            pass
+        return None
+
+
+# =============================================================================
 # run_loop - Story 6.5
 # =============================================================================
 
@@ -283,6 +380,8 @@ def run_loop(
     epic_stories_loader: Callable[[EpicId], list[str]],
     cancel_ctx: CancellationContext | None = None,
     skip_signal_handlers: bool = False,
+    ipc_enabled: bool = True,
+    plain: bool = False,
 ) -> LoopExitReason:
     """Execute the main BMAD development loop.
 
@@ -310,6 +409,10 @@ def run_loop(
             When provided, loop checks is_cancelled at safe checkpoints.
         skip_signal_handlers: If True, skip signal handler registration.
             Use when running in non-main thread (e.g., ThreadPoolExecutor).
+        ipc_enabled: If True (default), start IPC socket server for external
+            clients. Set to False via --no-ipc CLI flag.
+        plain: If True, force PlainRenderer regardless of TTY detection.
+            Set via --plain CLI flag.
 
     Returns:
         LoopExitReason indicating how the loop exited:
@@ -390,11 +493,23 @@ def run_loop(
         except Exception as e:
             logger.warning("Failed to save initial run log: %s", e)
 
+        # Story 30.1: Create renderer based on TTY detection / --plain flag
+        from bmad_assist.tui import get_renderer
+
+        renderer = get_renderer(plain=plain)
+        logger.debug("Renderer initialized: %s", type(renderer).__name__)
+
         # Dashboard: Create lock file for process detection
         with _running_lock(project_path):
+            # Story 29.2: Start IPC socket server after lock acquired (PID stable)
+            ipc_server = None
+            if ipc_enabled:
+                ipc_server = _start_ipc_server(project_path, cancel_ctx=cancel_ctx)
+
             try:
                 exit_reason = _run_loop_body(
-                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx
+                    config, project_path, epic_list, epic_stories_loader, run_log, cancel_ctx,
+                    ipc_server=ipc_server,
                 )
                 # Update run_log with final status
                 run_log.status = RunStatus.COMPLETED
@@ -406,6 +521,22 @@ def run_loop(
                 run_log.ended_at = datetime.now(UTC)
                 raise
             finally:
+                # Story 29.2: Stop IPC server before lock release
+                if ipc_server is not None:
+                    try:
+                        ipc_server.stop(timeout=3.0)
+                    except Exception as e:
+                        logger.warning("Failed to stop IPC server: %s", e)
+
+                # Story 29.6: Clear active socket unconditionally (not gated on
+                # ipc_server is not None) — prevents phantom path if stop() fails
+                try:
+                    from bmad_assist.ipc.cleanup import clear_active_socket
+
+                    clear_active_socket()
+                except ImportError:
+                    pass
+
                 # Always save run log on exit
                 csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
                 try:
@@ -463,6 +594,8 @@ def _run_loop_body(
     epic_stories_loader: Callable[[EpicId], list[str]],
     run_log: RunLog | None = None,
     cancel_ctx: CancellationContext | None = None,
+    *,
+    ipc_server: IPCServerThread | None = None,
 ) -> LoopExitReason:
     """Execute the main loop body with signal handling active.
 
@@ -477,11 +610,19 @@ def _run_loop_body(
         epic_stories_loader: Callable that returns story IDs for given epic.
         run_log: Optional RunLog for tracking phase invocations.
         cancel_ctx: Optional CancellationContext for dashboard integration.
+        ipc_server: Optional IPCServerThread for IPC event broadcasting.
 
     Returns:
         LoopExitReason indicating how the loop exited.
 
     """
+    # Story 29.4: Create EventEmitter for IPC event broadcasting
+    from bmad_assist.ipc.events import EventEmitter, IPCLogHandler
+    from bmad_assist.ipc.types import RunnerState
+
+    emitter = EventEmitter(ipc_server)
+    ipc_log_handler: IPCLogHandler | None = None
+
     # Resolve state_path - stored in project directory
     state_path = get_state_path(config, project_root=project_path)
 
@@ -679,14 +820,123 @@ def _run_loop_body(
     logger.debug("Config providers.master.model: %s", config.providers.master.model)
     logger.debug("Project path: %s", project_path)
 
-    # Epic setup: run before first story if not already complete
-    # Per ADR-007: This also handles resume-after-setup-crash by restarting all setup phases
-    if not state.epic_setup_complete and loop_config.epic_setup:
-        # Save the current phase before setup — on resume, state may have a mid-story phase
-        # (e.g., dev_story) that should be preserved after setup completes.
-        saved_phase = state.current_phase
-        logger.info("Running epic setup phases for epic %s", state.current_epic)
-        state, setup_success = _execute_epic_setup(state, state_path, project_path)
+    # Story 29.4: Set up IPC event infrastructure
+    # - Attach IPCLogHandler to root logger for log event forwarding
+    # - Start metrics background thread for periodic snapshots
+    # - Set initial runner state to RUNNING
+    def _ipc_llm_count() -> int:
+        """Count currently active LLM sessions (not cumulative)."""
+        if not run_log or not run_log.current_phase:
+            return 0
+        return _current_phase_provider_count()
+
+    def _current_phase_provider_count() -> int:
+        """Provider count for the currently running phase."""
+        from bmad_assist.core.config.models.providers import MULTI_LLM_PHASES
+
+        if not run_log or not run_log.current_phase:
+            return 1
+        # run_log stores Phase enum .name (uppercase), MULTI_LLM_PHASES uses lowercase
+        phase_name = run_log.current_phase.phase.lower()
+        if phase_name in MULTI_LLM_PHASES:
+            if config.phase_models and phase_name in config.phase_models:
+                return len(config.phase_models[phase_name])  # type: ignore[arg-type]
+            return len(config.providers.multi) + 1  # multi + master
+        return 1
+
+    def _ipc_session_details() -> list[dict[str, Any]]:
+        """Build list of CURRENTLY active LLM sessions for TUI debug panel."""
+        from bmad_assist.core.config.models.providers import MULTI_LLM_PHASES
+
+        if not run_log or not run_log.current_phase:
+            return []
+
+        # run_log stores Phase enum .name (uppercase), MULTI_LLM_PHASES uses lowercase
+        phase_name = run_log.current_phase.phase.lower()
+        details: list[dict[str, Any]] = []
+
+        if phase_name in MULTI_LLM_PHASES:
+            if config.phase_models and phase_name in config.phase_models:
+                override = config.phase_models[phase_name]
+                multi_list = override if isinstance(override, list) else [override]  # type: ignore[list-item]
+                for mc in multi_list:
+                    details.append({
+                        "provider": mc.provider,
+                        "model": mc.display_model,
+                        "phase": phase_name,
+                        "role": "multi",
+                    })
+            else:
+                for mc in config.providers.multi:
+                    details.append({
+                        "provider": mc.provider,
+                        "model": mc.display_model,
+                        "phase": phase_name,
+                        "role": "multi",
+                    })
+                details.append({
+                    "provider": config.providers.master.provider,
+                    "model": config.providers.master.display_model,
+                    "phase": phase_name,
+                    "role": "master",
+                })
+        else:
+            details.append({
+                "provider": config.providers.master.provider,
+                "model": config.providers.master.display_model,
+                "phase": phase_name,
+                "role": "master",
+            })
+
+        return details
+
+    _state_data_for_ipc = {
+        "current_epic": state.current_epic,
+        "current_story": state.current_story,
+        "current_phase": state.current_phase.name if state.current_phase else None,
+        "elapsed_seconds": get_project_duration_ms(state) / 1000.0,
+        "llm_sessions": _ipc_llm_count(),
+        "phase_started_at": state.phase_started_at.isoformat() if state.phase_started_at else None,
+        "session_details": _ipc_session_details(),
+    }
+    emitter.update_state(RunnerState.RUNNING, _state_data_for_ipc)
+
+    ipc_log_handler = IPCLogHandler(emitter, level=logging.WARNING)
+    logging.getLogger().addHandler(ipc_log_handler)
+
+    def _get_metrics_data() -> dict[str, Any]:
+        from bmad_assist.core.loop.pause import check_pause_flag
+
+        return {
+            "llm_sessions": _ipc_llm_count(),
+            "elapsed_seconds": get_project_duration_ms(state) / 1000.0,
+            "phase": state.current_phase.name if state.current_phase else None,
+            "pause_state": check_pause_flag(project_path),
+            "current_epic": state.current_epic,
+            "current_story": state.current_story,
+            "current_phase": state.current_phase.name if state.current_phase else None,
+            "phase_started_at": state.phase_started_at.isoformat() if state.phase_started_at else None,
+            "session_details": _ipc_session_details(),
+        }
+
+    emitter.start_metrics(interval=10.0, state_getter=_get_metrics_data)
+
+    # Initialize variables used in epic setup conditional (avoid UnboundLocalError)
+    setup_success: bool = True
+    saved_phase: Phase | None = None
+
+    try:  # IPC cleanup in finally block at the end of _run_loop_body
+
+        # Epic setup: run before first story if not already complete
+        # Per ADR-007: This also handles resume-after-setup-crash by restarting all setup phases
+        if not state.epic_setup_complete and loop_config.epic_setup:
+            # Save the current phase before setup — on resume, state may have a mid-story phase
+            # (e.g., dev_story) that should be preserved after setup completes.
+            saved_phase = state.current_phase
+            logger.info("Running epic setup phases for epic %s", state.current_epic)
+            state, setup_success = _execute_epic_setup(
+                state, state_path, project_path,
+            )
         if not setup_success:
             logger.error("Epic setup failed, halting loop")
             return LoopExitReason.GUARDIAN_HALT
@@ -709,444 +959,626 @@ def _run_loop_body(
                 )
                 save_state(state, state_path)
 
-    # Main loop - runs until project complete or guardian halt
-    while True:
-        # Dashboard integration: Check for log level changes from control file
-        from bmad_assist.cli_utils import check_log_level_file
+        # Main loop - runs until project complete or guardian halt
+        while True:
+            # Dashboard integration: Check for log level changes from control file
+            from bmad_assist.cli_utils import check_log_level_file
 
-        check_log_level_file(project_path)
+            check_log_level_file(project_path)
 
-        # Dashboard integration: Check for cancellation before each phase (safe checkpoint #1)
-        if _should_stop(cancel_ctx):
-            logger.info("Stop requested, exiting at phase boundary")
-            return _get_stop_exit_reason(cancel_ctx)
+            # Dashboard integration: Check for cancellation before each phase (safe checkpoint #1)
+            if _should_stop(cancel_ctx):
+                logger.info("Stop requested, exiting at phase boundary")
+                return _get_stop_exit_reason(cancel_ctx)
 
-        # Story standalone-03 AC1: Reset phase timing BEFORE each phase execution
-        # This ensures accurate duration reporting in notifications
-        start_phase_timing(state)
-        save_state(state, state_path)
+            # Story standalone-03 AC1: Reset phase timing BEFORE each phase execution
+            # This ensures accurate duration reporting in notifications
+            start_phase_timing(state)
+            save_state(state, state_path)
 
-        # CLI Observability: Print phase banner (visible regardless of log level)
-        _print_phase_banner(
-            phase=state.current_phase.name if state.current_phase else "UNKNOWN",
-            epic=state.current_epic,
-            story=state.current_story,
-        )
-
-        # CLI Observability: Record phase START in run log (crash diagnostics)
-        if run_log is not None:
-            phase_name = state.current_phase.name if state.current_phase else "UNKNOWN"
-            phase_start_time = state.phase_started_at or datetime.now(UTC)
-            # Ensure timezone info for proper serialization (state uses naive UTC)
-            if phase_start_time.tzinfo is None:
-                phase_start_time = phase_start_time.replace(tzinfo=UTC)
-            run_log.current_phase = CurrentPhase(
-                phase=phase_name,
-                started_at=phase_start_time,
-                provider=config.providers.master.provider,
-                model=config.providers.master.model,
+            # CLI Observability: Print phase banner (visible regardless of log level)
+            _print_phase_banner(
+                phase=state.current_phase.name if state.current_phase else "UNKNOWN",
+                epic=state.current_epic,
+                story=state.current_story,
             )
-            run_log.epic = state.current_epic
-            run_log.story = state.current_story
-            # Add STARTED event for CSV timeline
-            run_log.phase_events.append(
-                PhaseEvent(
-                    event_type=PhaseEventType.STARTED,
+
+            # IPC: Emit phase_started event for TUI and update server cache
+            _phase_name_ipc = state.current_phase.name if state.current_phase else "UNKNOWN"
+            emitter.emit_phase_started(
+                phase=_phase_name_ipc,
+                epic_id=state.current_epic,
+                story_id=str(state.current_story) if state.current_story else None,
+            )
+            emitter.update_state(RunnerState.RUNNING, {
+                "current_epic": state.current_epic,
+                "current_story": state.current_story,
+                "current_phase": _phase_name_ipc,
+                "elapsed_seconds": get_project_duration_ms(state) / 1000.0,
+                "llm_sessions": _ipc_llm_count(),
+                "phase_started_at": state.phase_started_at.isoformat() if state.phase_started_at else None,
+                "session_details": _ipc_session_details(),
+            })
+
+            # CLI Observability: Record phase START in run log (crash diagnostics)
+            if run_log is not None:
+                phase_name = state.current_phase.name if state.current_phase else "UNKNOWN"
+                phase_start_time = state.phase_started_at or datetime.now(UTC)
+                # Ensure timezone info for proper serialization (state uses naive UTC)
+                if phase_start_time.tzinfo is None:
+                    phase_start_time = phase_start_time.replace(tzinfo=UTC)
+                run_log.current_phase = CurrentPhase(
                     phase=phase_name,
-                    timestamp=phase_start_time,
+                    started_at=phase_start_time,
                     provider=config.providers.master.provider,
                     model=config.providers.master.model,
-                    epic=state.current_epic,
-                    story=state.current_story,
                 )
-            )
-            try:
-                csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
-                save_run_log(run_log, project_path, as_csv=csv_enabled)
-            except Exception as e:
-                logger.warning("Failed to save run log at phase start: %s", e)
-
-        # AC2: Execute current phase
-        result = execute_phase(state)
-
-        # Code Review Fix: Log phase completion with duration for observability
-        logger.info(
-            "Phase %s completed: success=%s duration=%dms error=%s",
-            state.current_phase.name if state.current_phase else "None",
-            result.success,
-            result.outputs.get("duration_ms", 0),
-            result.error if not result.success else "none",
-        )
-
-        # CLI Observability: Record phase invocation in run log
-        if run_log is not None:
-            phase_ended = datetime.now(UTC)
-            phase_started = state.phase_started_at or phase_ended
-            # Make phase_started timezone-aware if needed
-            if phase_started.tzinfo is None:
-                phase_started = phase_started.replace(tzinfo=UTC)
-            duration_ms = int((phase_ended - phase_started).total_seconds() * 1000)
-
-            # Determine phase status
-            if result.success:
-                phase_status = PhaseStatus.SUCCESS
-            elif result.error and "timeout" in result.error.lower():
-                phase_status = PhaseStatus.TIMEOUT
-            else:
-                phase_status = PhaseStatus.ERROR
-
-            phase_name = state.current_phase.name if state.current_phase else "UNKNOWN"
-            run_log.phases.append(
-                PhaseInvocation(
-                    phase=phase_name,
-                    started_at=phase_started,
-                    ended_at=phase_ended,
-                    duration_ms=duration_ms,
-                    provider=config.providers.master.provider,
-                    model=config.providers.master.model,
-                    status=phase_status,
-                    error_type=result.error[:100] if result.error else None,
+                run_log.epic = state.current_epic
+                run_log.story = state.current_story
+                # Add STARTED event for CSV timeline
+                run_log.phase_events.append(
+                    PhaseEvent(
+                        event_type=PhaseEventType.STARTED,
+                        phase=phase_name,
+                        timestamp=phase_start_time,
+                        provider=config.providers.master.provider,
+                        model=config.providers.master.model,
+                        epic=state.current_epic,
+                        story=state.current_story,
+                    )
                 )
-            )
-            # Add COMPLETED event for CSV timeline
-            run_log.phase_events.append(
-                PhaseEvent(
-                    event_type=PhaseEventType.COMPLETED,
-                    phase=phase_name,
-                    timestamp=phase_ended,
-                    provider=config.providers.master.provider,
-                    model=config.providers.master.model,
-                    epic=state.current_epic,
-                    story=state.current_story,
-                    duration_ms=duration_ms,
-                    status=phase_status,
-                    error_type=result.error[:100] if result.error else None,
-                )
-            )
-            # Clear current_phase now that it's recorded in phases list
-            run_log.current_phase = None
-            # Update run_log with current epic/story
-            run_log.epic = state.current_epic
-            run_log.story = state.current_story
+                try:
+                    csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
+                    save_run_log(run_log, project_path, as_csv=csv_enabled)
+                except Exception as e:
+                    logger.warning("Failed to save run log at phase start: %s", e)
 
-            # Per-phase save for crash resilience (atomic write)
-            try:
-                csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
-                save_run_log(run_log, project_path, as_csv=csv_enabled)
-            except Exception as e:
-                logger.warning("Failed to save run log after phase: %s", e)
+            # AC2: Execute current phase
+            result = execute_phase(state)
 
-        # Story 22.9: Emit dashboard workflow_status event with completed/failed status
-        # This complements the "in-progress" emission at phase start
-        if state.current_phase is not None and state.current_epic is not None:
-            sequence_id += 1
-            emit_workflow_status(
-                run_id=run_id,
-                sequence_id=sequence_id,
-                epic_num=state.current_epic,
-                story_id=str(state.current_story) if state.current_story else "unknown",
-                phase=state.current_phase.name,
-                phase_status="completed" if result.success else "failed",
-            )
+            # Immediate stop check after phase execution (subprocess may have been killed)
+            if _should_stop(cancel_ctx):
+                logger.info("Stop requested during phase execution, exiting immediately")
+                return _get_stop_exit_reason(cancel_ctx)
 
-        # AC5: Handle phase failures
-        if not result.success:
-            logger.warning(
-                "Phase %s failed for story %s: %s",
+            # Code Review Fix: Log phase completion with duration for observability
+            logger.info(
+                "Phase %s completed: success=%s duration=%dms error=%s",
                 state.current_phase.name if state.current_phase else "None",
-                state.current_story,
-                result.error,
+                result.success,
+                result.outputs.get("duration_ms", 0),
+                result.error if not result.success else "none",
             )
 
-            # Story 15.4: Dispatch error_occurred event
-            _dispatch_event(
-                "error_occurred",
-                project_path,
-                state,
-                error_type="phase_failure",
-                message=result.error or "Unknown error",
-            )
+            # CLI Observability: Record phase invocation in run log
+            if run_log is not None:
+                phase_ended = datetime.now(UTC)
+                phase_started = state.phase_started_at or phase_ended
+                # Make phase_started timezone-aware if needed
+                if phase_started.tzinfo is None:
+                    phase_started = phase_started.replace(tzinfo=UTC)
+                duration_ms = int((phase_ended - phase_started).total_seconds() * 1000)
 
-            # Check if this is a teardown phase failure (resume case)
-            # Teardown phases should warn and continue, not halt (per ADR-002)
-            teardown_phases = (
-                [Phase(p) for p in loop_config.epic_teardown] if loop_config.epic_teardown else []
-            )
-            is_teardown_failure = state.current_phase in teardown_phases
+                # Determine phase status
+                if result.success:
+                    phase_status = PhaseStatus.SUCCESS
+                elif result.error and "timeout" in result.error.lower():
+                    phase_status = PhaseStatus.TIMEOUT
+                else:
+                    phase_status = PhaseStatus.ERROR
 
-            if is_teardown_failure:
-                # Teardown phase failure - log warning and advance to next epic
+                phase_name = state.current_phase.name if state.current_phase else "UNKNOWN"
+                from bmad_assist.core.config.models.providers import MULTI_LLM_PHASES as _MULTI_PHASES
+
+                _pcount = (len(config.providers.multi) + 1) if phase_name.lower() in _MULTI_PHASES else 1
+                run_log.phases.append(
+                    PhaseInvocation(
+                        phase=phase_name,
+                        started_at=phase_started,
+                        ended_at=phase_ended,
+                        duration_ms=duration_ms,
+                        provider=config.providers.master.provider,
+                        model=config.providers.master.model,
+                        status=phase_status,
+                        error_type=result.error[:100] if result.error else None,
+                        provider_count=_pcount,
+                    )
+                )
+                # Extract termination_metadata from phase outputs (if guard was active)
+                term_metadata = None
+                if result.outputs and isinstance(result.outputs, dict):
+                    term_metadata = result.outputs.get("termination_metadata")
+
+                # Add COMPLETED event for CSV timeline
+                run_log.phase_events.append(
+                    PhaseEvent(
+                        event_type=PhaseEventType.COMPLETED,
+                        phase=phase_name,
+                        timestamp=phase_ended,
+                        provider=config.providers.master.provider,
+                        model=config.providers.master.model,
+                        epic=state.current_epic,
+                        story=state.current_story,
+                        duration_ms=duration_ms,
+                        status=phase_status,
+                        error_type=result.error[:100] if result.error else None,
+                        termination_metadata=term_metadata,
+                    )
+                )
+                # Clear current_phase now that it's recorded in phases list
+                run_log.current_phase = None
+                # Update run_log with current epic/story
+                run_log.epic = state.current_epic
+                run_log.story = state.current_story
+
+                # Per-phase save for crash resilience (atomic write)
+                try:
+                    csv_enabled = os.environ.get("BMAD_CSV_OUTPUT") == "1"
+                    save_run_log(run_log, project_path, as_csv=csv_enabled)
+                except Exception as e:
+                    logger.warning("Failed to save run log after phase: %s", e)
+
+            # Story 22.9: Emit dashboard workflow_status event with completed/failed status
+            # This complements the "in-progress" emission at phase start
+            if state.current_phase is not None and state.current_epic is not None:
+                sequence_id += 1
+                emit_workflow_status(
+                    run_id=run_id,
+                    sequence_id=sequence_id,
+                    epic_num=state.current_epic,
+                    story_id=str(state.current_story) if state.current_story else "unknown",
+                    phase=state.current_phase.name,
+                    phase_status="completed" if result.success else "failed",
+                )
+
+            # AC5: Handle phase failures
+            if not result.success:
                 logger.warning(
-                    "Teardown phase %s failed for epic %s: %s. Continuing to next epic.",
+                    "Phase %s failed for story %s: %s",
                     state.current_phase.name if state.current_phase else "None",
-                    state.current_epic,
+                    state.current_story,
                     result.error,
                 )
-                save_state(state, state_path)
-                _invoke_sprint_sync(state, project_path)
 
-                # Calculate epic timing before handle_epic_completion modifies state
-                epic_duration_ms = get_epic_duration_ms(state)
-                epic_stories_count = _count_epic_stories(state)
-
-                # Advance to next epic
-                new_state, is_project_complete = handle_epic_completion(
-                    state, epic_list, epic_stories_loader, state_path
-                )
-
-                # Dispatch epic_completed event (even on teardown failure)
+                # Story 15.4: Dispatch error_occurred event
                 _dispatch_event(
-                    "epic_completed",
+                    "error_occurred",
                     project_path,
                     state,
-                    duration_ms=epic_duration_ms,
-                    stories_completed=epic_stories_count,
+                    error_type="phase_failure",
+                    message=result.error or "Unknown error",
                 )
 
-                if is_project_complete:
-                    project_duration_ms = get_project_duration_ms(state)
-                    total_stories = len(state.completed_stories) if state.completed_stories else 0
+                # Check if this is a teardown phase failure (resume case)
+                # Teardown phases should warn and continue, not halt (per ADR-002)
+                teardown_phases = (
+                    [Phase(p) for p in loop_config.epic_teardown] if loop_config.epic_teardown else []
+                )
+                is_teardown_failure = state.current_phase in teardown_phases
+
+                if is_teardown_failure:
+                    # Teardown phase failure - log warning and advance to next epic
+                    logger.warning(
+                        "Teardown phase %s failed for epic %s: %s. Continuing to next epic.",
+                        state.current_phase.name if state.current_phase else "None",
+                        state.current_epic,
+                        result.error,
+                    )
+                    save_state(state, state_path)
+                    _invoke_sprint_sync(state, project_path)
+
+                    # Calculate epic timing before handle_epic_completion modifies state
+                    epic_duration_ms = get_epic_duration_ms(state)
+                    epic_stories_count = _count_epic_stories(state)
+
+                    # Advance to next epic
+                    new_state, is_project_complete = handle_epic_completion(
+                        state, epic_list, epic_stories_loader, state_path
+                    )
+
+                    # Dispatch epic_completed event (even on teardown failure)
                     _dispatch_event(
-                        "project_completed",
+                        "epic_completed",
                         project_path,
                         state,
-                        duration_ms=project_duration_ms,
-                        epics_completed=len(epic_list),
-                        stories_completed=total_stories,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
                     )
-                    _invoke_sprint_sync(new_state, project_path)
+
+                    if is_project_complete:
+                        project_duration_ms = get_project_duration_ms(state)
+                        total_stories = len(state.completed_stories) if state.completed_stories else 0
+                        _dispatch_event(
+                            "project_completed",
+                            project_path,
+                            state,
+                            duration_ms=project_duration_ms,
+                            epics_completed=len(epic_list),
+                            stories_completed=total_stories,
+                        )
+                        _invoke_sprint_sync(new_state, project_path)
+                        logger.info(
+                            "Project complete after teardown failure. All %d epics finished.",
+                            len(epic_list),
+                        )
+                        return LoopExitReason.COMPLETED
+
+                    # Continue with next epic
+                    state = new_state
+                    start_epic_timing(state)
+                    start_story_timing(state)
                     logger.info(
-                        "Project complete after teardown failure. All %d epics finished.",
-                        len(epic_list),
+                        "Advanced to epic %s after teardown failure",
+                        state.current_epic,
                     )
-                    return LoopExitReason.COMPLETED
+                    continue
 
-                # Continue with next epic
-                state = new_state
-                start_epic_timing(state)
-                start_story_timing(state)
-                logger.info(
-                    "Advanced to epic %s after teardown failure",
-                    state.current_epic,
-                )
-                continue
-
-            # Story phase failure - goes through normal guardian flow
-            # AC5: Save state FIRST (before guardian call) to preserve position
-            save_state(state, state_path)
-            # Story 20.10: Invoke sync callbacks after failure path save
-            _invoke_sprint_sync(state, project_path)
-
-            # AC5: Guardian check for anomaly
-            guardian_decision = guardian_check_anomaly(result, state)
-
-            # Code Review Fix: Use GuardianDecision enum instead of magic string
-            if guardian_decision == GuardianDecision.HALT:
-                # AC5: Guardian "halt" - stop loop due to phase failure
-                logger.debug("Loop stopped due to phase failure")
-
-                # Story 15.4: Dispatch queue_blocked event
-                _dispatch_event(
-                    "queue_blocked",
-                    project_path,
-                    state,
-                    reason="guardian_halt",
-                    waiting_tasks=0,
-                )
-
-                # Code Review Fix: Remove duplicate save - state already saved above
-                return LoopExitReason.GUARDIAN_HALT
-
-            # Story 6.6: Check for shutdown after failure path save_state
-            if shutdown_requested():
-                logger.info("Loop interrupted by signal, state saved")
-                return _get_interrupt_exit_reason()
-
-            # AC5: MVP guardian ALWAYS returns "continue" - proceed to next phase
-            # Note: In MVP, failures don't block loop (acknowledged risk - NFR4 deferred to Epic 8)
-            # Code Review Fix: Skip AC6 save below - already saved above before guardian
-            continue
-
-        # AC6: Save state after each phase completion (SUCCESS PATH ONLY)
-        # NOTE: This saves on EVERY successful iteration for maximum crash resilience (NFR1).
-        # Performance cost: ~N atomic writes per story (N = phases executed).
-        # Optimization deferred until profiling shows I/O is bottleneck.
-
-        # Save state BEFORE advancing - current_phase is the phase that just completed
-        save_state(state, state_path)
-
-        # Dashboard integration: Check for cancellation after save_state (safe checkpoint #2)
-        if _should_stop(cancel_ctx):
-            logger.info("Stop requested after state save, exiting")
-            return _get_stop_exit_reason(cancel_ctx)
-
-        # Story 20.10: Invoke sync callbacks after success path save
-        _invoke_sprint_sync(state, project_path)
-
-        # Story 22.10 - Task 3: Check for pause flag at safe interrupt point (after state persist)
-        from bmad_assist.core.loop.dashboard_events import emit_loop_paused, emit_loop_resumed
-        from bmad_assist.core.loop.pause import (
-            check_pause_flag,
-            validate_state_for_pause,
-            wait_for_resume,
-        )
-
-        if check_pause_flag(project_path):
-            logger.info(
-                "Pause detected - entering wait loop (phase %s completed)",
-                state.current_phase.name if state.current_phase else "None",
-            )
-
-            # Validate state before pause (AC #3, #6)
-            if not validate_state_for_pause(state_path):
-                logger.error("State validation failed - unsafe to pause, continuing loop")
-                # Clean up pause flag to prevent re-detection in next iteration
-                pause_flag = project_path / ".bmad-assist" / "pause.flag"
-                try:
-                    pause_flag.unlink(missing_ok=True)
-                    logger.info("Removed pause flag due to state validation failure")
-                except OSError as e:
-                    logger.warning("Failed to remove pause flag: %s", e)
-                # Continue loop instead of pausing with corrupted state
-            else:
-                # State is valid - emit paused event before entering wait loop
-                sequence_id += 1
-                emit_loop_paused(
-                    run_id=run_id,
-                    sequence_id=sequence_id,
-                    current_phase=state.current_phase.name if state.current_phase else None,
-                )
-
-                # Wait for resume (pause.flag cleared) or stop request
-                # shutdown_requested() is checked inside wait_for_resume (Story 22.10)
-                resumed = wait_for_resume(project_path, stop_event=None, pause_timeout_minutes=60)
-
-                if not resumed:
-                    # Stop requested while paused or timeout
-                    logger.info("Terminating loop after stop while paused")
-                    return (
-                        _get_interrupt_exit_reason()
-                        if shutdown_requested()
-                        else LoopExitReason.COMPLETED
-                    )
-
-                # Resumed - emit resumed event and continue loop
-                sequence_id += 1
-                emit_loop_resumed(run_id=run_id, sequence_id=sequence_id)
-                logger.info("Resumed from pause - continuing to next phase")
-
-        # Story 15.4: Dispatch phase_completed event with actual duration
-        phase_duration = get_phase_duration_ms(state)
-        _dispatch_event(
-            "phase_completed",
-            project_path,
-            state,
-            phase=state.current_phase.name if state.current_phase else "unknown",
-            duration_ms=phase_duration,
-        )
-
-        # Git auto-commit for the COMPLETED phase (before advancing)
-        # Only commits if phase is in COMMIT_PHASES (CREATE_STORY, DEV_STORY, CODE_REVIEW_SYNTHESIS, RETROSPECTIVE) # noqa: E501
-        # Validation phases are NOT in COMMIT_PHASES, so their reports are not committed.
-        # Lazy import to avoid circular dependency
-        from bmad_assist.git import auto_commit_phase
-
-        auto_commit_phase(
-            phase=state.current_phase,
-            story_id=state.current_story,
-            project_path=project_path,
-        )
-
-        # Determine what to do next based on current phase
-        current_phase = state.current_phase
-
-        # AC3: CODE_REVIEW_SYNTHESIS success → handle story completion
-        # CRITICAL: This check MUST happen before get_next_phase() because story completion
-        # determines whether we advance to RETROSPECTIVE (epic complete) or next story.
-        if current_phase == Phase.CODE_REVIEW_SYNTHESIS and result.success:
-            # Archive multi-LLM artifacts (idempotent - safe if LLM already ran it)
-            _run_archive_artifacts(project_path)
-
-            # Get stories for current epic
-            if state.current_epic is None:
-                raise StateError("Logic error: current_epic is None at CODE_REVIEW_SYNTHESIS")
-
-            # Code Review Fix: Wrap epic_stories_loader in try-except
-            try:
-                epic_stories = epic_stories_loader(state.current_epic)
-            except Exception as e:
-                raise StateError(
-                    f"Failed to load stories for epic {state.current_epic}: {e}"
-                ) from e
-
-            # Story 15.4: Dispatch story_completed event with TOTAL story duration
-            story_duration = get_story_duration_ms(state)
-            _dispatch_event(
-                "story_completed",
-                project_path,
-                state,
-                duration_ms=story_duration,
-                outcome="success",
-            )
-
-            # Dashboard SSE: Emit story status change to "done" and story transition "completed"
-            if state.current_story and state.current_epic is not None:
-                story_id_str = state.current_story
-                try:
-                    parsed_epic, parsed_story = parse_story_id(story_id_str)
-                except ValueError:
-                    parsed_epic = state.current_epic
-                    parsed_story = 1
-
-                story_title = story_id_str.replace(".", "-").replace("_", "-").lower()
-                full_story_id = story_id_from_parts(parsed_epic, parsed_story, story_title)
-
-                # Emit story_status: in-progress → done
-                sequence_id += 1
-                emit_story_status(
-                    run_id=run_id,
-                    sequence_id=sequence_id,
-                    epic_num=parsed_epic,
-                    story_num=parsed_story,
-                    story_id=full_story_id,
-                    status="done",
-                    previous_status="in-progress",
-                )
-
-                # Emit story_transition: completed
-                sequence_id += 1
-                emit_story_transition(
-                    run_id=run_id,
-                    sequence_id=sequence_id,
-                    action="completed",
-                    epic_num=parsed_epic,
-                    story_num=parsed_story,
-                    story_id=full_story_id,
-                    story_title=story_title,
-                )
-
-            new_state, is_epic_complete = handle_story_completion(state, epic_stories, state_path)
-
-            if is_epic_complete:
-                # Run all epic teardown phases (retrospective, qa_plan_*, etc.)
-                logger.info("Epic %s stories complete, running teardown phases", state.current_epic)
-                state, _teardown_result = _execute_epic_teardown(
-                    new_state, state_path, project_path
-                )
+                # Story phase failure - goes through normal guardian flow
+                # AC5: Save state FIRST (before guardian call) to preserve position
+                save_state(state, state_path)
+                # Story 20.10: Invoke sync callbacks after failure path save
                 _invoke_sprint_sync(state, project_path)
 
-                # Story 6.6: Check for shutdown after teardown
+                # AC5: Guardian check for anomaly
+                guardian_decision = guardian_check_anomaly(result, state)
+
+                # Code Review Fix: Use GuardianDecision enum instead of magic string
+                if guardian_decision == GuardianDecision.HALT:
+                    # AC5: Guardian "halt" - stop loop due to phase failure
+                    logger.debug("Loop stopped due to phase failure")
+
+                    # Story 15.4: Dispatch queue_blocked event
+                    _dispatch_event(
+                        "queue_blocked",
+                        project_path,
+                        state,
+                        reason="guardian_halt",
+                        waiting_tasks=0,
+                    )
+
+                    # Code Review Fix: Remove duplicate save - state already saved above
+                    return LoopExitReason.GUARDIAN_HALT
+
+                # Story 6.6: Check for shutdown after failure path save_state
                 if shutdown_requested():
                     logger.info("Loop interrupted by signal, state saved")
                     return _get_interrupt_exit_reason()
 
-                # Teardown complete - now handle epic transition
+                # AC5: MVP guardian ALWAYS returns "continue" - proceed to next phase
+                # Note: In MVP, failures don't block loop (acknowledged risk - NFR4 deferred to Epic 8)
+                # Code Review Fix: Skip AC6 save below - already saved above before guardian
+                continue
+
+            # AC6: Save state after each phase completion (SUCCESS PATH ONLY)
+            # NOTE: This saves on EVERY successful iteration for maximum crash resilience (NFR1).
+            # Performance cost: ~N atomic writes per story (N = phases executed).
+            # Optimization deferred until profiling shows I/O is bottleneck.
+
+            # Save state BEFORE advancing - current_phase is the phase that just completed
+            save_state(state, state_path)
+
+            # Dashboard integration: Check for cancellation after save_state (safe checkpoint #2)
+            if _should_stop(cancel_ctx):
+                logger.info("Stop requested after state save, exiting")
+                return _get_stop_exit_reason(cancel_ctx)
+
+            # Story 20.10: Invoke sync callbacks after success path save
+            _invoke_sprint_sync(state, project_path)
+
+            # Story 22.10 - Task 3: Check for pause flag at safe interrupt point (after state persist)
+            from bmad_assist.core.loop.dashboard_events import emit_loop_paused, emit_loop_resumed
+            from bmad_assist.core.loop.pause import (
+                check_pause_flag,
+                validate_state_for_pause,
+                wait_for_resume,
+            )
+
+            if check_pause_flag(project_path):
+                logger.info(
+                    "Pause detected - entering wait loop (phase %s completed)",
+                    state.current_phase.name if state.current_phase else "None",
+                )
+
+                # Validate state before pause (AC #3, #6)
+                if not validate_state_for_pause(state_path):
+                    logger.error("State validation failed - unsafe to pause, continuing loop")
+                    # Clean up pause flag to prevent re-detection in next iteration
+                    pause_flag = project_path / ".bmad-assist" / "pause.flag"
+                    try:
+                        pause_flag.unlink(missing_ok=True)
+                        logger.info("Removed pause flag due to state validation failure")
+                    except OSError as e:
+                        logger.warning("Failed to remove pause flag: %s", e)
+                    # Continue loop instead of pausing with corrupted state
+                else:
+                    # State is valid - emit paused event before entering wait loop
+                    sequence_id += 1
+                    emit_loop_paused(
+                        run_id=run_id,
+                        sequence_id=sequence_id,
+                        current_phase=state.current_phase.name if state.current_phase else None,
+                    )
+
+                    # Wait for resume (pause.flag cleared) or stop request
+                    # shutdown_requested() is checked inside wait_for_resume (Story 22.10)
+                    resumed = wait_for_resume(project_path, stop_event=None, pause_timeout_minutes=60)
+
+                    if not resumed:
+                        # Stop requested while paused or timeout
+                        logger.info("Terminating loop after stop while paused")
+                        return (
+                            _get_interrupt_exit_reason()
+                            if shutdown_requested()
+                            else LoopExitReason.COMPLETED
+                        )
+
+                    # Resumed - emit resumed event and continue loop
+                    sequence_id += 1
+                    emit_loop_resumed(run_id=run_id, sequence_id=sequence_id)
+                    logger.info("Resumed from pause - continuing to next phase")
+
+            # Story 15.4: Dispatch phase_completed event with actual duration
+            phase_duration = get_phase_duration_ms(state)
+            _dispatch_event(
+                "phase_completed",
+                project_path,
+                state,
+                phase=state.current_phase.name if state.current_phase else "unknown",
+                duration_ms=phase_duration,
+            )
+
+            # Git auto-commit for the COMPLETED phase (before advancing)
+            # Only commits if phase is in COMMIT_PHASES (CREATE_STORY, DEV_STORY, CODE_REVIEW_SYNTHESIS, RETROSPECTIVE) # noqa: E501
+            # Validation phases are NOT in COMMIT_PHASES, so their reports are not committed.
+            # Lazy import to avoid circular dependency
+            from bmad_assist.git import auto_commit_phase
+
+            auto_commit_phase(
+                phase=state.current_phase,
+                story_id=state.current_story,
+                project_path=project_path,
+            )
+
+            # Determine what to do next based on current phase
+            current_phase = state.current_phase
+
+            # AC3: CODE_REVIEW_SYNTHESIS success → handle story completion
+            # CRITICAL: This check MUST happen before get_next_phase() because story completion
+            # determines whether we advance to RETROSPECTIVE (epic complete) or next story.
+            if current_phase == Phase.CODE_REVIEW_SYNTHESIS and result.success:
+                # Rework loop: If verdict requires rework and feature is enabled, loop back to DEV_STORY
+                verdict = result.outputs.get("verdict", "UNKNOWN") if result.outputs else "UNKNOWN"
+                rework_verdicts = {"REJECT", "MAJOR_REWORK"}
+                if (
+                    verdict in rework_verdicts
+                    and loop_config.code_review_rework
+                    and state.code_review_rework_count < loop_config.max_rework_attempts
+                ):
+                    rework_attempt = state.code_review_rework_count + 1
+                    logger.info(
+                        "Code review %s (attempt %d/%d), looping back to DEV_STORY",
+                        verdict,
+                        rework_attempt,
+                        loop_config.max_rework_attempts,
+                    )
+                    now = datetime.now(UTC).replace(tzinfo=None)
+                    state = state.model_copy(
+                        update={
+                            "current_phase": Phase.DEV_STORY,
+                            "code_review_rework_count": rework_attempt,
+                            "updated_at": now,
+                        }
+                    )
+                    save_state(state, state_path)
+                    continue
+                elif verdict in rework_verdicts and loop_config.code_review_rework:
+                    logger.warning(
+                        "Code review %s but max rework attempts (%d) reached, continuing",
+                        verdict,
+                        loop_config.max_rework_attempts,
+                    )
+
+                # Archive multi-LLM artifacts (idempotent - safe if LLM already ran it)
+                _run_archive_artifacts(project_path)
+
+                # Get stories for current epic
+                if state.current_epic is None:
+                    raise StateError("Logic error: current_epic is None at CODE_REVIEW_SYNTHESIS")
+
+                # Code Review Fix: Wrap epic_stories_loader in try-except
+                try:
+                    epic_stories = epic_stories_loader(state.current_epic)
+                except Exception as e:
+                    raise StateError(
+                        f"Failed to load stories for epic {state.current_epic}: {e}"
+                    ) from e
+
+                # Story 15.4: Dispatch story_completed event with TOTAL story duration
+                story_duration = get_story_duration_ms(state)
+                _dispatch_event(
+                    "story_completed",
+                    project_path,
+                    state,
+                    duration_ms=story_duration,
+                    outcome="success",
+                )
+
+                # Dashboard SSE: Emit story status change to "done" and story transition "completed"
+                if state.current_story and state.current_epic is not None:
+                    story_id_str = state.current_story
+                    try:
+                        parsed_epic, parsed_story = parse_story_id(story_id_str)
+                    except ValueError:
+                        parsed_epic = state.current_epic
+                        parsed_story = 1
+
+                    story_title = story_id_str.replace(".", "-").replace("_", "-").lower()
+                    full_story_id = story_id_from_parts(parsed_epic, parsed_story, story_title)
+
+                    # Emit story_status: in-progress → done
+                    sequence_id += 1
+                    emit_story_status(
+                        run_id=run_id,
+                        sequence_id=sequence_id,
+                        epic_num=parsed_epic,
+                        story_num=parsed_story,
+                        story_id=full_story_id,
+                        status="done",
+                        previous_status="in-progress",
+                    )
+
+                    # Emit story_transition: completed
+                    sequence_id += 1
+                    emit_story_transition(
+                        run_id=run_id,
+                        sequence_id=sequence_id,
+                        action="completed",
+                        epic_num=parsed_epic,
+                        story_num=parsed_story,
+                        story_id=full_story_id,
+                        story_title=story_title,
+                    )
+
+                new_state, is_epic_complete = handle_story_completion(state, epic_stories, state_path)
+
+                if is_epic_complete:
+                    # Run all epic teardown phases (retrospective, qa_plan_*, etc.)
+                    logger.info("Epic %s stories complete, running teardown phases", state.current_epic)
+                    state, _teardown_result = _execute_epic_teardown(
+                        new_state, state_path, project_path
+                    )
+                    _invoke_sprint_sync(state, project_path)
+
+                    # Story 6.6: Check for shutdown after teardown
+                    if shutdown_requested():
+                        logger.info("Loop interrupted by signal, state saved")
+                        return _get_interrupt_exit_reason()
+
+                    # Teardown complete - now handle epic transition
+                    # Calculate epic timing before handle_epic_completion modifies state
+                    epic_duration_ms = get_epic_duration_ms(state)
+                    epic_stories_count = _count_epic_stories(state)
+
+                    # Advance to next epic (or complete project)
+                    advanced_state, is_project_complete = handle_epic_completion(
+                        state, epic_list, epic_stories_loader, state_path
+                    )
+
+                    # Story standalone-03 AC6: Dispatch epic_completed event
+                    _dispatch_event(
+                        "epic_completed",
+                        project_path,
+                        state,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
+                    )
+
+                    # Interactive continuation prompt at epic boundary (only if NOT project complete)
+                    if not is_project_complete and not checkpoint_and_prompt(
+                        advanced_state, state_path, f"Epic {state.current_epic} complete. Continue?"
+                    ):
+                        return LoopExitReason.COMPLETED  # Graceful exit - state already saved
+
+                    if is_project_complete:
+                        # Story standalone-03 AC7: Dispatch project_completed event
+                        project_duration_ms = get_project_duration_ms(state)
+                        total_stories = len(state.completed_stories) if state.completed_stories else 0
+                        _dispatch_event(
+                            "project_completed",
+                            project_path,
+                            state,
+                            duration_ms=project_duration_ms,
+                            epics_completed=len(epic_list),
+                            stories_completed=total_stories,
+                        )
+                        _invoke_sprint_sync(advanced_state, project_path)
+                        logger.info("Project complete after epic %s teardown", state.current_epic)
+                        return LoopExitReason.COMPLETED
+
+                    # Continue with next epic
+                    state = advanced_state
+                    # Reset timing for new epic
+                    start_epic_timing(state)
+                    start_story_timing(state)
+                    logger.info("Advanced to epic %s after teardown", state.current_epic)
+                    continue  # Next iteration will run epic_setup for new epic
+                else:
+                    # AC3: Not last story - advance to next story
+                    # Interactive continuation prompt at story boundary
+                    # Skip if --skip-story-prompts flag is set (but epic prompts still show)
+                    if not is_skip_story_prompts() and not checkpoint_and_prompt(
+                        new_state, state_path, f"Story {state.current_story} complete. Continue?"
+                    ):
+                        return LoopExitReason.COMPLETED  # Graceful exit - state already saved
+
+                    state = new_state
+                    # Start timing for the new story
+                    start_story_timing(state)
+                    # Story 20.10: Sync after story completion (non-last in epic)
+                    _invoke_sprint_sync(state, project_path)
+                    logger.info(
+                        "Advanced to story %s at phase %s",
+                        state.current_story,
+                        state.current_phase.name if state.current_phase else "None",
+                    )
+
+                    # Story 15.4: Dispatch story_started for new story
+                    story_title = _get_story_title(project_path, state.current_story or "")
+                    _dispatch_event(
+                        "story_started",
+                        project_path,
+                        state,
+                        phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
+                        story_title=story_title,
+                    )
+
+                    # Story 22.9: Emit dashboard story_transition and workflow_status events
+                    sequence_id += 1
+                    if state.current_epic is not None and state.current_story is not None:
+                        story_id_str = str(state.current_story)
+                        # Parse story_id using helper function
+                        try:
+                            parsed_epic, parsed_story = parse_story_id(story_id_str)
+                        except ValueError:
+                            # Fallback for standalone stories or non-standard IDs
+                            # Use current_epic directly as EpicId (supports string epics)
+                            parsed_epic = state.current_epic if state.current_epic is not None else 1
+                            parsed_story = 1
+
+                        # Get story title from story file or use default
+                        # For now, use a slugified version of story_id as title
+                        story_title = story_id_str.replace(".", "-").replace("_", "-").lower()
+
+                        # Generate full story_id (epic-story-title format)
+                        full_story_id = story_id_from_parts(parsed_epic, parsed_story, story_title)
+                        emit_story_transition(
+                            run_id=run_id,
+                            sequence_id=sequence_id,
+                            action="started",
+                            epic_num=parsed_epic,
+                            story_num=parsed_story,
+                            story_id=full_story_id,
+                            story_title=story_title,
+                        )
+                        emit_workflow_status(
+                            run_id=run_id,
+                            sequence_id=sequence_id,
+                            epic_num=parsed_epic,
+                            story_id=story_id_str,
+                            phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
+                            phase_status="in-progress",
+                        )
+
+                continue
+
+            # AC4: QA_PLAN_EXECUTE success → handle epic completion
+            # Note: This is the FINAL phase of an epic (after RETROSPECTIVE → QA_PLAN_GENERATE → QA_PLAN_EXECUTE) # noqa: E501
+            if current_phase == Phase.QA_PLAN_EXECUTE and result.success:
                 # Calculate epic timing before handle_epic_completion modifies state
                 epic_duration_ms = get_epic_duration_ms(state)
                 epic_stories_count = _count_epic_stories(state)
 
-                # Advance to next epic (or complete project)
-                advanced_state, is_project_complete = handle_epic_completion(
+                new_state, is_project_complete = handle_epic_completion(
                     state, epic_list, epic_stories_loader, state_path
                 )
 
@@ -1158,12 +1590,6 @@ def _run_loop_body(
                     duration_ms=epic_duration_ms,
                     stories_completed=epic_stories_count,
                 )
-
-                # Interactive continuation prompt at epic boundary (only if NOT project complete)
-                if not is_project_complete and not checkpoint_and_prompt(
-                    advanced_state, state_path, f"Epic {state.current_epic} complete. Continue?"
-                ):
-                    return LoopExitReason.COMPLETED  # Graceful exit - state already saved
 
                 if is_project_complete:
                     # Story standalone-03 AC7: Dispatch project_completed event
@@ -1177,238 +1603,17 @@ def _run_loop_body(
                         epics_completed=len(epic_list),
                         stories_completed=total_stories,
                     )
-                    _invoke_sprint_sync(advanced_state, project_path)
-                    logger.info("Project complete after epic %s teardown", state.current_epic)
-                    return LoopExitReason.COMPLETED
-
-                # Continue with next epic
-                state = advanced_state
-                # Reset timing for new epic
-                start_epic_timing(state)
-                start_story_timing(state)
-                logger.info("Advanced to epic %s after teardown", state.current_epic)
-                continue  # Next iteration will run epic_setup for new epic
-            else:
-                # AC3: Not last story - advance to next story
-                # Interactive continuation prompt at story boundary
-                # Skip if --skip-story-prompts flag is set (but epic prompts still show)
-                if not is_skip_story_prompts() and not checkpoint_and_prompt(
-                    new_state, state_path, f"Story {state.current_story} complete. Continue?"
-                ):
-                    return LoopExitReason.COMPLETED  # Graceful exit - state already saved
-
-                state = new_state
-                # Start timing for the new story
-                start_story_timing(state)
-                # Story 20.10: Sync after story completion (non-last in epic)
-                _invoke_sprint_sync(state, project_path)
-                logger.info(
-                    "Advanced to story %s at phase %s",
-                    state.current_story,
-                    state.current_phase.name if state.current_phase else "None",
-                )
-
-                # Story 15.4: Dispatch story_started for new story
-                story_title = _get_story_title(project_path, state.current_story or "")
-                _dispatch_event(
-                    "story_started",
-                    project_path,
-                    state,
-                    phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
-                    story_title=story_title,
-                )
-
-                # Story 22.9: Emit dashboard story_transition and workflow_status events
-                sequence_id += 1
-                if state.current_epic is not None and state.current_story is not None:
-                    story_id_str = str(state.current_story)
-                    # Parse story_id using helper function
-                    try:
-                        parsed_epic, parsed_story = parse_story_id(story_id_str)
-                    except ValueError:
-                        # Fallback for standalone stories or non-standard IDs
-                        # Use current_epic directly as EpicId (supports string epics)
-                        parsed_epic = state.current_epic if state.current_epic is not None else 1
-                        parsed_story = 1
-
-                    # Get story title from story file or use default
-                    # For now, use a slugified version of story_id as title
-                    story_title = story_id_str.replace(".", "-").replace("_", "-").lower()
-
-                    # Generate full story_id (epic-story-title format)
-                    full_story_id = story_id_from_parts(parsed_epic, parsed_story, story_title)
-                    emit_story_transition(
-                        run_id=run_id,
-                        sequence_id=sequence_id,
-                        action="started",
-                        epic_num=parsed_epic,
-                        story_num=parsed_story,
-                        story_id=full_story_id,
-                        story_title=story_title,
-                    )
-                    emit_workflow_status(
-                        run_id=run_id,
-                        sequence_id=sequence_id,
-                        epic_num=parsed_epic,
-                        story_id=story_id_str,
-                        phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
-                        phase_status="in-progress",
-                    )
-
-            continue
-
-        # AC4: QA_PLAN_EXECUTE success → handle epic completion
-        # Note: This is the FINAL phase of an epic (after RETROSPECTIVE → QA_PLAN_GENERATE → QA_PLAN_EXECUTE) # noqa: E501
-        if current_phase == Phase.QA_PLAN_EXECUTE and result.success:
-            # Calculate epic timing before handle_epic_completion modifies state
-            epic_duration_ms = get_epic_duration_ms(state)
-            epic_stories_count = _count_epic_stories(state)
-
-            new_state, is_project_complete = handle_epic_completion(
-                state, epic_list, epic_stories_loader, state_path
-            )
-
-            # Story standalone-03 AC6: Dispatch epic_completed event
-            _dispatch_event(
-                "epic_completed",
-                project_path,
-                state,
-                duration_ms=epic_duration_ms,
-                stories_completed=epic_stories_count,
-            )
-
-            if is_project_complete:
-                # Story standalone-03 AC7: Dispatch project_completed event
-                project_duration_ms = get_project_duration_ms(state)
-                total_stories = len(state.completed_stories) if state.completed_stories else 0
-                _dispatch_event(
-                    "project_completed",
-                    project_path,
-                    state,
-                    duration_ms=project_duration_ms,
-                    epics_completed=len(epic_list),
-                    stories_completed=total_stories,
-                )
-                # Bug fix: Sync sprint-status before returning to mark epic/retro as done
-                # Use new_state which has epic in completed_epics
-                _invoke_sprint_sync(new_state, project_path)
-                # AC4: Last epic - project complete, terminate gracefully
-                logger.info(
-                    "Project complete! All %d epics finished.",
-                    len(epic_list),
-                )
-                return LoopExitReason.COMPLETED
-
-            # AC4: Not last epic - advance to next epic
-            state = new_state
-
-            # Ensure we're on the correct branch for the new epic
-            from bmad_assist.git.branch import ensure_epic_branch, is_git_enabled
-
-            if is_git_enabled() and state.current_epic is not None:
-                ensure_epic_branch(state.current_epic, project_path)
-
-            # Story standalone-03 AC6: Start timing for the new epic
-            start_epic_timing(state)
-            start_story_timing(state)
-            # Story 20.10: Sync after epic completion (non-last in project)
-            _invoke_sprint_sync(state, project_path)
-            logger.info(
-                "Advanced to epic %s, story %s",
-                state.current_epic,
-                state.current_story,
-            )
-
-            # Story 15.4: Dispatch story_started for new epic's first story
-            story_title = _get_story_title(project_path, state.current_story or "")
-            _dispatch_event(
-                "story_started",
-                project_path,
-                state,
-                phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
-                story_title=story_title,
-            )
-
-            continue
-
-        # Code Review Fix: Honor PhaseResult.next_phase override from handlers
-        if result.next_phase is not None:
-            now = datetime.now(UTC).replace(tzinfo=None)
-            state = state.model_copy(
-                update={
-                    "current_phase": result.next_phase,
-                    "updated_at": now,
-                }
-            )
-            logger.info("Phase override: jumping to %s", result.next_phase.name)
-            continue
-
-        # AC7: Normal phase advancement via get_next_phase()
-        # Note: When QA is disabled (--qa flag not set), RETROSPECTIVE is the last phase
-        # and get_next_phase() returns None. In this case, handle epic completion.
-
-        # Defensive check: current_phase could still be None if all prior
-        # conditions failed (e.g., phase not in special cases). Verify before use.
-        if current_phase is None:
-            raise StateError("Logic error: current_phase is None in main loop")
-
-        next_phase = get_next_phase(current_phase)
-        if next_phase is None:
-            # NOTE: Epic teardown phases (retrospective, qa_plan_*, etc.) are now handled
-            # in _execute_epic_teardown() called from the CODE_REVIEW_SYNTHESIS block above.
-            # This check should only be reached for unexpected cases.
-            #
-            # Check if this is the last epic_teardown phase (in case get_next_phase
-            # returns None for a phase that's part of teardown but executed separately)
-            teardown_phases = (
-                [Phase(p) for p in loop_config.epic_teardown] if loop_config.epic_teardown else []
-            )
-            is_teardown_phase = current_phase in teardown_phases
-
-            if is_teardown_phase and result.success:
-                # This path handles edge case where a teardown phase is executed
-                # through the main loop (e.g., resumed mid-teardown)
-                logger.info(
-                    "Teardown phase %s complete for epic %s",
-                    current_phase.name,
-                    state.current_epic,
-                )
-                # Calculate epic timing before handle_epic_completion modifies state
-                epic_duration_ms = get_epic_duration_ms(state)
-                epic_stories_count = _count_epic_stories(state)
-
-                new_state, is_project_complete = handle_epic_completion(
-                    state, epic_list, epic_stories_loader, state_path
-                )
-
-                # Dispatch epic_completed event
-                _dispatch_event(
-                    "epic_completed",
-                    project_path,
-                    state,
-                    duration_ms=epic_duration_ms,
-                    stories_completed=epic_stories_count,
-                )
-
-                if is_project_complete:
-                    project_duration_ms = get_project_duration_ms(state)
-                    total_stories = len(state.completed_stories) if state.completed_stories else 0
-                    _dispatch_event(
-                        "project_completed",
-                        project_path,
-                        state,
-                        duration_ms=project_duration_ms,
-                        epics_completed=len(epic_list) if epic_list else 1,
-                        stories_completed=total_stories,
-                    )
+                    # Bug fix: Sync sprint-status before returning to mark epic/retro as done
+                    # Use new_state which has epic in completed_epics
                     _invoke_sprint_sync(new_state, project_path)
+                    # AC4: Last epic - project complete, terminate gracefully
                     logger.info(
                         "Project complete! All %d epics finished.",
-                        len(epic_list) if epic_list else 1,
+                        len(epic_list),
                     )
                     return LoopExitReason.COMPLETED
 
-                # Not last epic - advance to next epic
+                # AC4: Not last epic - advance to next epic
                 state = new_state
 
                 # Ensure we're on the correct branch for the new epic
@@ -1417,9 +1622,10 @@ def _run_loop_body(
                 if is_git_enabled() and state.current_epic is not None:
                     ensure_epic_branch(state.current_epic, project_path)
 
-                # Start timing for the new epic
+                # Story standalone-03 AC6: Start timing for the new epic
                 start_epic_timing(state)
                 start_story_timing(state)
+                # Story 20.10: Sync after epic completion (non-last in project)
                 _invoke_sprint_sync(state, project_path)
                 logger.info(
                     "Advanced to epic %s, story %s",
@@ -1427,7 +1633,7 @@ def _run_loop_body(
                     state.current_story,
                 )
 
-                # Dispatch story_started for new epic's first story
+                # Story 15.4: Dispatch story_started for new epic's first story
                 story_title = _get_story_title(project_path, state.current_story or "")
                 _dispatch_event(
                     "story_started",
@@ -1439,30 +1645,179 @@ def _run_loop_body(
 
                 continue
 
-            # Other phases returning None is unexpected - raise error
-            raise StateError(f"Cannot advance past {current_phase.name}")
+            # Code Review Fix: Honor PhaseResult.next_phase override from handlers
+            if result.next_phase is not None:
+                now = datetime.now(UTC).replace(tzinfo=None)
+                state = state.model_copy(
+                    update={
+                        "current_phase": result.next_phase,
+                        "updated_at": now,
+                    }
+                )
+                logger.info("Phase override: jumping to %s", result.next_phase.name)
+                continue
 
-        # Code Review Fix: Include updated_at in phase advancement
-        now = datetime.now(UTC).replace(tzinfo=None)
-        state = state.model_copy(
-            update={
-                "current_phase": next_phase,
-                "updated_at": now,
-            }
-        )
-        logger.debug(
-            "Advanced to phase %s",
-            next_phase.name,
-        )
+            # AC7: Normal phase advancement via get_next_phase()
+            # Note: When QA is disabled (--qa flag not set), RETROSPECTIVE is the last phase
+            # and get_next_phase() returns None. In this case, handle epic completion.
 
-        # Story 22.9: Emit dashboard workflow_status event on phase transition
-        sequence_id += 1
-        if state.current_epic is not None and state.current_story is not None:
-            emit_workflow_status(
-                run_id=run_id,
-                sequence_id=sequence_id,
-                epic_num=state.current_epic,
-                story_id=str(state.current_story),
-                phase=next_phase.name,
-                phase_status="in-progress",
+            # Defensive check: current_phase could still be None if all prior
+            # conditions failed (e.g., phase not in special cases). Verify before use.
+            if current_phase is None:
+                raise StateError("Logic error: current_phase is None in main loop")
+
+            next_phase = get_next_phase(current_phase)
+            if next_phase is None:
+                # NOTE: Epic teardown phases (retrospective, qa_plan_*, etc.) are now handled
+                # in _execute_epic_teardown() called from the CODE_REVIEW_SYNTHESIS block above.
+                # This check should only be reached for unexpected cases.
+                #
+                # Check if this is the last epic_teardown phase (in case get_next_phase
+                # returns None for a phase that's part of teardown but executed separately)
+                teardown_phases = (
+                    [Phase(p) for p in loop_config.epic_teardown] if loop_config.epic_teardown else []
+                )
+                is_teardown_phase = current_phase in teardown_phases
+
+                if is_teardown_phase and result.success:
+                    # This path handles edge case where a teardown phase is executed
+                    # through the main loop (e.g., resumed mid-teardown)
+                    logger.info(
+                        "Teardown phase %s complete for epic %s",
+                        current_phase.name,
+                        state.current_epic,
+                    )
+                    # Calculate epic timing before handle_epic_completion modifies state
+                    epic_duration_ms = get_epic_duration_ms(state)
+                    epic_stories_count = _count_epic_stories(state)
+
+                    new_state, is_project_complete = handle_epic_completion(
+                        state, epic_list, epic_stories_loader, state_path
+                    )
+
+                    # Dispatch epic_completed event
+                    _dispatch_event(
+                        "epic_completed",
+                        project_path,
+                        state,
+                        duration_ms=epic_duration_ms,
+                        stories_completed=epic_stories_count,
+                    )
+
+                    if is_project_complete:
+                        project_duration_ms = get_project_duration_ms(state)
+                        total_stories = len(state.completed_stories) if state.completed_stories else 0
+                        _dispatch_event(
+                            "project_completed",
+                            project_path,
+                            state,
+                            duration_ms=project_duration_ms,
+                            epics_completed=len(epic_list) if epic_list else 1,
+                            stories_completed=total_stories,
+                        )
+                        _invoke_sprint_sync(new_state, project_path)
+                        logger.info(
+                            "Project complete! All %d epics finished.",
+                            len(epic_list) if epic_list else 1,
+                        )
+                        return LoopExitReason.COMPLETED
+
+                    # Not last epic - advance to next epic
+                    state = new_state
+
+                    # Ensure we're on the correct branch for the new epic
+                    from bmad_assist.git.branch import ensure_epic_branch, is_git_enabled
+
+                    if is_git_enabled() and state.current_epic is not None:
+                        ensure_epic_branch(state.current_epic, project_path)
+
+                    # Start timing for the new epic
+                    start_epic_timing(state)
+                    start_story_timing(state)
+                    _invoke_sprint_sync(state, project_path)
+                    logger.info(
+                        "Advanced to epic %s, story %s",
+                        state.current_epic,
+                        state.current_story,
+                    )
+
+                    # Dispatch story_started for new epic's first story
+                    story_title = _get_story_title(project_path, state.current_story or "")
+                    _dispatch_event(
+                        "story_started",
+                        project_path,
+                        state,
+                        phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
+                        story_title=story_title,
+                    )
+
+                    continue
+
+                # Other phases returning None is unexpected - raise error
+                raise StateError(f"Cannot advance past {current_phase.name}")
+
+            # Code Review Fix: Include updated_at in phase advancement
+            now = datetime.now(UTC).replace(tzinfo=None)
+            state = state.model_copy(
+                update={
+                    "current_phase": next_phase,
+                    "updated_at": now,
+                }
             )
+            logger.debug(
+                "Advanced to phase %s",
+                next_phase.name,
+            )
+
+            # Story 22.9: Emit dashboard workflow_status event on phase transition
+            sequence_id += 1
+            if state.current_epic is not None and state.current_story is not None:
+                emit_workflow_status(
+                    run_id=run_id,
+                    sequence_id=sequence_id,
+                    epic_num=state.current_epic,
+                    story_id=str(state.current_story),
+                    phase=next_phase.name,
+                    phase_status="in-progress",
+                )
+
+    finally:
+        # Story 29.9: Broadcast goodbye event before IPC cleanup
+        # Must happen before stop_metrics/IDLE to ensure clients receive it
+        try:
+            _exc = sys.exc_info()[1]  # None if no active exception
+            if cancel_ctx and cancel_ctx.is_cancelled:
+                _reason = "stop_command"
+                _message = None
+            elif _exc is not None:
+                _reason = "error"
+                _message = str(_exc)[:500] if str(_exc) else None
+            elif shutdown_requested():
+                _reason = "stop_command"
+                _message = "Interrupted by signal"
+            else:
+                _reason = "normal"
+                _message = None
+            emitter.emit_goodbye(_reason, _message)
+            # 50ms for broadcast flush before server.stop() in outer finally.
+            # Only sleep when IPC server is active (avoids gratuitous delay in tests).
+            if ipc_server is not None:
+                time.sleep(0.05)
+        except Exception:
+            pass  # Fire-and-forget: goodbye is best-effort
+
+        # Story 29.4: IPC cleanup — stop metrics thread, remove log handler, set IDLE
+        # Order: metrics → log handler → state update (metrics thread uses emit which uses server)
+        try:
+            emitter.stop_metrics()
+        except Exception as e:
+            logger.warning("Failed to stop metrics thread: %s", e)
+        try:
+            if ipc_log_handler is not None:
+                logging.getLogger().removeHandler(ipc_log_handler)
+        except Exception as e:
+            logger.warning("Failed to remove IPC log handler: %s", e)
+        try:
+            emitter.update_state(RunnerState.IDLE, {})
+        except Exception:
+            pass  # Best-effort final state update

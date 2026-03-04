@@ -6,6 +6,113 @@ from bmad_assist.core.config.models.source_context import SourceContextConfig
 from bmad_assist.core.config.models.strategic_context import StrategicContextConfig
 
 
+class SynthesisConfig(BaseModel):
+    """Adaptive synthesis prompt compression configuration.
+
+    Controls the three-step compression pipeline for synthesis workflows
+    (code_review_synthesis, validate_story_synthesis) when review token
+    counts exceed the budget.
+
+    Attributes:
+        token_budget: Max tokens for synthesis prompt (default 120K).
+        extraction_batch_size: Reviews per extraction LLM call.
+        progressive_batch_size: Reviews per progressive synthesis batch.
+        base_context_limit: Threshold to trigger Step 0 source file trimming.
+        safety_factor: Multiplier on token estimates before decisions.
+        extraction_provider: Override provider name (None = use helper, then master).
+        extraction_model: Override model (None = use provider's default).
+        max_compression_timeout: Max seconds for entire compression pipeline.
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    token_budget: int = Field(
+        default=120_000,
+        ge=10_000,
+        description="Max tokens for synthesis prompt",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    extraction_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Reviews per extraction LLM call",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    progressive_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Reviews per progressive synthesis batch",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    base_context_limit: int = Field(
+        default=40_000,
+        ge=5_000,
+        description="Threshold to trigger Step 0 source file trimming",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    safety_factor: float = Field(
+        default=1.15,
+        ge=1.0,
+        le=2.0,
+        description="Multiplier on token estimates before decisions",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    extraction_provider: str | None = Field(
+        default=None,
+        description="Override provider for extraction (None = helper, then master)",
+        json_schema_extra={"security": "risky", "ui_widget": "dropdown"},
+    )
+    extraction_model: str | None = Field(
+        default=None,
+        description="Override model for extraction (None = provider default)",
+        json_schema_extra={"security": "risky", "ui_widget": "dropdown"},
+    )
+    max_compression_timeout: int = Field(
+        default=300,
+        ge=30,
+        description="Max seconds for entire compression pipeline",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+
+
+class ToolGuardConfig(BaseModel):
+    """ToolCallGuard watchdog configuration.
+
+    Controls thresholds for the per-invocation LLM tool call watchdog
+    that detects and terminates runaway tool call loops.
+
+    Attributes:
+        max_total_calls: Hard cap on total tool calls per invocation.
+        max_interactions_per_file: Max combined read+write+edit per file path.
+        max_calls_per_minute: Sliding-window rate cap (calls per 60s).
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    max_total_calls: int = Field(
+        default=300,
+        ge=1,
+        description="Hard cap on total tool calls per invocation",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    max_interactions_per_file: int = Field(
+        default=15,
+        ge=1,
+        description="Max combined read+write+edit per file path",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    max_calls_per_minute: int = Field(
+        default=90,
+        ge=1,
+        description="Sliding-window rate cap (calls per 60s)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+
+
 class CompilerConfig(BaseModel):
     """Compiler configuration section.
 
@@ -18,6 +125,7 @@ class CompilerConfig(BaseModel):
         source_context: Source file collection configuration.
         strategic_context: Strategic document loading configuration.
             If None, legacy behavior (load all docs). Use {} for optimized defaults.
+        synthesis: Adaptive synthesis prompt compression configuration.
 
     """
 
@@ -35,6 +143,10 @@ class CompilerConfig(BaseModel):
     strategic_context: StrategicContextConfig | None = Field(
         default=None,
         description="Strategic document loading config. None = legacy behavior (all docs).",
+    )
+    synthesis: SynthesisConfig = Field(
+        default_factory=SynthesisConfig,
+        description="Adaptive synthesis prompt compression configuration",
     )
 
 
@@ -111,6 +223,54 @@ class TimeoutsConfig(BaseModel):
         default=None,
         ge=60,
         description="Timeout for retrospective phase (None = use default)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    atdd: int | None = Field(
+        default=None,
+        ge=60,
+        description="ATDD phase timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    test_review: int | None = Field(
+        default=None,
+        ge=60,
+        description="Test review timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_test_design: int | None = Field(
+        default=None,
+        ge=60,
+        description="TEA test design timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_framework: int | None = Field(
+        default=None,
+        ge=60,
+        description="TEA framework timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_automate: int | None = Field(
+        default=None,
+        ge=60,
+        description="TEA automate timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_ci: int | None = Field(
+        default=None,
+        ge=60,
+        description="TEA CI timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    tea_nfr_assess: int | None = Field(
+        default=None,
+        ge=60,
+        description="TEA NFR assessment timeout (seconds)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
+    trace: int | None = Field(
+        default=None,
+        ge=60,
+        description="Trace timeout (seconds)",
         json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
     )
     security_review: int | None = Field(

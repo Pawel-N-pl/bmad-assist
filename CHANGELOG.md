@@ -2,6 +2,44 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [0.4.32] - 2026-03-04
+
+### Added
+- **IPC Protocol** - JSON-RPC 2.0 over Unix domain sockets for inter-process communication between runner and monitoring tools (Epic 29)
+- **ToolCallGuard** - LLM tool call watchdog with 3 detection mechanisms (rapid-fire, repeating, runaway) and configurable thresholds exposed in `bmad-assist.yaml`
+- **Adaptive Synthesis Prompt Compression** - Domain-aware compression pipeline for validation/review synthesis to stay within context budgets
+- **FallbackProvider** - Automatic provider failover with decorator pattern — transparent to all callers, supports nested fallback chains. Based on [PR #25](https://github.com/Pawel-N-pl/bmad-assist/pull/25) by [@DevRGT](https://github.com/DevRGT)
+- **Code Review Rework Loop** - Automated dev→review→fix cycle when code review verdict is negative, with configurable `max_rework_attempts`. Based on [PR #27](https://github.com/Pawel-N-pl/bmad-assist/pull/27) by [@derron1](https://github.com/derron1)
+- **Pre-commit Typecheck Layer** - 3-layer pipeline (eslint fix → LLM lint fix → LLM typecheck fix) before auto-commit. Based on [PR #27](https://github.com/Pawel-N-pl/bmad-assist/pull/27) by [@derron1](https://github.com/derron1)
+- **Antipattern Extractor v2** - Multi-line block format parsing, numbered pipe-delimited support, robust cleaning helpers. Based on [PR #28](https://github.com/Pawel-N-pl/bmad-assist/pull/28) by [@derron1](https://github.com/derron1)
+- **TEA Phase Timeouts** - 8 new per-phase timeout fields for all TEA workflows (`atdd`, `test_review`, `tea_test_design`, `tea_framework`, `tea_automate`, `tea_ci`, `tea_nfr_assess`, `trace`). Based on [PR #36](https://github.com/Pawel-N-pl/bmad-assist/pull/36) by [@mattbrun](https://github.com/mattbrun)
+- **Evidence Score Severity Aliases** - HIGH→CRITICAL, MEDIUM→IMPORTANT, LOW→MINOR mapping + section header fallback parsing. Based on [PR #36](https://github.com/Pawel-N-pl/bmad-assist/pull/36) by [@mattbrun](https://github.com/mattbrun)
+- **ATDD Testability Score** - New `testability_score` dimension in ATDD eligibility assessment for stories without UI/API but with testable logic. Based on [PR #36](https://github.com/Pawel-N-pl/bmad-assist/pull/36) by [@mattbrun](https://github.com/mattbrun)
+- **Code Review Synthesis Tool Restriction** - Synthesis LLM limited to `Read`, `Edit`, `Write`, `Bash` tools only. Based on [PR #36](https://github.com/Pawel-N-pl/bmad-assist/pull/36) by [@mattbrun](https://github.com/mattbrun)
+- **Strategic Context LLM Compression** - LLM-based compression with SHA-256 disk caching replaces raw truncation for strategic context documents. Based on [PR #30](https://github.com/Pawel-N-pl/bmad-assist/pull/30) by [@mattbrun](https://github.com/mattbrun)
+
+### Fixed
+- **Nested Event Loop Detection** - `run_async_in_thread()` now detects already-running event loops and spawns `ThreadPoolExecutor` worker to avoid "Cannot run the event loop while another loop is running" crashes. Based on [PR #29](https://github.com/Pawel-N-pl/bmad-assist/pull/29) by [@mattbrun](https://github.com/mattbrun)
+- **Forward-only `is_last_story_in_epic()`** - Only checks for incomplete stories AFTER current position, preventing false positives when using `-s` flag to skip stories. Based on [PR #31](https://github.com/Pawel-N-pl/bmad-assist/pull/31) by [@mattbrun](https://github.com/mattbrun) and [PR #28](https://github.com/Pawel-N-pl/bmad-assist/pull/28) by [@derron1](https://github.com/derron1)
+- **Resume Validation Advance** - When all stories in epic are done but epic not marked done, advance to next epic instead of infinite re-check loop. Based on [PR #31](https://github.com/Pawel-N-pl/bmad-assist/pull/31) by [@mattbrun](https://github.com/mattbrun)
+- **Retro Glob Pattern** - Fixed `retro-epic-{id}-*` → `epic-{id}-retro-*` to match actual retrospective filenames. Based on [PR #22](https://github.com/Pawel-N-pl/bmad-assist/pull/22) by [@DevRGT](https://github.com/DevRGT)
+- **XML Validation False Positives** - HTML comment files (`<!-- ... -->`) no longer trigger 73s XML parse retry loops. Based on [PR #27](https://github.com/Pawel-N-pl/bmad-assist/pull/27) by [@derron1](https://github.com/derron1)
+- **Claude SDK Init Timeout** - Increased from 5s to 30s for MCP servers + CLAUDE.md loading. Based on [PR #27](https://github.com/Pawel-N-pl/bmad-assist/pull/27) by [@derron1](https://github.com/derron1)
+- **Validate Story Pre-compilation** - Pre-compile workflow template before async call to avoid nested event loop crash. Based on [PR #28](https://github.com/Pawel-N-pl/bmad-assist/pull/28) by [@derron1](https://github.com/derron1)
+- **Code Review Pre-compilation** - Pre-compile workflow patches before entering async event loop. Based on [PR #27](https://github.com/Pawel-N-pl/bmad-assist/pull/27) by [@derron1](https://github.com/derron1)
+- **Workflow Discovery Robustness** - Multi-candidate search for TEA workflows (try both mapped and full names). Based on [PR #36](https://github.com/Pawel-N-pl/bmad-assist/pull/36) by [@mattbrun](https://github.com/mattbrun)
+- **Orphan Incomplete Stories** - Handle orphan incomplete stories in story completion logic without crashing
+- **ARG_MAX Crash** - Pipe prompts via stdin to avoid crash on large prompts
+- **Index.md Deduplication** - Deduplicate refs and support alternative UX directory names
+
+### Community Contributions
+
+Thanks to all contributors whose PRs from the [bmad-assist](https://github.com/Pawel-N-pl/bmad-assist) publication repo were ported into this release:
+
+- [@mattbrun](https://github.com/mattbrun) — PRs [#29](https://github.com/Pawel-N-pl/bmad-assist/pull/29), [#30](https://github.com/Pawel-N-pl/bmad-assist/pull/30), [#31](https://github.com/Pawel-N-pl/bmad-assist/pull/31), [#36](https://github.com/Pawel-N-pl/bmad-assist/pull/36)
+- [@derron1](https://github.com/derron1) — PRs [#27](https://github.com/Pawel-N-pl/bmad-assist/pull/27), [#28](https://github.com/Pawel-N-pl/bmad-assist/pull/28)
+- [@DevRGT](https://github.com/DevRGT) — PRs [#22](https://github.com/Pawel-N-pl/bmad-assist/pull/22), [#25](https://github.com/Pawel-N-pl/bmad-assist/pull/25)
+
 ## [0.4.31] - 2026-02-18
 
 ### Fixed

@@ -160,6 +160,94 @@ class TestSignalHandlers:
                 # Should still call exit despite killpg failure
                 mock_exit.assert_called_once_with(130)
 
+    def test_sigint_handler_calls_cleanup_before_exit(self):
+        """SIGINT handler calls IPC socket cleanup before os._exit (AC #3)."""
+        import bmad_assist.core.loop.signals as sig_module
+
+        call_order: list[str] = []
+        original_cleanup = sig_module._ipc_signal_safe_cleanup
+
+        try:
+            sig_module._ipc_signal_safe_cleanup = lambda: call_order.append("cleanup")
+
+            with patch("bmad_assist.core.loop.signals.os._exit", side_effect=lambda _: call_order.append("exit")):
+                with patch("bmad_assist.core.loop.signals.os.killpg"):
+                    _handle_sigint(signal.SIGINT, None)
+
+            assert "cleanup" in call_order, "Cleanup must be called"
+            assert "exit" in call_order, "Exit must be called"
+            assert call_order.index("cleanup") < call_order.index("exit"), (
+                "Cleanup must happen before exit"
+            )
+        finally:
+            sig_module._ipc_signal_safe_cleanup = original_cleanup
+
+    def test_sigterm_handler_calls_cleanup_before_exit(self):
+        """SIGTERM handler calls IPC socket cleanup before os._exit (AC #3)."""
+        import bmad_assist.core.loop.signals as sig_module
+
+        call_order: list[str] = []
+        original_cleanup = sig_module._ipc_signal_safe_cleanup
+
+        try:
+            sig_module._ipc_signal_safe_cleanup = lambda: call_order.append("cleanup")
+
+            with patch("bmad_assist.core.loop.signals.os._exit", side_effect=lambda _: call_order.append("exit")):
+                with patch("bmad_assist.core.loop.signals.os.killpg"):
+                    _handle_sigterm(signal.SIGTERM, None)
+
+            assert "cleanup" in call_order, "Cleanup must be called"
+            assert "exit" in call_order, "Exit must be called"
+            assert call_order.index("cleanup") < call_order.index("exit"), (
+                "Cleanup must happen before exit"
+            )
+        finally:
+            sig_module._ipc_signal_safe_cleanup = original_cleanup
+
+    def test_sighup_handler_calls_cleanup_before_exit(self):
+        """SIGHUP handler calls IPC socket cleanup before os._exit (AC #3)."""
+        if not hasattr(signal, "SIGHUP"):
+            pytest.skip("SIGHUP not available on this platform")
+
+        from bmad_assist.core.loop.signals import _handle_sighup
+        import bmad_assist.core.loop.signals as sig_module
+
+        call_order: list[str] = []
+        original_cleanup = sig_module._ipc_signal_safe_cleanup
+
+        try:
+            sig_module._ipc_signal_safe_cleanup = lambda: call_order.append("cleanup")
+
+            with patch("bmad_assist.core.loop.signals.os._exit", side_effect=lambda _: call_order.append("exit")):
+                with patch("bmad_assist.core.loop.signals.os.killpg"):
+                    _handle_sighup(signal.SIGHUP, None)
+
+            assert "cleanup" in call_order, "Cleanup must be called"
+            assert "exit" in call_order, "Exit must be called"
+            assert call_order.index("cleanup") < call_order.index("exit"), (
+                "Cleanup must happen before exit"
+            )
+        finally:
+            sig_module._ipc_signal_safe_cleanup = original_cleanup
+
+    def test_sigint_handler_calls_kill_via_prestored_ref(self):
+        """SIGINT handler uses pre-stored kill_all_child_pgids reference (no import)."""
+        import bmad_assist.core.loop.signals as sig_module
+
+        mock_kill = MagicMock()
+        original_kill = sig_module._kill_all_child_pgids
+
+        try:
+            sig_module._kill_all_child_pgids = mock_kill
+
+            with patch("bmad_assist.core.loop.signals.os._exit"):
+                with patch("bmad_assist.core.loop.signals.os.killpg"):
+                    _handle_sigint(signal.SIGINT, None)
+
+            mock_kill.assert_called_once()
+        finally:
+            sig_module._kill_all_child_pgids = original_kill
+
 
 # =============================================================================
 # Signal Registration Tests
@@ -191,13 +279,14 @@ class TestSignalRegistration:
         assert "main thread" in str(result_box["error"])
 
     def test_register_signal_handlers_installs_handlers(self):
-        """register_signal_handlers() installs SIGINT and SIGTERM handlers."""
+        """register_signal_handlers() installs SIGINT, SIGTERM, and SIGHUP handlers."""
         with patch("signal.signal") as mock_signal:
             mock_signal.return_value = signal.SIG_DFL
             register_signal_handlers()
 
-            # Should register both SIGINT and SIGTERM
-            assert mock_signal.call_count == 2
+            # Should register SIGINT, SIGTERM, and SIGHUP (on Unix)
+            expected_count = 3 if hasattr(signal, "SIGHUP") else 2
+            assert mock_signal.call_count == expected_count
             calls = [call[0] for call in mock_signal.call_args_list]
             assert (signal.SIGINT, _handle_sigint) in calls
             assert (signal.SIGTERM, _handle_sigterm) in calls
@@ -213,8 +302,9 @@ class TestSignalRegistration:
         with patch("signal.signal") as mock_signal:
             unregister_signal_handlers()
 
-            # Should restore both handlers
-            assert mock_signal.call_count == 2
+            # Should restore SIGINT, SIGTERM, and SIGHUP (on Unix)
+            expected_count = 3 if hasattr(signal, "SIGHUP") else 2
+            assert mock_signal.call_count == expected_count
 
     def test_register_saves_previous_handlers(self):
         """register_signal_handlers() saves previous handlers for restoration."""

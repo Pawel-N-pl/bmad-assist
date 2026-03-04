@@ -39,7 +39,23 @@
       </action>
     </step>
 
-    <step n="3" goal="Assess skip indicators">
+    <step n="3" goal="Assess general testability">
+      <action>Analyze the story content for indicators of programmatic testability beyond UI and API</action>
+      <action>Look for indicators suggesting the story is testable:
+        - Acceptance criteria with verifiable outcomes
+        - Clear inputs/outputs or state transitions
+        - Crypto roundtrips, CLI commands, business rules
+        - Anything that suggests the story can be tested programmatically
+      </action>
+      <action>Assign testability_score between 0.0 and 1.0:
+        - 0.0: No testability indicators detected
+        - 0.3-0.5: Minor testable elements or vague acceptance criteria
+        - 0.6-0.8: Clear testable behavior with defined outcomes
+        - 0.9-1.0: Highly testable with concrete inputs, outputs, and verifiable state changes
+      </action>
+    </step>
+
+    <step n="4" goal="Assess skip indicators">
       <action>Analyze the story content for indicators that ATDD should be skipped</action>
       <action>Look for keywords suggesting skip:
         - config, configuration, documentation, doc
@@ -55,10 +71,10 @@
       </action>
     </step>
 
-    <step n="4" goal="Generate reasoning">
+    <step n="5" goal="Generate reasoning">
       <action>Summarize your assessment in 1-2 sentences</action>
       <action>Explain why ATDD is or is not recommended based on the scores</action>
-      <action>Consider: High UI or API scores suggest ATDD is beneficial; high skip scores suggest ATDD may not add value</action>
+      <action>Consider: High UI, API, or testability scores suggest ATDD is beneficial; high skip scores suggest ATDD may not add value</action>
       <action>Do NOT calculate final eligibility - the hybrid detector will apply weights and thresholds</action>
     </step>
   </instructions>
@@ -72,6 +88,7 @@
 {{
   "ui_score": 0.0,
   "api_score": 0.0,
+  "testability_score": 0.0,
   "skip_score": 0.0,
   "reasoning": "string"
 }}

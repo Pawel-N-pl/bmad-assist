@@ -258,6 +258,68 @@ Evidence Score: -4.0
         assert report.total_score == -4.0
         assert report.verdict == Verdict.EXCELLENT
 
+    def test_parse_table_with_high_medium_low_aliases(self) -> None:
+        """Test that table-format findings with HIGH/MEDIUM/LOW severities are mapped correctly."""
+        content = """
+| Severity | Finding | Recommendation | Score |
+|----------|---------|----------------|-------|
+| HIGH | Some critical issue | Fix it | +3 |
+| MEDIUM | Some important issue | Address it | +1 |
+| LOW | Some minor issue | Consider it | +0.3 |
+"""
+        report = parse_evidence_findings(content, "Validator E")
+        assert report is not None
+        assert len(report.findings) == 3
+        severities = [f.severity for f in report.findings]
+        assert severities == [Severity.CRITICAL, Severity.IMPORTANT, Severity.MINOR]
+        # 3.0 + 1.0 + 0.3 = 4.3
+        assert report.total_score == 4.3
+
+    def test_parse_section_header_fallback(self) -> None:
+        """Test that section-header format findings are parsed correctly."""
+        content = """
+## CRITICAL Severity Findings
+- Issue one description
+- Issue two description
+
+## MINOR Severity Findings
+- Issue three description
+"""
+        report = parse_evidence_findings(content, "Validator F")
+        assert report is not None
+        assert len(report.findings) == 3
+        # Two CRITICAL (+3 each) + one MINOR (+0.3)
+        critical_findings = [f for f in report.findings if f.severity == Severity.CRITICAL]
+        minor_findings = [f for f in report.findings if f.severity == Severity.MINOR]
+        assert len(critical_findings) == 2
+        assert len(minor_findings) == 1
+        assert critical_findings[0].description == "Issue one description"
+        assert critical_findings[1].description == "Issue two description"
+        assert minor_findings[0].description == "Issue three description"
+        # Score: 3.0 + 3.0 + 0.3 = 6.3
+        assert report.total_score == 6.3
+        assert report.verdict == Verdict.REJECT
+
+    def test_parse_section_header_with_description(self) -> None:
+        """Test section headers with descriptions/issue IDs."""
+        content = """
+### ISSUE-1 [HIGH] — Buffer overflow risk
+- Details about the issue
+
+### [MEDIUM] Input validation missing
+- More details
+"""
+        report = parse_evidence_findings(content, "Validator G")
+        assert report is not None
+        assert len(report.findings) == 2
+        # HIGH → CRITICAL, MEDIUM → IMPORTANT
+        assert report.findings[0].severity == Severity.CRITICAL
+        assert report.findings[0].description == "Details about the issue"
+        assert report.findings[1].severity == Severity.IMPORTANT
+        assert report.findings[1].description == "More details"
+        # 3.0 + 1.0 = 4.0
+        assert report.total_score == 4.0
+
 
 # =============================================================================
 # Aggregation Tests

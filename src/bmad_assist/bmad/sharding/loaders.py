@@ -75,6 +75,9 @@ def _get_sorted_files(
             else:
                 logger.warning("Index references non-existent file: %s", ref)
 
+        # Deduplicate preserving first-seen order (index.md may link same file multiple times)
+        files = list(dict.fromkeys(files))
+
         # Add orphan files (in directory but not in index)
         all_md_files = set(sharded_dir.glob("*.md")) - {index_path}
         indexed_files = set(files)

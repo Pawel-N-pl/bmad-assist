@@ -1388,3 +1388,182 @@ class TestDynamicLoading:
             result = compile_workflow("code-review-synthesis", context)
 
         assert result.workflow_name == "code-review-synthesis"
+
+
+class TestSkipSourceFiles:
+    """Tests for skip_source_files flag (Step 0 source file trimming)."""
+
+    def test_skip_source_files_excludes_source_files(
+        self,
+        tmp_project: Path,
+        two_reviews: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=True, no source file content in context but git diff IS preserved."""
+        from bmad_assist.compiler.workflows.code_review_synthesis import (
+            CodeReviewSynthesisCompiler,
+        )
+
+        mock_diff = (
+            "<!-- GIT_DIFF_START -->\n"
+            "diff --git a/src/main.py b/src/main.py\n"
+            "+new line\n"
+            "<!-- GIT_DIFF_END -->"
+        )
+
+        # Mock source context to return known content when called
+        mock_source_files = {
+            str(tmp_project / "src" / "main.py"): 'def hello():\n    print("Hello, World!")\n',
+        }
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=14,
+            story_num=9,
+            reviews=two_reviews,
+            skip_source_files=True,
+        )
+        compiler = CodeReviewSynthesisCompiler()
+
+        with (
+            patch(
+                "bmad_assist.compiler.workflows.code_review_synthesis._capture_git_diff",
+                return_value=mock_diff,
+            ),
+            patch(
+                "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+                return_value=mock_source_files,
+            ) as mock_collect,
+        ):
+            result = compiler.compile(context)
+
+        # Source context service should NOT have been called
+        mock_collect.assert_not_called()
+
+        # Git diff should still be present
+        assert "[git-diff]" in result.context
+        assert "GIT_DIFF_START" in result.context
+
+    def test_skip_source_files_false_includes_source_files(
+        self,
+        tmp_project: Path,
+        two_reviews: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=False, source files are included as normal."""
+        from bmad_assist.compiler.workflows.code_review_synthesis import (
+            CodeReviewSynthesisCompiler,
+        )
+
+        mock_source_files = {
+            str(tmp_project / "src" / "main.py"): 'def hello():\n    print("Hello, World!")\n',
+        }
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=14,
+            story_num=9,
+            reviews=two_reviews,
+            skip_source_files=False,
+        )
+        compiler = CodeReviewSynthesisCompiler()
+
+        with (
+            patch(
+                "bmad_assist.compiler.workflows.code_review_synthesis._capture_git_diff",
+                return_value="",
+            ),
+            patch(
+                "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+                return_value=mock_source_files,
+            ) as mock_collect,
+        ):
+            result = compiler.compile(context)
+
+        # Source context service SHOULD have been called
+        mock_collect.assert_called_once()
+
+        # Source file content should be in the compiled output
+        assert "main.py" in result.context
+
+    def test_skip_source_files_not_in_vars_includes_source_files(
+        self,
+        tmp_project: Path,
+        two_reviews: list[AnonymizedValidation],
+    ) -> None:
+        """Without skip_source_files key at all, source files included (backward compat)."""
+        from bmad_assist.compiler.workflows.code_review_synthesis import (
+            CodeReviewSynthesisCompiler,
+        )
+
+        mock_source_files = {
+            str(tmp_project / "src" / "main.py"): 'def hello():\n    print("Hello, World!")\n',
+        }
+
+        # Do NOT pass skip_source_files at all
+        context = create_test_context(
+            tmp_project,
+            epic_num=14,
+            story_num=9,
+            reviews=two_reviews,
+        )
+        compiler = CodeReviewSynthesisCompiler()
+
+        with (
+            patch(
+                "bmad_assist.compiler.workflows.code_review_synthesis._capture_git_diff",
+                return_value="",
+            ),
+            patch(
+                "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+                return_value=mock_source_files,
+            ) as mock_collect,
+        ):
+            result = compiler.compile(context)
+
+        # Source context service SHOULD have been called (default behavior)
+        mock_collect.assert_called_once()
+
+        # Source file content should be in the compiled output
+        assert "main.py" in result.context
+
+    def test_skip_source_files_preserves_git_diff(
+        self,
+        tmp_project: Path,
+        two_reviews: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=True, git diff content IS present in compiled context."""
+        from bmad_assist.compiler.workflows.code_review_synthesis import (
+            CodeReviewSynthesisCompiler,
+        )
+
+        mock_diff = (
+            "<!-- GIT_DIFF_START -->\n"
+            "diff --git a/src/main.py b/src/main.py\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1,2 +1,3 @@\n"
+            " def hello():\n"
+            '-    print("Hello")\n'
+            '+    print("Hello, World!")\n'
+            "<!-- GIT_DIFF_END -->"
+        )
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=14,
+            story_num=9,
+            reviews=two_reviews,
+            skip_source_files=True,
+        )
+        compiler = CodeReviewSynthesisCompiler()
+
+        with patch(
+            "bmad_assist.compiler.workflows.code_review_synthesis._capture_git_diff",
+            return_value=mock_diff,
+        ):
+            result = compiler.compile(context)
+
+        # Git diff markers and content should be present
+        assert "GIT_DIFF_START" in result.context
+        assert "GIT_DIFF_END" in result.context
+        assert "diff --git a/src/main.py" in result.context
+        assert "++" in result.context or "Hello, World!" in result.context

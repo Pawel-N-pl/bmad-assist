@@ -332,6 +332,11 @@ async def _invoke_validator(
         # Use unified run timestamp for consistency across all validators
         validation_timestamp = run_timestamp or start_time
 
+        # Per-provider guard for multi-LLM independence
+        from bmad_assist.providers.tool_guard import ToolCallGuard
+
+        guard = ToolCallGuard()
+
         # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
         fallback_invoke_fn = None
         if provider.provider_name == "claude":
@@ -358,7 +363,46 @@ async def _invoke_validator(
             display_model=display_model,
             thinking=thinking,
             reasoning_effort=reasoning_effort,
+            guard=guard,
         )
+
+        # Retry once if validator's guard fired
+        from bmad_assist.providers.tool_guard import GUARD_TERMINATION_PREFIX
+
+        if result.termination_reason and result.termination_reason.startswith(
+            GUARD_TERMINATION_PREFIX
+        ):
+            logger.warning(
+                "ToolCallGuard triggered for validator %s: %s — retrying once",
+                provider_id,
+                result.termination_reason,
+            )
+            guard.reset_for_retry()
+            result = await asyncio.to_thread(
+                invoke_with_timeout_retry,
+                provider.invoke,
+                timeout_retries=timeout_retries,
+                phase_name="validate_story",
+                fallback_invoke_fn=fallback_invoke_fn,
+                prompt=prompt,
+                model=model,
+                timeout=timeout,
+                allowed_tools=allowed_tools,
+                settings_file=settings_file,
+                color_index=color_index,
+                cwd=cwd,
+                display_model=display_model,
+                thinking=thinking,
+                reasoning_effort=reasoning_effort,
+                guard=guard,
+            )
+            if result.termination_reason and result.termination_reason.startswith(
+                GUARD_TERMINATION_PREFIX
+            ):
+                logger.error(
+                    "ToolCallGuard: retry also terminated for validator %s — using partial output",
+                    provider_id,
+                )
 
         duration_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 

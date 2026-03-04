@@ -109,9 +109,9 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 score = data.get("score", 100.0)
 
                 # Track worst verdict (REJECT > UNCERTAIN > ACCEPT)
-                if worst_verdict is None or verdict_rank.get(
-                    verdict, 2
-                ) < verdict_rank.get(worst_verdict, 2):
+                if worst_verdict is None or verdict_rank.get(verdict, 2) < verdict_rank.get(
+                    worst_verdict, 2
+                ):
                     worst_verdict = verdict
 
                 min_score = min(min_score, score)
@@ -136,12 +136,8 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 return None
 
             findings_count = len(all_findings)
-            critical_count = sum(
-                1 for f in all_findings if f.get("severity") == "critical"
-            )
-            error_count = sum(
-                1 for f in all_findings if f.get("severity") == "error"
-            )
+            critical_count = sum(1 for f in all_findings if f.get("severity") == "critical")
+            error_count = sum(1 for f in all_findings if f.get("severity") == "error")
 
             return {
                 "verdict": worst_verdict or "ACCEPT",
@@ -192,7 +188,10 @@ class CodeReviewSynthesisHandler(BaseHandler):
             logger.info(
                 "Security findings for synthesis: %d HIGH, %d MEDIUM, %d LOW "
                 "(filtered from %d total)",
-                high, medium, low, len(report.findings),
+                high,
+                medium,
+                low,
+                len(report.findings),
             )
 
             return {
@@ -220,21 +219,86 @@ class CodeReviewSynthesisHandler(BaseHandler):
             logger.warning("Failed to load security findings: %s", e)
             return None
 
-    def _get_session_id_from_cache(self) -> str | None:
-        """Find most recent code review session from cache.
+    def _get_session_id_from_story_reports(
+        self,
+        epic_num: EpicId | None,
+        story_num: str | None,
+    ) -> str | None:
+        """Find code review session from persisted report files for a story.
 
-        The session_id is saved to cache file after code review phase.
-        Searches for the most recent code-reviews cache file.
+        This is resilient when `.bmad-assist/cache/code-reviews-*.json` is missing.
+        """
+        if epic_num is None or story_num is None:
+            return None
+
+        try:
+            import frontmatter
+        except Exception:
+            return None
+
+        review_dirs = [
+            self.project_path / "_bmad-output" / "implementation-artifacts" / "code-reviews",
+            self.project_path / "docs" / "sprint-artifacts" / "code-reviews",
+            self.project_path / "docs" / "code-reviews",
+        ]
+
+        report_files: list[Path] = []
+        pattern = f"code-review-{epic_num}-{story_num}-*.md"
+        for review_dir in review_dirs:
+            if review_dir.exists():
+                report_files.extend(review_dir.glob(pattern))
+
+        if not report_files:
+            return None
+
+        def safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except (OSError, FileNotFoundError):
+                return 0.0
+
+        for report_path in sorted(report_files, key=safe_mtime, reverse=True):
+            try:
+                post = frontmatter.load(report_path, handler=frontmatter.YAMLHandler())
+            except Exception:
+                continue
+            metadata = post.metadata if isinstance(post.metadata, dict) else {}
+            session_id = str(metadata.get("session_id") or "").strip()
+            if session_id:
+                logger.debug(
+                    "Recovered code review session from report for %s.%s: %s",
+                    epic_num,
+                    story_num,
+                    session_id,
+                )
+                return session_id
+
+        return None
+
+    def _get_session_id_from_cache(
+        self,
+        epic_num: EpicId | None = None,
+        story_num: str | None = None,
+    ) -> str | None:
+        """Find code review session id for synthesis.
+
+        Resolution order:
+        1. Story-specific persisted code-review reports (if epic/story provided)
+        2. Most recent code-reviews cache JSON
 
         Returns:
             Session ID string or None if not found.
 
         """
+        session_from_reports = self._get_session_id_from_story_reports(epic_num, story_num)
+        if session_from_reports:
+            return session_from_reports
+
         cache_dir = self.project_path / ".bmad-assist" / "cache"
         if not cache_dir.exists():
             return None
 
-        # Find most recent code-reviews file
+        # Find most recent code-reviews cache file
         def safe_mtime(p: Path) -> float:
             try:
                 return p.stat().st_mtime
@@ -252,7 +316,6 @@ class CodeReviewSynthesisHandler(BaseHandler):
 
         # Extract session_id from filename
         latest_file = review_files[0]
-        # Filename format: code-reviews-{session_id}.json
         session_id = latest_file.stem.replace("code-reviews-", "")
 
         logger.debug("Found latest code review session: %s", session_id)
@@ -281,7 +344,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
         story_num = story_num_str  # Keep as str to support EpicId = int | str (TD-001)
 
         # Get session_id for loading reviews
-        session_id = self._get_session_id_from_cache()
+        session_id = self._get_session_id_from_cache(epic_num, story_num)
         if session_id is None:
             raise ConfigError(
                 "Cannot synthesize: no code review session found. Run CODE_REVIEW phase first."
@@ -327,10 +390,174 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 security_findings["timed_out"],
             )
 
+        # === Adaptive Synthesis Prompt Compression Pipeline ===
+        import math
+        import time
+
+        from bmad_assist.core.loop.handlers.synthesis_utils import (
+            decide_compression_steps,
+            estimate_base_context_tokens,
+            estimate_synthesis_tokens,
+            pre_extract_reviews,
+            progressive_synthesize,
+        )
+        from bmad_assist.core.retry import invoke_with_timeout_retry
+        from bmad_assist.providers.registry import get_provider
+
+        synthesis_config = self.config.compiler.synthesis
+        base_tokens = estimate_base_context_tokens(
+            self.project_path, self.config, "code_review_synthesis"
+        )
+        total_tokens = estimate_synthesis_tokens(
+            anonymized_reviews, base_tokens, synthesis_config.safety_factor
+        )
+        steps = decide_compression_steps(
+            total_tokens,
+            base_tokens,
+            synthesis_config.token_budget,
+            synthesis_config.base_context_limit,
+        )
+
+        skip_source_files = False
+        compression_start = time.monotonic()
+        original_token_estimate = total_tokens
+        extraction_llm_calls = 0
+        reviews_to_use = anonymized_reviews
+
+        if steps:
+            logger.info(
+                "Compression pipeline: steps=%s, total=%d, budget=%d, base=%d",
+                steps,
+                total_tokens,
+                synthesis_config.token_budget,
+                base_tokens,
+            )
+
+            if "step0" in steps:
+                skip_source_files = True
+                base_tokens = max(base_tokens - 5000, 0)
+                total_tokens = estimate_synthesis_tokens(
+                    anonymized_reviews, base_tokens, synthesis_config.safety_factor
+                )
+                logger.info("Step 0: skip_source_files, revised total=%d", total_tokens)
+
+            if "step1" in steps:
+                # Provider resolution: extraction_provider > helper > master
+                if synthesis_config.extraction_provider:
+                    ext_provider = get_provider(synthesis_config.extraction_provider)
+                    ext_model = synthesis_config.extraction_model or (
+                        self.config.providers.helper.model
+                        if self.config.providers.helper
+                        else self.config.providers.master.model
+                    )
+                elif self.config.providers.helper:
+                    ext_provider = get_provider(self.config.providers.helper.provider)
+                    ext_model = (
+                        synthesis_config.extraction_model or self.config.providers.helper.model
+                    )
+                else:
+                    ext_provider = get_provider(self.config.providers.master.provider)
+                    ext_model = (
+                        synthesis_config.extraction_model or self.config.providers.master.model
+                    )
+
+                expected_calls = (
+                    math.ceil(len(anonymized_reviews) / synthesis_config.extraction_batch_size) + 2
+                )
+                per_call_timeout = max(
+                    synthesis_config.max_compression_timeout // max(expected_calls, 1),
+                    30,
+                )
+
+                def invoke_fn(prompt: str) -> str:
+                    res = invoke_with_timeout_retry(
+                        ext_provider.invoke,
+                        timeout_retries=1,
+                        phase_name=f"{self.phase_name}_extraction",
+                        prompt=prompt,
+                        model=ext_model,
+                        timeout=per_call_timeout,
+                        disable_tools=True,
+                        cwd=self.project_path,
+                    )
+                    if res.exit_code != 0:
+                        raise RuntimeError(
+                            f"Extraction failed: {res.stderr[:200] if res.stderr else 'unknown'}"
+                        )
+                    return res.stdout
+
+                cache_dir = self.project_path / ".bmad-assist" / "cache"
+                reviews_to_use = pre_extract_reviews(
+                    reviews=anonymized_reviews,
+                    batch_size=synthesis_config.extraction_batch_size,
+                    base_context_summary=f"Project at {self.project_path.name}",
+                    invoke_fn=invoke_fn,
+                    log=logger,
+                    cache_dir=cache_dir,
+                    session_id=session_id,
+                )
+                extraction_llm_calls = math.ceil(
+                    len(anonymized_reviews) / synthesis_config.extraction_batch_size
+                )
+
+                total_tokens = estimate_synthesis_tokens(
+                    reviews_to_use, base_tokens, synthesis_config.safety_factor
+                )
+                logger.info(
+                    "Step 1: %d reviews in %d batches, revised total=%d",
+                    len(reviews_to_use),
+                    extraction_llm_calls,
+                    total_tokens,
+                )
+
+                elapsed = time.monotonic() - compression_start
+                if elapsed > synthesis_config.max_compression_timeout:
+                    logger.warning(
+                        "Compression timeout after Step 1 (%.1fs > %ds)",
+                        elapsed,
+                        synthesis_config.max_compression_timeout,
+                    )
+                elif total_tokens > synthesis_config.token_budget:
+                    reviews_to_use = progressive_synthesize(
+                        extracted_reviews=reviews_to_use,
+                        batch_size=synthesis_config.progressive_batch_size,
+                        base_context_summary=f"Project at {self.project_path.name}",
+                        token_budget=synthesis_config.token_budget,
+                        invoke_fn=invoke_fn,
+                        log=logger,
+                        cache_dir=cache_dir,
+                        session_id=session_id,
+                    )
+                    prog_calls = (
+                        math.ceil(len(anonymized_reviews) / synthesis_config.progressive_batch_size)
+                        + 1
+                    )
+                    extraction_llm_calls += prog_calls
+                    total_tokens = estimate_synthesis_tokens(
+                        reviews_to_use, base_tokens, synthesis_config.safety_factor
+                    )
+                    logger.info("Step 2: progressive synthesis, final=%d", total_tokens)
+        else:
+            logger.info(
+                "Compression: passthrough (total=%d <= budget=%d)",
+                total_tokens,
+                synthesis_config.token_budget,
+            )
+
+        compression_end = time.monotonic()
+        self._compressed_reviews = reviews_to_use
+        self._compression_metrics: dict[str, object] = {
+            "compression_steps_applied": steps,
+            "original_token_estimate": original_token_estimate,
+            "compressed_token_estimate": total_tokens,
+            "extraction_llm_calls": extraction_llm_calls,
+            "extraction_duration_ms": int((compression_end - compression_start) * 1000),
+        }
+
         # Get configured paths
         paths = get_paths()
 
-        # Build compiler context with reviews
+        # Build compiler context with (possibly compressed) reviews
         # Use get_original_cwd() to preserve original CWD when running as subprocess
         context = CompilerContext(
             project_root=self.project_path,
@@ -341,11 +568,14 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 "epic_num": epic_num,
                 "story_num": story_num,
                 "session_id": session_id,
-                "anonymized_reviews": anonymized_reviews,
+                "anonymized_reviews": reviews_to_use,
                 "failed_reviewers": failed_reviewers,  # AC #4: Include failed reviewers for LLM context # noqa: E501
                 "deep_verify_findings": dv_findings,  # Story 26.20: Include DV findings
                 "security_findings": security_findings,  # Security agent findings
-                "security_review_status": "TIMEOUT" if (security_findings and security_findings.get("timed_out")) else "",
+                "security_review_status": "TIMEOUT"
+                if (security_findings and security_findings.get("timed_out"))
+                else "",
+                "skip_source_files": skip_source_files,
             },
         )
 
@@ -388,7 +618,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
             story_num = story_num_str  # Keep as str to support EpicId = int | str (TD-001)
 
             # Get session_id and load reviews for report saving
-            session_id = self._get_session_id_from_cache()
+            session_id = self._get_session_id_from_cache(epic_num, story_num)
             if session_id is None:
                 raise ConfigError(
                     "Cannot synthesize: no code review session found. Run CODE_REVIEW phase first."
@@ -425,8 +655,10 @@ class CodeReviewSynthesisHandler(BaseHandler):
             # Record start time for benchmarking
             start_time = datetime.now(UTC)
 
-            # Invoke Master LLM
-            result = self.invoke_provider(prompt)
+            # Invoke Master LLM with restricted tools (file manipulation only)
+            result = self.invoke_provider(
+                prompt, allowed_tools=["Read", "Edit", "Write", "Bash"]
+            )
 
             # Record end time for benchmarking
             end_time = datetime.now(UTC)
@@ -525,11 +757,19 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     reviewer_count=len(reviewers_used),
                 )
 
+                # Include evidence score verdict in outputs for rework loop decision
+                verdict = (
+                    evidence_score_data.get("verdict", "UNKNOWN")
+                    if evidence_score_data
+                    else "UNKNOWN"
+                )
+
                 phase_result = PhaseResult.ok(
                     {
                         "response": result.stdout,
                         "model": result.model,
                         "duration_ms": result.duration_ms,
+                        "verdict": verdict,
                     }
                 )
 
@@ -700,6 +940,10 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 "phase": "code-review-synthesis",
                 "reviewer_count": reviewer_count,
             }
+            # Add compression metrics if available
+            compression_metrics = getattr(self, "_compression_metrics", None)
+            if compression_metrics:
+                custom.update(compression_metrics)
             if record.custom is not None:
                 custom = {**record.custom, **custom}
             record = record.model_copy(update={"custom": custom})

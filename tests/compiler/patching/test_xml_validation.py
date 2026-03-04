@@ -83,6 +83,21 @@ class TestValidateInstructionsXml:
         """)
         assert _validate_instructions_xml(content) is None
 
+    def test_markdown_with_html_comment_returns_none(self) -> None:
+        """Markdown content with HTML comments should not cause validation failure."""
+        content = textwrap.dedent("""\
+            <instructions-xml>
+            <!-- This is an HTML comment -->
+            # Step 1: Do something
+
+            - Check this
+            - Check that
+
+            <!-- Another comment -->
+            </instructions-xml>
+        """)
+        assert _validate_instructions_xml(content) is None
+
     def test_xml_with_entities_valid(self) -> None:
         """XML with proper entities (&lt;, &amp;) should pass validation."""
         content = textwrap.dedent("""\

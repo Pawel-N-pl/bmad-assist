@@ -33,12 +33,14 @@ def _get_full_schema() -> dict[str, Any]:
 def _build_full_schema(
     model: type,
     prefix: str = "",
+    _seen: set[type] | None = None,
 ) -> dict[str, Any]:
     """Build full schema from Pydantic model including all security levels.
 
     Args:
         model: Pydantic model class.
         prefix: Path prefix for nested fields.
+        _seen: Already-visited model classes (prevents infinite recursion on self-referencing models).
 
     Returns:
         Schema dict with security metadata for all fields.
@@ -48,11 +50,18 @@ def _build_full_schema(
 
     from pydantic import BaseModel
 
+    if _seen is None:
+        _seen = set()
+
     result: dict[str, Any] = {}
 
     # Get model_fields from Pydantic model
     if not hasattr(model, "model_fields"):
         return result
+
+    if model in _seen:
+        return result
+    _seen.add(model)
 
     for field_name, field_info in model.model_fields.items():
         annotation = field_info.annotation
@@ -84,7 +93,7 @@ def _build_full_schema(
 
         # Check if field is a nested BaseModel
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            nested = _build_full_schema(annotation, f"{prefix}{field_name}.")
+            nested = _build_full_schema(annotation, f"{prefix}{field_name}.", _seen)
             if is_list_of_models:
                 result[field_name] = {
                     "type": "array",

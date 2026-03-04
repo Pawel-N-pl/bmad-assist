@@ -77,6 +77,48 @@ class TestTimeoutsConfig:
         assert tc.get_timeout("retrospective") == 1800
 
 
+    def test_testarch_phases_can_be_configured(self) -> None:
+        """All 8 TEA timeout fields can be set and read from TimeoutsConfig."""
+        # Test defaults are None
+        tc_default = TimeoutsConfig()
+        assert tc_default.atdd is None
+        assert tc_default.test_review is None
+        assert tc_default.tea_test_design is None
+        assert tc_default.tea_framework is None
+        assert tc_default.tea_automate is None
+        assert tc_default.tea_ci is None
+        assert tc_default.tea_nfr_assess is None
+        assert tc_default.trace is None
+
+        # Test each field can be set to a valid value
+        tc = TimeoutsConfig(
+            atdd=600,
+            test_review=600,
+            tea_test_design=600,
+            tea_framework=600,
+            tea_automate=600,
+            tea_ci=600,
+            tea_nfr_assess=600,
+            trace=600,
+        )
+        assert tc.get_timeout("atdd") == 600
+        assert tc.get_timeout("test_review") == 600
+        assert tc.get_timeout("tea_test_design") == 600
+        assert tc.get_timeout("tea_framework") == 600
+        assert tc.get_timeout("tea_automate") == 600
+        assert tc.get_timeout("tea_ci") == 600
+        assert tc.get_timeout("tea_nfr_assess") == 600
+        assert tc.get_timeout("trace") == 600
+
+        # Test values < 60 are rejected (ge=60 constraint)
+        for field_name in [
+            "atdd", "test_review", "tea_test_design", "tea_framework",
+            "tea_automate", "tea_ci", "tea_nfr_assess", "trace",
+        ]:
+            with pytest.raises(ValueError):
+                TimeoutsConfig(**{field_name: 30})
+
+
 class TestGetPhaseTimeout:
     """Tests for get_phase_timeout helper function."""
 

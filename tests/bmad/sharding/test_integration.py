@@ -225,6 +225,7 @@ title: Single File Epic
 """)
         sharded_dir = tmp_path / "epics"
         sharded_dir.mkdir()
+        (sharded_dir / "index.md").write_text("# Epics Index\n")
         (sharded_dir / "epic-99-sharded.md").write_text("""---
 epic_num: 99
 title: Sharded Epic

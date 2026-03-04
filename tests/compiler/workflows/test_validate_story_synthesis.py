@@ -1687,3 +1687,221 @@ class TestDeepVerifyFindingsInSynthesis:
 
         # DV findings should NOT be in context
         assert "[Deep Verify Findings]" not in result.context
+
+
+class TestSkipSourceFiles:
+    """Tests for skip_source_files flag (Step 0 source file trimming)."""
+
+    def test_skip_source_files_excludes_source_files(
+        self,
+        tmp_project: Path,
+        two_validations: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=True, no source file content in context."""
+        from bmad_assist.compiler.workflows.validate_story_synthesis import (
+            ValidateStorySynthesisCompiler,
+        )
+
+        # Mock source context to return known content when called
+        mock_source_files = {
+            str(tmp_project / "src" / "widget.py"): 'class Widget:\n    pass\n',
+        }
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=11,
+            story_num=1,
+            validations=two_validations,
+            skip_source_files=True,
+        )
+        compiler = ValidateStorySynthesisCompiler()
+
+        with patch(
+            "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+            return_value=mock_source_files,
+        ) as mock_collect:
+            result = compiler.compile(context)
+
+        # Source context service should NOT have been called
+        mock_collect.assert_not_called()
+
+        # The mock source file content should NOT appear in output
+        assert "widget.py" not in result.context
+
+    def test_skip_source_files_false_includes_source_files(
+        self,
+        tmp_project: Path,
+        two_validations: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=False, source files are included as normal."""
+        from bmad_assist.compiler.workflows.validate_story_synthesis import (
+            ValidateStorySynthesisCompiler,
+        )
+
+        # Create a story with a File List so source context has candidates
+        story_with_files = """# Story 11.1: Test Story
+
+Status: ready-for-dev
+
+## Story
+
+As a developer, I want a test story.
+
+## File List
+
+- src/widget.py
+
+## Acceptance Criteria
+
+1. AC1: Basic functionality works
+"""
+        story_file = tmp_project / "docs" / "sprint-artifacts" / "11-1-test-story.md"
+        story_file.write_text(story_with_files)
+
+        # Create the source file on disk
+        src_dir = tmp_project / "src"
+        src_dir.mkdir(exist_ok=True)
+        (src_dir / "widget.py").write_text("class Widget:\n    pass\n")
+
+        mock_source_files = {
+            str(tmp_project / "src" / "widget.py"): "class Widget:\n    pass\n",
+        }
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=11,
+            story_num=1,
+            validations=two_validations,
+            skip_source_files=False,
+        )
+        compiler = ValidateStorySynthesisCompiler()
+
+        with patch(
+            "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+            return_value=mock_source_files,
+        ) as mock_collect:
+            result = compiler.compile(context)
+
+        # Source context service SHOULD have been called
+        mock_collect.assert_called_once()
+
+        # Source file content should be in the compiled output
+        assert "widget.py" in result.context
+
+    def test_skip_source_files_not_in_vars_includes_source_files(
+        self,
+        tmp_project: Path,
+        two_validations: list[AnonymizedValidation],
+    ) -> None:
+        """Without skip_source_files key at all, source files included (backward compat)."""
+        from bmad_assist.compiler.workflows.validate_story_synthesis import (
+            ValidateStorySynthesisCompiler,
+        )
+
+        # Create a story with a File List
+        story_with_files = """# Story 11.1: Test Story
+
+Status: ready-for-dev
+
+## Story
+
+As a developer, I want a test story.
+
+## File List
+
+- src/widget.py
+
+## Acceptance Criteria
+
+1. AC1: Basic functionality works
+"""
+        story_file = tmp_project / "docs" / "sprint-artifacts" / "11-1-test-story.md"
+        story_file.write_text(story_with_files)
+
+        # Create the source file on disk
+        src_dir = tmp_project / "src"
+        src_dir.mkdir(exist_ok=True)
+        (src_dir / "widget.py").write_text("class Widget:\n    pass\n")
+
+        mock_source_files = {
+            str(tmp_project / "src" / "widget.py"): "class Widget:\n    pass\n",
+        }
+
+        # Do NOT pass skip_source_files at all
+        context = create_test_context(
+            tmp_project,
+            epic_num=11,
+            story_num=1,
+            validations=two_validations,
+        )
+        compiler = ValidateStorySynthesisCompiler()
+
+        with patch(
+            "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+            return_value=mock_source_files,
+        ) as mock_collect:
+            result = compiler.compile(context)
+
+        # Source context service SHOULD have been called (default behavior)
+        mock_collect.assert_called_once()
+
+        # Source file content should be in the compiled output
+        assert "widget.py" in result.context
+
+    def test_skip_source_files_preserves_dv_findings(
+        self,
+        tmp_project: Path,
+        two_validations: list[AnonymizedValidation],
+    ) -> None:
+        """With skip_source_files=True, Deep Verify findings are still present."""
+        from bmad_assist.compiler.workflows.validate_story_synthesis import (
+            ValidateStorySynthesisCompiler,
+        )
+
+        dv_data = {
+            "verdict": "REJECT",
+            "score": 42.5,
+            "findings": [
+                {
+                    "id": "F1",
+                    "severity": "high",
+                    "title": "Missing error handling",
+                    "description": "Bad code missing error handling",
+                    "method_id": "pattern_match",
+                    "domain": "quality",
+                    "evidence": [
+                        {"quote": "bad code", "line_number": 42, "confidence": 0.9}
+                    ],
+                }
+            ],
+            "domains_detected": [
+                {"domain": "quality", "confidence": 0.9}
+            ],
+            "methods_executed": ["pattern_match"],
+            "duration_ms": 150,
+        }
+
+        context = create_test_context(
+            tmp_project,
+            epic_num=11,
+            story_num=1,
+            validations=two_validations,
+            skip_source_files=True,
+        )
+        context.resolved_variables["deep_verify_findings"] = dv_data
+
+        compiler = ValidateStorySynthesisCompiler()
+
+        with patch(
+            "bmad_assist.compiler.source_context.SourceContextService.collect_files",
+            return_value={},
+        ) as mock_collect:
+            result = compiler.compile(context)
+
+        # Source context should NOT have been called
+        mock_collect.assert_not_called()
+
+        # DV findings should still be present in context
+        assert "[Deep Verify Findings]" in result.context
+        assert "REJECT" in result.context
+        assert "Missing error handling" in result.context

@@ -59,6 +59,27 @@ providers:
 | `model` | Yes | Model name passed to CLI |
 | `model_name` | No | Display name in logs/benchmarks |
 | `settings` | No | Path to settings file (claude-subprocess) |
+| `fallbacks` | No | List of fallback provider configs (see below) |
+
+### Provider Fallback Chains
+
+Configure automatic failover when a provider fails (e.g., quota exhausted, API error):
+
+```yaml
+providers:
+  master:
+    provider: claude-subprocess
+    model: opus
+    fallbacks:
+      - provider: gemini
+        model: gemini-2.5-pro
+      - provider: opencode-sdk
+        model: xai/grok-4
+```
+
+When the primary provider fails, bmad-assist tries each fallback in order. Fallback chains can be nested — each fallback entry supports the same options as a regular provider config, including its own `fallbacks`.
+
+Fallbacks work transparently across all phases (single-LLM, multi-LLM, synthesis). No changes needed in workflow configuration.
 
 ## Per-Phase Model Configuration
 
@@ -130,6 +151,7 @@ Per-phase timeout configuration (in seconds):
 ```yaml
 timeouts:
   default: 600              # Fallback for phases not listed
+  retries: 2                # Retry count (None=no retry, 0=infinite, N=specific)
   create_story: 900
   validate_story: 600
   validate_story_synthesis: 300
@@ -137,6 +159,15 @@ timeouts:
   code_review: 900
   code_review_synthesis: 300
   retrospective: 900
+  # TEA phase timeouts (all optional, fall back to 'default')
+  atdd: 600
+  test_review: 600
+  tea_test_design: 600
+  tea_framework: 600
+  tea_automate: 600
+  tea_ci: 600
+  tea_nfr_assess: 600
+  trace: 600
 ```
 
 ## External Paths
@@ -274,7 +305,39 @@ loop:
     - code_review_synthesis
   epic_teardown:              # After last story
     - retrospective
+
+  # Code review rework loop (optional)
+  code_review_rework: true    # Re-run dev_story when review verdict is negative
+  max_rework_attempts: 2      # Max dev→review→fix cycles before moving on
 ```
+
+### Code Review Rework Loop
+
+When `code_review_rework: true`, the runner checks the code review synthesis verdict. If the verdict is negative (issues found), it automatically loops back to `dev_story` for fixes, then re-runs code review. The cycle repeats up to `max_rework_attempts` times.
+
+```
+dev_story → code_review → code_review_synthesis
+    ↑                            │
+    └── (verdict negative) ──────┘
+```
+
+## ToolCallGuard
+
+Safety watchdog that detects runaway LLM tool usage patterns and terminates invocations before they waste tokens:
+
+```yaml
+tool_call_guard:
+  enabled: true
+  rapid_fire_window: 8        # Seconds window for rapid-fire detection
+  rapid_fire_threshold: 25    # Max tool calls in window
+  repeating_threshold: 6      # Max identical consecutive tool calls
+  runaway_threshold: 200      # Max total tool calls per invocation
+```
+
+Three detection mechanisms:
+- **Rapid-fire** — Too many tool calls in a short window (stuck in a loop)
+- **Repeating** — Same tool called repeatedly with identical arguments
+- **Runaway** — Total tool calls exceed reasonable limit
 
 ## Warnings
 
