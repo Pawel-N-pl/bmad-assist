@@ -467,6 +467,37 @@ Details about the low issue.
         assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
         assert any("bold-severity" in w for w in report.parse_warnings)
 
+    def test_parse_bold_severity_line_value_inside_bold(self) -> None:
+        """Test parsing '**Severity: HIGH**' where value is inside bold markers."""
+        content = _PAD + """
+## Findings
+
+### 1. Missing CLI Subcommands
+
+**Severity: HIGH**
+**File:** `main.rs`
+
+### 2. Missing Draft Implementation
+
+**Severity: HIGH**
+
+### 3. Missing Concurrent Fetching
+
+**Severity: MEDIUM**
+
+### 4. Fragile Error Mapping
+
+**Severity: LOW**
+"""
+        report = parse_evidence_findings(content, "Validator Inside-Bold")
+        assert report is not None
+        assert len(report.findings) == 4
+        assert report.findings[0].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[1].severity == Severity.CRITICAL  # HIGH → CRITICAL
+        assert report.findings[2].severity == Severity.IMPORTANT  # MEDIUM → IMPORTANT
+        assert report.findings[3].severity == Severity.MINOR  # LOW → MINOR
+        assert any("bold-severity" in w for w in report.parse_warnings)
+
     def test_parse_section_header_numbered_prefix(self) -> None:
         """Test parsing '### 1. HIGH: Description' format (bare numbered prefix)."""
         content = _PAD + """

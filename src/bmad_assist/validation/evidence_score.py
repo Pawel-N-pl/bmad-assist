@@ -403,7 +403,7 @@ _BOLD_LIST_SEVERITY_PATTERN = re.compile(
 # Fallback: severity on a separate bold line below a section header
 # Matches: **Severity:** HIGH  or  **Severity:** CRITICAL
 _BOLD_SEVERITY_LINE_PATTERN = re.compile(
-    r"\*{1,2}Severity:?\*{1,2}\s*(" + _ALL_SEVERITY_LABELS + r")\b",
+    r"\*{1,2}Severity:?\s*\*{0,2}\s*(" + _ALL_SEVERITY_LABELS + r")\b",
     re.IGNORECASE,
 )
 
