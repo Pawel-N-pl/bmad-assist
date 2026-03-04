@@ -992,3 +992,214 @@ class TestRenderGroupedFindings:
         assert "## Findings (" not in result
         # Has original-style headers
         assert "### [CRITICAL] F1:" in result
+
+
+class TestSourceFileDocType:
+    """Tests for _source_file_doc_type() helper."""
+
+    def test_starts_with_src_prefix(self) -> None:
+        """Result always starts with 'src-'."""
+        from bmad_assist.compiler.shared_utils import _source_file_doc_type
+
+        result = _source_file_doc_type("/some/path/config.rs")
+        assert result.startswith("src-")
+
+    def test_deterministic(self) -> None:
+        """Same path produces the same doc_type."""
+        from bmad_assist.compiler.shared_utils import _source_file_doc_type
+
+        path = "/home/user/project/src/main.rs"
+        assert _source_file_doc_type(path) == _source_file_doc_type(path)
+
+    def test_unique_for_different_paths(self) -> None:
+        """Different paths produce different doc_types."""
+        from bmad_assist.compiler.shared_utils import _source_file_doc_type
+
+        a = _source_file_doc_type("/project/src/lib.rs")
+        b = _source_file_doc_type("/project/src/main.rs")
+        assert a != b
+
+    def test_length_is_fixed(self) -> None:
+        """Hash portion is always 12 hex chars → total 'src-' + 12 = 16."""
+        from bmad_assist.compiler.shared_utils import _source_file_doc_type
+
+        result = _source_file_doc_type("/a/very/long/path/to/some/file.py")
+        assert len(result) == 16  # "src-" (4) + hash[:12] (12)
+
+    def test_filesystem_safe(self) -> None:
+        """No slashes, spaces, or special chars that would break filenames."""
+        from bmad_assist.compiler.shared_utils import _source_file_doc_type
+
+        result = _source_file_doc_type("/path with spaces/src/file (1).rs")
+        assert "/" not in result
+        assert " " not in result
+        assert "(" not in result
+
+
+class TestLimitSynthesisSourceFilesCaching:
+    """Tests for limit_synthesis_source_files() with project_root caching."""
+
+    def _make_source_files(self, count: int, chars_per_file: int = 4000) -> dict[str, str]:
+        """Create source files dict that will exceed max_files threshold."""
+        return {
+            f"/project/src/file_{i}.rs": f"// file {i}\n" + "x" * chars_per_file
+            for i in range(count)
+        }
+
+    @patch("bmad_assist.compiler.strategic_context._compress_or_truncate")
+    @patch("bmad_assist.core.config.loaders.get_config")
+    def test_project_root_passed_to_compress_or_truncate(
+        self, mock_get_config, mock_compress, tmp_path: Path,
+    ) -> None:
+        """When project_root is provided, it is forwarded to _compress_or_truncate."""
+        from bmad_assist.compiler.shared_utils import limit_synthesis_source_files
+
+        config = MagicMock()
+        config.compiler.prompt_compression.compression_ratio = 0.5
+        mock_get_config.return_value = config
+
+        # Return compressed content small enough to fit budget
+        mock_compress.return_value = ("compressed", 100)
+
+        source_files = self._make_source_files(5, chars_per_file=4000)
+        # Budget smaller than total (~5000 tokens) to trigger compression
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow", project_root=tmp_path,
+        )
+
+        # Each call should have received project_root as 4th arg
+        for call in mock_compress.call_args_list:
+            args = call[0]
+            assert args[3] == tmp_path  # project_root
+
+    @patch("bmad_assist.compiler.strategic_context._compress_or_truncate")
+    @patch("bmad_assist.core.config.loaders.get_config")
+    def test_no_project_root_passes_none(
+        self, mock_get_config, mock_compress,
+    ) -> None:
+        """Without project_root, None is forwarded (caching disabled)."""
+        from bmad_assist.compiler.shared_utils import limit_synthesis_source_files
+
+        config = MagicMock()
+        config.compiler.prompt_compression.compression_ratio = 0.5
+        mock_get_config.return_value = config
+
+        mock_compress.return_value = ("compressed", 100)
+
+        source_files = self._make_source_files(5, chars_per_file=4000)
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow",
+        )
+
+        for call in mock_compress.call_args_list:
+            args = call[0]
+            assert args[3] is None  # project_root default
+
+    @patch("bmad_assist.compiler.strategic_context._compress_or_truncate")
+    @patch("bmad_assist.core.config.loaders.get_config")
+    def test_doc_type_uses_source_file_hash(
+        self, mock_get_config, mock_compress,
+    ) -> None:
+        """doc_type passed to _compress_or_truncate is src-{hash}, not raw path."""
+        from bmad_assist.compiler.shared_utils import (
+            _source_file_doc_type,
+            limit_synthesis_source_files,
+        )
+
+        config = MagicMock()
+        config.compiler.prompt_compression.compression_ratio = 0.5
+        mock_get_config.return_value = config
+
+        mock_compress.return_value = ("compressed", 100)
+
+        source_files = self._make_source_files(5, chars_per_file=4000)
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow",
+        )
+
+        for call in mock_compress.call_args_list:
+            doc_type = call[0][2]  # 3rd positional arg
+            assert doc_type.startswith("src-")
+            assert "/" not in doc_type
+
+        # Verify doc_types match _source_file_doc_type for each path
+        called_doc_types = [call[0][2] for call in mock_compress.call_args_list]
+        expected_doc_types = [_source_file_doc_type(p) for p in source_files]
+        assert sorted(called_doc_types) == sorted(expected_doc_types)
+
+    @patch("bmad_assist.providers.get_provider")
+    @patch("bmad_assist.core.config.loaders.get_config")
+    def test_cache_files_created_on_disk(
+        self, mock_get_config, mock_get_provider, tmp_path: Path,
+    ) -> None:
+        """Compressed results are cached to disk when project_root is set."""
+        from bmad_assist.compiler.shared_utils import limit_synthesis_source_files
+
+        config = MagicMock()
+        config.compiler.prompt_compression.enabled = True
+        config.compiler.prompt_compression.compression_ratio = 0.5
+        config.compiler.prompt_compression.timeout = 120
+        config.providers.helper.provider = "claude"
+        config.providers.helper.model = "haiku"
+        mock_get_config.return_value = config
+
+        provider = MagicMock()
+        result_mock = MagicMock()
+        result_mock.exit_code = 0
+        result_mock.stdout = "# Compressed"
+        result_mock.stderr = ""
+        provider.invoke.return_value = result_mock
+        mock_get_provider.return_value = provider
+
+        source_files = self._make_source_files(5, chars_per_file=4000)
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow", project_root=tmp_path,
+        )
+
+        cache_dir = tmp_path / ".bmad-assist" / "cache" / "compressed"
+        assert cache_dir.exists()
+
+        # Should have cache files for each source file
+        md_files = list(cache_dir.glob("src-*.md"))
+        meta_files = list(cache_dir.glob("src-*.meta.yaml"))
+        assert len(md_files) == 5
+        assert len(meta_files) == 5
+
+    @patch("bmad_assist.providers.get_provider")
+    @patch("bmad_assist.core.config.loaders.get_config")
+    def test_cached_results_reused_on_second_call(
+        self, mock_get_config, mock_get_provider, tmp_path: Path,
+    ) -> None:
+        """Second call with same content uses cache, skips LLM."""
+        from bmad_assist.compiler.shared_utils import limit_synthesis_source_files
+
+        config = MagicMock()
+        config.compiler.prompt_compression.enabled = True
+        config.compiler.prompt_compression.compression_ratio = 0.5
+        config.compiler.prompt_compression.timeout = 120
+        config.providers.helper.provider = "claude"
+        config.providers.helper.model = "haiku"
+        mock_get_config.return_value = config
+
+        provider = MagicMock()
+        result_mock = MagicMock()
+        result_mock.exit_code = 0
+        result_mock.stdout = "# Compressed"
+        result_mock.stderr = ""
+        provider.invoke.return_value = result_mock
+        mock_get_provider.return_value = provider
+
+        source_files = self._make_source_files(5, chars_per_file=4000)
+
+        # First call — LLM invoked
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow", project_root=tmp_path,
+        )
+        first_call_count = provider.invoke.call_count
+        assert first_call_count == 5  # one per file
+
+        # Second call — same content, should use cache
+        limit_synthesis_source_files(
+            source_files, 3, 2000, "test_workflow", project_root=tmp_path,
+        )
+        assert provider.invoke.call_count == first_call_count  # no new calls

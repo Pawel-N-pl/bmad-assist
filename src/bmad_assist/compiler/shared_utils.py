@@ -206,11 +206,23 @@ def estimate_tokens(content: str) -> int:
     return len(content) // 4
 
 
+def _source_file_doc_type(path: str) -> str:
+    """Derive a cache-safe doc_type from a source file path.
+
+    Uses ``src-{hash[:12]}`` to keep filenames short and filesystem-safe
+    while remaining unique per source-file path.
+    """
+    import hashlib
+
+    return "src-" + hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
+
+
 def limit_synthesis_source_files(
     source_files: dict[str, str],
     max_files: int,
     token_budget: int,
     workflow_name: str,
+    project_root: Path | None = None,
 ) -> dict[str, str]:
     """Limit synthesis source files using a compress-first strategy.
 
@@ -224,6 +236,7 @@ def limit_synthesis_source_files(
         max_files: Hard cap on number of files (fallback).
         token_budget: Token budget from SourceContextService.
         workflow_name: Workflow name for logging.
+        project_root: Project root for disk caching of compressed results.
 
     Returns:
         Possibly compressed or sliced source_files dict.
@@ -257,7 +270,10 @@ def limit_synthesis_source_files(
         for path, content in source_files.items():
             file_tokens = estimate_tokens(content)
             target = int(file_tokens * compression_ratio)
-            comp_content, actual = _compress_or_truncate(content, target, path)
+            doc_type = _source_file_doc_type(path)
+            comp_content, actual = _compress_or_truncate(
+                content, target, doc_type, project_root,
+            )
             compressed[path] = comp_content
             compressed_total += actual
 

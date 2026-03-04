@@ -295,7 +295,8 @@ class ValidateStorySynthesisCompiler:
                 source_files = service.collect_files(file_list_paths, None)
 
                 source_files = limit_synthesis_source_files(
-                    source_files, 3, service.budget, "validate_story_synthesis"
+                    source_files, 3, service.budget, "validate_story_synthesis",
+                    project_root=project_root,
                 )
 
                 files.update(source_files)

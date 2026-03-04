@@ -354,7 +354,8 @@ class CodeReviewSynthesisCompiler:
         source_files = service.collect_files(file_list_paths, git_diff_files)
 
         source_files = limit_synthesis_source_files(
-            source_files, 3, service.budget, "code_review_synthesis"
+            source_files, 3, service.budget, "code_review_synthesis",
+            project_root=project_root,
         )
 
         files.update(source_files)
