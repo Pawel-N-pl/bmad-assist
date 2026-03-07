@@ -71,7 +71,7 @@ class SecurityAgentConfig(BaseModel):
     """Configuration for the Security Review Agent.
 
     This configuration controls:
-    - Master enable/disable switch (enabled by default)
+    - Master enable/disable switch (disabled by default, opt-in)
     - Provider override (falls back to master when None)
     - Language override for tech-stack detection
     - Finding cap for synthesis prompt
@@ -80,7 +80,7 @@ class SecurityAgentConfig(BaseModel):
     This avoids the "None = enabled" confusion from DeepVerifyConfig.
 
     Attributes:
-        enabled: Master enable/disable switch (True by default).
+        enabled: Master enable/disable switch (False by default, opt-in).
         provider_config: Provider override. None means use master provider.
         languages: Override auto-detection with explicit language list.
         max_findings: Maximum findings to include in synthesis prompt.
@@ -88,7 +88,7 @@ class SecurityAgentConfig(BaseModel):
     Example:
         >>> config = SecurityAgentConfig()
         >>> config.enabled
-        True
+        False
         >>> config.provider_config is None
         True
 
@@ -97,8 +97,8 @@ class SecurityAgentConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     enabled: bool = Field(
-        default=True,
-        description="Master enable/disable switch for Security Agent",
+        default=False,
+        description="Master enable/disable switch for Security Agent (opt-in)",
     )
     provider_config: SecurityAgentProviderConfig | None = Field(
         default=None,

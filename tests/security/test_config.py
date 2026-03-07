@@ -165,9 +165,9 @@ class TestSecurityAgentConfigDefaults:
     """Test SecurityAgentConfig default values."""
 
     def test_default_enabled(self) -> None:
-        """Test enabled defaults to True."""
+        """Test enabled defaults to False (opt-in)."""
         config = SecurityAgentConfig()
-        assert config.enabled is True
+        assert config.enabled is False
 
     def test_default_provider_config(self) -> None:
         """Test provider_config defaults to None."""

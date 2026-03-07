@@ -56,6 +56,7 @@ def mock_config() -> Config:
             ],
         ),
         timeout=300,
+        parallel_delay=0.0,
         benchmarking=BenchmarkingConfig(enabled=True),
         workflow_variant="default",
     )
@@ -328,6 +329,7 @@ class TestRunCodeReviewPhaseInsufficientReviewers:
                 multi=[],  # No multi providers
             ),
             timeout=300,
+            parallel_delay=0.0,
             benchmarking=BenchmarkingConfig(enabled=False),
         )
 

@@ -4,8 +4,8 @@
 
 project_name: project-name
 user_name: Tester
-communication_language: English          # English recommended (fewest tokens, best reasoning quality)
-document_output_language: English      # non-English may degrade smaller/local models
+communication_language: English
+document_output_language: English
 user_skill_level: expert              # expert to minimize LLM verbosity
 
 # External paths (optional) - store docs/artifacts outside project root
@@ -13,31 +13,18 @@ user_skill_level: expert              # expert to minimize LLM verbosity
 #   project_knowledge: /shared/docs/my-project    # PRD, architecture, epics
 #   output_folder: /data/bmad-output/my-project   # generated artifacts
 
-# Enable Claude Code agent teams in spawned processes (default: false)
-# When true, Claude can create teammate sub-agents for parallel work.
-# Each teammate is a separate process at ~100% CPU - use with caution.
-# agent_teams: true
-
 # Per-phase timeout configuration (seconds), for larger projects increase timeouts
 timeouts:
-  retries: 2                    # 2 retries (None=no retry, 0=infinite, N=count)
-  default: 600                  # 10 m
-  validate_story_synthesis: 900 # 15 m
-  dev_story: 3600               # 1 h
-  code_review_synthesis: 1200   # 20 m
-  qa_plan_generate: 1200        # 20 m
-  qa_plan_execute: 3600         # 1 h (Playwright!)
-  qa_remediate: 3600            # 1 h (LLM fixes + re-test)
-  # TEA phase timeouts (optional, fall back to 'default')
-  # atdd: 600
-  # test_review: 600
-  # tea_test_design: 600
-  # tea_framework: 600
-  # tea_automate: 600
-  # tea_ci: 600
-  # tea_nfr_assess: 600
-  # trace: 600
-
+  default: 600                  # 10m
+  retries: 2                    # 2 retries
+  create_story: 900             # 15m
+  validate_story_synthesis: 900 # 15m
+  dev_story: 3600               # 1h
+  code_review_synthesis: 1200   # 20m
+  qa_plan_generate: 1200        # 20m
+  qa_plan_execute: 3600         # 1h (Playwright!)
+  qa_remediate: 3600            # 1h (LLM fixes + re-test)
+  
 providers:
   # Default provider used for single-LLM phases when no phase_models specified
   master:
@@ -45,12 +32,6 @@ providers:
     model: opus
     # model_name: glm-4.7
     # settings: ~/.claude/glm.json
-    # Automatic failover when primary provider fails (quota, API error)
-    # fallbacks:
-    #   - provider: gemini
-    #     model: gemini-2.5-pro
-    #   - provider: opencode-sdk
-    #     model: xai/grok-4
 
   # Helper model for simple and fast tasks
   helper:
@@ -78,13 +59,13 @@ providers:
 
     # Claude subprocess providers
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+      model: opud
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+      model: opud
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
 
     # OpenCode providers (NEW)
     # - provider: opencode
@@ -127,9 +108,9 @@ phase_models:
     model: opus
   validate_story_synthesis:
     provider: claude
-    model: sonnet
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    model: claude-sonnet-4-6
+    # model_name: glm-5
+    # settings: ~/.claude/glm5.json
   dev_story:
     provider: claude
     model: opus
@@ -138,9 +119,9 @@ phase_models:
     model: opus
   retrospective:
     provider: claude
-    model: sonnet
-    model_name: glm-4.7
-    settings: ~/.claude/glm.json
+    model: opus
+    model_name: glm-5
+    settings: ~/.claude/glm5.json
 
   # Multi-LLM phases - array format
   # When phase_models defines a multi-LLM phase, ONLY the listed providers are used.
@@ -156,24 +137,22 @@ phase_models:
       model: gemini-2.5-flash-lite
     # - provider: gemini
     #   model: gemini-2.5-flash-lite
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
       thinking: true
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+      model: opus
+      model_name: MiniMax-M2.5
+      settings: ~/.claude/minimax.json
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
+      model: opus
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
+    - provider: claude
+      model: claude-sonnet-4-6
+    - provider: codex
+      model: gpt-5.3-codex
+      reasoning_effort: high
 
   # Same for code_review - full control over reviewer list
   code_review:
@@ -187,25 +166,22 @@ phase_models:
       model: gemini-2.5-flash-lite
     # - provider: gemini
     #   model: gemini-2.5-flash-lite
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
-    # - provider: kimi
-    #   model: kimi-code/kimi-for-coding
-    #   thinking: true
+    - provider: kimi
+      model: kimi-code/kimi-for-coding
+      thinking: true
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
+      model: opus
+      model_name: MiniMax-M2.5
+      settings: ~/.claude/minimax.json
     - provider: claude
-      model: sonnet
-      model_name: glm-4.7
-      settings: ~/.claude/glm.json
-    # - provider: claude
-    #   model: sonnet
-    #   model_name: glm-4.7
-    #   settings: ~/.claude/glm.json
-
+      model: opus
+      model_name: glm-5
+      settings: ~/.claude/glm5.json
+    - provider: claude
+      model: claude-sonnet-4-6
+    - provider: codex
+      model: gpt-5.3-codex
+      reasoning_effort: high
 
 # Compiler configuration
 compiler:
@@ -215,13 +191,13 @@ compiler:
   source_context:
     # Per-workflow token budgets (0-99 = disabled)
     budgets:
-      create_story: 60000
-      validate_story: 15000
-      validate_story_synthesis: 15000
-      dev_story: 15000
-      code_review: 30000
-      code_review_synthesis: 30000
-      default: 30000             # Fallback for unlisted workflows
+      create_story: 20000
+      validate_story: 20000
+      validate_story_synthesis: 0
+      dev_story: 10000
+      code_review: 20000
+      code_review_synthesis: 0
+      default: 20000             # Fallback for unlisted workflows
 
     # File prioritization scoring weights
     scoring:
@@ -240,69 +216,51 @@ compiler:
       max_files: 15              # Hard cap on files (prevents budget dilution)
 
   # Strategic document loading for workflow prompts
-  # Controls which docs (PRD, Architecture, UX, project-context, project-tree) are included
+  # Controls which docs (PRD, Architecture, UX, project-context) are included
   strategic_context:
     budget: 15000                 # Total token cap for strategic docs (0 = disabled)
-    tree_budget: 5000            # Token budget for project tree generation (max = budget)
-
+    tree_budget: 0            # Total token cap for project tree (0 = disabled)
     # Default settings for all workflows
     defaults:
-      # Doc types to include (order matters):
-      # - project-context: AI rules and project patterns
-      # - architecture: System architecture and tech stack
-      # - prd: Product requirements document
-      # - ux: UX design and wireframes
-      # - project-tree: Directory structure with file modification times
-      include: [project-context, architecture]
+      include: [project-context] # Doc types to include (order matters)
       main_only: true            # For sharded docs: load only index.md
 
     # Per-workflow overrides (null fields inherit from defaults)
     create_story:
-      include: [project-context, architecture, ux, prd]
+      include: [project-context]
     validate_story:
-      include: [project-context, architecture, ux, prd]
+      include: [project-context]
     dev_story:
-      include: [project-context, architecture, ux, prd]
+      include: [project-context]
     code_review:
-      include: [project-context, architecture, ux]
+      include: [project-context]
 
 
 benchmarking:
-  enabled: false
-
-# ToolCallGuard - safety watchdog for runaway LLM tool usage
-# tool_call_guard:
-#   enabled: true
-#   rapid_fire_window: 8        # Seconds window for rapid-fire detection
-#   rapid_fire_threshold: 25    # Max tool calls in window
-#   repeating_threshold: 6      # Max identical consecutive tool calls
-#   runaway_threshold: 200      # Max total tool calls per invocation
+  enabled: true
 
 # Loop configuration - full TEA Enterprise integration
 loop:
-  # Code review rework loop - re-run dev_story when review verdict is negative
-  # code_review_rework: true
-  # max_rework_attempts: 2      # Max dev→review→fix cycles
   epic_setup:
-    - tea_framework           # Initialize Playwright/Cypress (once per epic)
-    - tea_ci                  # Scaffold CI pipeline
-    - tea_test_design         # Generate system/epic test design
+    # - tea_framework           # Initialize Playwright/Cypress (once per epic)
+    # - tea_ci                  # Scaffold CI pipeline
+    # - tea_test_design         # Generate system/epic test design
   story:
     - create_story
     - validate_story
     - validate_story_synthesis
-    - atdd                    # Generate ATDD checklist before implementation
+    # - atdd                    # Generate ATDD checklist before implementation
     - dev_story
     - code_review
     - code_review_synthesis
-    - test_review             # Review test quality after code review
+    # - test_review             # Review test quality after code review
   epic_teardown:
-   # - qa_plan_generate        # Generate E2E test plan
-   # - qa_plan_execute         # Execute E2E tests
-   # - qa_remediate            # Collect issues, auto-fix or escalate
-    - trace                   # Generate traceability matrix
-    - tea_nfr_assess          # NFR assessment before release
+    # - trace                   # Generate traceability matrix
+    # - tea_nfr_assess          # NFR assessment before release
     - retrospective
+    # - qa_plan_generate        # Generate E2E test plan
+    # - qa_plan_execute         # Execute E2E tests
+    # - qa_remediate            # Collect issues, auto-fix or escalate
 
 # TEA (Test Architect Enterprise) configuration
 testarch:
@@ -334,7 +292,7 @@ deep_verify:
   # If not specified, uses global 'helper' provider from providers section
   # Uncomment to override with a different provider for Deep Verify methods
   # provider:
-  #   provider: claude     # Provider name: claude, claude-sdk, gemini, kimi
+  #   provider: claude-subprocess     # Provider name: claude-subprocess, claude-sdk, gemini, kimi
   #   model: haiku                    # Model identifier for LLM calls
   #   # model_name: custom-name       # Display name (optional, for logs)
   #   # settings: ~/.claude/custom.json  # Settings file path (optional)
@@ -371,7 +329,7 @@ deep_verify:
 
   # Resource limits to prevent OOM and system instability
   resource_limits:
-    max_artifact_size_bytes: 102400   # 100KB max input size
+    max_artifact_size_bytes: 204800   # 200KB max input size
     max_line_count: 5000              # Max lines in artifact
     max_findings_per_method: 50       # Findings limit per method
     max_total_findings: 200           # Total findings limit
@@ -381,10 +339,10 @@ deep_verify:
   # Always-run methods (foundational)
   method_153_pattern_match:           # Regex pattern matching for vulnerabilities
     enabled: true
-    timeout_seconds: 60
+    timeout_seconds: 90
   method_154_boundary_analysis:       # Edge cases, off-by-one, null checks
     enabled: true
-    timeout_seconds: 60
+    timeout_seconds: 90
 
   # Conditional methods (run based on detected domains)
   method_155_assumption_surfacing:    # Hidden assumptions, race conditions (CONCURRENCY, API)
@@ -408,7 +366,7 @@ deep_verify:
 
 security_agent:
   enabled: false
-  max_findings: 15
+  max_findings: 20
 
 notifications:
   enabled: true

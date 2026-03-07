@@ -10,6 +10,8 @@ from bmad_assist.antipatterns.extractor import (
     BLOCK_ISSUE_PATTERN,
     BLOCK_START_PATTERN,
     CODE_ANTIPATTERNS_HEADER,
+    DISMISSED_ITEM_PATTERN,
+    DISMISSED_SECTION_PATTERN,
     ISSUE_WITH_FIX_PATTERN,
     ISSUES_SECTION_PATTERN,
     SEVERITY_HEADER_PATTERN,
@@ -702,3 +704,177 @@ class TestAppendToAntipatterns:
         # Directory should now exist
         assert antipatterns_dir.exists()
         assert antipatterns_dir.is_dir()
+
+
+class TestDismissedFindingsRegex:
+    """Tests for dismissed findings regex patterns (credit: @derron1 PR #39)."""
+
+    def test_dismissed_section_pattern_basic(self):
+        """Test extraction of Issues Dismissed section."""
+        content = """
+## Issues Verified (by severity)
+
+### Critical
+- **Issue**: Test | **Fix**: Done
+
+## Issues Dismissed
+- **Claimed Issue**: AC6 not end-to-end | **Raised by**: Validator A, B | **Dismissal Reason**: Deferred to Story 5.3
+
+## Changes Applied
+Some changes.
+"""
+        match = DISMISSED_SECTION_PATTERN.search(content)
+        assert match is not None
+        section = match.group(1)
+        assert "AC6 not end-to-end" in section
+        assert "Changes Applied" not in section
+
+    def test_dismissed_section_pattern_ends_at_eof(self):
+        """Test section extraction when at end of file."""
+        content = """
+## Issues Verified
+### High
+- **Issue**: Test | **Fix**: Done
+
+## Issues Dismissed
+- **Claimed Issue**: False positive | **Raised by**: Reviewer A | **Dismissal Reason**: Stale context
+"""
+        match = DISMISSED_SECTION_PATTERN.search(content)
+        assert match is not None
+        assert "False positive" in match.group(1)
+
+    def test_dismissed_item_pattern_single(self):
+        """Test matching a single dismissed item."""
+        text = "- **Claimed Issue**: AC6 not end-to-end | **Raised by**: Validator A (CRITICAL), Validator B (CRITICAL) | **Dismissal Reason**: Intentionally deferred to Story 5.3"
+        matches = list(DISMISSED_ITEM_PATTERN.finditer(text))
+        assert len(matches) == 1
+        assert "AC6 not end-to-end" in matches[0].group(1)
+        assert "Validator A" in matches[0].group(2)
+        assert "deferred to Story 5.3" in matches[0].group(3)
+
+    def test_dismissed_item_pattern_multiple(self):
+        """Test matching multiple dismissed items."""
+        text = """- **Claimed Issue**: AC6 not end-to-end | **Raised by**: Validator A, B | **Dismissal Reason**: Deferred to Story 5.3
+- **Claimed Issue**: P1-BOOK-012 sanitization | **Raised by**: Validator B | **Dismissal Reason**: False positive - stale context
+"""
+        matches = list(DISMISSED_ITEM_PATTERN.finditer(text))
+        assert len(matches) == 2
+        assert "AC6" in matches[0].group(1)
+        assert "P1-BOOK-012" in matches[1].group(1)
+
+
+class TestExtractDismissedFindings:
+    """Tests for dismissed findings extraction via extract_antipatterns (credit: @derron1 PR #39)."""
+
+    @pytest.fixture
+    def mock_config(self):
+        config = MagicMock()
+        config.antipatterns.enabled = True
+        return config
+
+    def test_dismissed_findings_extracted_as_antipatterns(self, mock_config):
+        """Test that dismissed findings from synthesis are extracted with severity='dismissed'."""
+        content = """
+## Issues Verified (by severity)
+
+### Critical
+- **Issue**: Real bug | **Source**: Reviewer A | **Fix**: Fixed it
+
+## Issues Dismissed
+- **Claimed Issue**: AC6 not end-to-end | **Raised by**: Validator A (CRITICAL), Validator B (CRITICAL) | **Dismissal Reason**: Intentionally deferred to Story 5.3
+- **Claimed Issue**: P1-BOOK-012 sanitization missing | **Raised by**: Validator B (HIGH) | **Dismissal Reason**: False positive - already fixed in commit abc123
+
+## Changes Applied
+Some changes.
+"""
+        issues = extract_antipatterns(content, epic_id=5, story_id="5-1", config=mock_config)
+
+        # 1 verified + 2 dismissed
+        assert len(issues) == 3
+
+        verified = [i for i in issues if i["severity"] != "dismissed"]
+        dismissed = [i for i in issues if i["severity"] == "dismissed"]
+
+        assert len(verified) == 1
+        assert len(dismissed) == 2
+
+        assert "AC6 not end-to-end" in dismissed[0]["issue"]
+        assert "FALSE POSITIVE:" in dismissed[0]["fix"]
+        assert "deferred to Story 5.3" in dismissed[0]["fix"]
+
+        assert "P1-BOOK-012" in dismissed[1]["issue"]
+        assert "FALSE POSITIVE:" in dismissed[1]["fix"]
+
+    def test_no_dismissed_section_only_verified(self, mock_config):
+        """Test that missing dismissed section doesn't break extraction."""
+        content = """
+## Issues Verified
+
+### High
+- **Issue**: Real bug | **Source**: A | **Fix**: Fixed
+"""
+        issues = extract_antipatterns(content, epic_id=5, story_id="5-1", config=mock_config)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "high"
+
+    def test_no_false_positives_message_skipped(self, mock_config):
+        """Test that 'no false positives' message doesn't produce dismissed items."""
+        content = """
+## Issues Verified
+
+### High
+- **Issue**: Real bug | **Source**: A | **Fix**: Fixed
+
+## Issues Dismissed
+No false positives identified.
+"""
+        issues = extract_antipatterns(content, epic_id=5, story_id="5-1", config=mock_config)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "high"
+
+    def test_dismissed_only_no_verified(self, mock_config):
+        """Test synthesis with only dismissed findings and no verified issues."""
+        content = """
+## Issues Dismissed
+- **Claimed Issue**: Not a real bug | **Raised by**: Reviewer A | **Dismissal Reason**: Design decision
+"""
+        issues = extract_antipatterns(content, epic_id=5, story_id="5-1", config=mock_config)
+        assert len(issues) == 1
+        assert issues[0]["severity"] == "dismissed"
+        assert "Not a real bug" in issues[0]["issue"]
+        assert "FALSE POSITIVE: Design decision" == issues[0]["fix"]
+
+    def test_dismissed_written_to_antipatterns_file(self, tmp_path, mock_config):
+        """Test that dismissed items end up in the antipatterns file via full pipeline."""
+        content = """
+## Issues Verified
+
+### Critical
+- **Issue**: Real bug | **Source**: A | **Fix**: Fixed it
+
+## Issues Dismissed
+- **Claimed Issue**: False positive thing | **Raised by**: Reviewer B | **Dismissal Reason**: Stale context
+"""
+        issues = extract_antipatterns(content, epic_id=5, story_id="5-1", config=mock_config)
+
+        impl_artifacts = tmp_path / "_bmad-output" / "implementation-artifacts"
+        impl_artifacts.mkdir(parents=True)
+
+        with patch("bmad_assist.antipatterns.extractor.get_paths") as mock_paths:
+            mock_paths.return_value.implementation_artifacts = impl_artifacts
+
+            append_to_antipatterns_file(
+                issues=issues,
+                epic_id=5,
+                story_id="5-1",
+                antipattern_type="code",
+                project_path=tmp_path,
+            )
+
+        ap_file = impl_artifacts / "antipatterns" / "epic-5-code-antipatterns.md"
+        assert ap_file.exists()
+        file_content = ap_file.read_text()
+        assert "dismissed" in file_content
+        assert "False positive thing" in file_content
+        assert "FALSE POSITIVE: Stale context" in file_content
+        assert "Real bug" in file_content

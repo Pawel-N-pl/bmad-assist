@@ -38,6 +38,18 @@ ISSUE_WITH_FIX_PATTERN = re.compile(
     r"^\s*(?:-|\d+\.)\s+\*\*([^|]+?)\s*\|.*?\*\*Fix\*\*:\s*(.+?)$", re.MULTILINE
 )
 
+# --- Dismissed findings format (from synthesis "Issues Dismissed" section) ---
+# Matches "## Issues Dismissed" section up to next ## header or end of content
+DISMISSED_SECTION_PATTERN = re.compile(
+    r"## Issues Dismissed\s*\n(.*?)(?=\n## |\Z)",
+    re.DOTALL,
+)
+# Matches: - **Claimed Issue**: desc | **Raised by**: reviewers | **Dismissal Reason**: reason
+DISMISSED_ITEM_PATTERN = re.compile(
+    r"-\s*\*\*Claimed Issue\*\*:\s*(.+?)\s*\|\s*\*\*Raised by\*\*:\s*(.+?)\s*\|\s*\*\*Dismissal Reason\*\*:\s*(.+?)(?=\n-\s*\*\*Claimed Issue\*\*|\Z)",
+    re.DOTALL,
+)
+
 # --- Multi-line block format patterns ---
 # Issue block start: numbered item or bold-numbered item
 # Matches: "1. **Title**" or "**1. Title**" or "- **Title**"
@@ -133,87 +145,110 @@ def extract_antipatterns(
         logger.debug("Empty synthesis content, skipping antipatterns extraction")
         return []
 
+    issues: list[dict[str, str]] = []
+
     # Find Issues Verified section
     section_match = ISSUES_SECTION_PATTERN.search(synthesis_content)
     if not section_match:
-        logger.debug("No 'Issues Verified' section found, skipping extraction")
-        return []
+        logger.debug("No 'Issues Verified' section found")
+    else:
+        section_content = section_match.group(0)
 
-    section_content = section_match.group(0)
-    issues: list[dict[str, str]] = []
+        # Split by severity headers and extract issues
+        current_severity = "unknown"
+        lines = section_content.split("\n")
 
-    # Split by severity headers and extract issues
-    current_severity = "unknown"
-    lines = section_content.split("\n")
+        # Track multi-line block state
+        current_block_issue: str | None = None
+        current_block_fix: str | None = None
 
-    # Track multi-line block state
-    current_block_issue: str | None = None
-    current_block_fix: str | None = None
+        def _flush_block() -> None:
+            """Flush accumulated block into issues list."""
+            nonlocal current_block_issue, current_block_fix
+            if current_block_issue and current_block_fix:
+                # Skip DEFERRED items
+                fix_upper = current_block_fix.upper()
+                if "DEFERRED" not in fix_upper or "APPLIED" in fix_upper:
+                    issues.append(
+                        {
+                            "severity": current_severity,
+                            "issue": _clean_issue_desc(current_block_issue),
+                            "fix": _clean_fix_desc(current_block_fix),
+                        }
+                    )
+            current_block_issue = None
+            current_block_fix = None
 
-    def _flush_block() -> None:
-        """Flush accumulated block into issues list."""
-        nonlocal current_block_issue, current_block_fix
-        if current_block_issue and current_block_fix:
-            # Skip DEFERRED items
-            fix_upper = current_block_fix.upper()
-            if "DEFERRED" not in fix_upper or "APPLIED" in fix_upper:
+        for line in lines:
+            # Check for severity header
+            header_match = SEVERITY_HEADER_PATTERN.match(line)
+            if header_match:
+                _flush_block()
+                current_severity = header_match.group(1).lower()
+                continue
+
+            # --- Legacy single-line pipe-delimited format ---
+            issue_match = ISSUE_WITH_FIX_PATTERN.match(line)
+            if issue_match:
+                _flush_block()
+                issue_desc = issue_match.group(1).strip()
+                fix_desc = issue_match.group(2).strip()
                 issues.append(
                     {
                         "severity": current_severity,
-                        "issue": _clean_issue_desc(current_block_issue),
-                        "fix": _clean_fix_desc(current_block_fix),
+                        "issue": _clean_issue_desc(issue_desc),
+                        "fix": _clean_fix_desc(fix_desc),
                     }
                 )
-        current_block_issue = None
-        current_block_fix = None
-
-    for line in lines:
-        # Check for severity header
-        header_match = SEVERITY_HEADER_PATTERN.match(line)
-        if header_match:
-            _flush_block()
-            current_severity = header_match.group(1).lower()
-            continue
-
-        # --- Legacy single-line pipe-delimited format ---
-        issue_match = ISSUE_WITH_FIX_PATTERN.match(line)
-        if issue_match:
-            _flush_block()
-            issue_desc = issue_match.group(1).strip()
-            fix_desc = issue_match.group(2).strip()
-            issues.append(
-                {
-                    "severity": current_severity,
-                    "issue": _clean_issue_desc(issue_desc),
-                    "fix": _clean_fix_desc(fix_desc),
-                }
-            )
-            continue
-
-        # --- Multi-line block format ---
-        # Check for block start (numbered or bold-numbered item)
-        block_start = BLOCK_START_PATTERN.match(line)
-        if block_start:
-            _flush_block()
-            current_block_issue = block_start.group(1).strip()
-            continue
-
-        # Inside a block: check for explicit issue description line
-        if current_block_issue is not None:
-            issue_line = BLOCK_ISSUE_PATTERN.match(line)
-            if issue_line:
-                # Override block title with explicit issue description
-                current_block_issue = issue_line.group(1).strip()
                 continue
 
-            # Check for fix line
-            fix_line = BLOCK_FIX_PATTERN.match(line)
-            if fix_line:
-                current_block_fix = fix_line.group(1).strip()
+            # --- Multi-line block format ---
+            # Check for block start (numbered or bold-numbered item)
+            block_start = BLOCK_START_PATTERN.match(line)
+            if block_start:
+                _flush_block()
+                current_block_issue = block_start.group(1).strip()
                 continue
 
-    # Flush any remaining block
-    _flush_block()
+            # Inside a block: check for explicit issue description line
+            if current_block_issue is not None:
+                issue_line = BLOCK_ISSUE_PATTERN.match(line)
+                if issue_line:
+                    # Override block title with explicit issue description
+                    current_block_issue = issue_line.group(1).strip()
+                    continue
+
+                # Check for fix line
+                fix_line = BLOCK_FIX_PATTERN.match(line)
+                if fix_line:
+                    current_block_fix = fix_line.group(1).strip()
+                    continue
+
+        # Flush any remaining block
+        _flush_block()
+
+    # --- Also extract dismissed findings (false positives) as severity="dismissed" ---
+    # Idea credit: @derron1 (GitHub PR #39)
+    dismissed_section = DISMISSED_SECTION_PATTERN.search(synthesis_content)
+    if dismissed_section:
+        section_text = dismissed_section.group(1)
+        # Skip if section says "no false positives" or similar
+        if not re.search(
+            r"no false positives|none identified|no issues dismissed",
+            section_text,
+            re.IGNORECASE,
+        ):
+            for match in DISMISSED_ITEM_PATTERN.finditer(section_text):
+                claimed = re.sub(r"\s+", " ", match.group(1)).strip()
+                reason = re.sub(r"\s+", " ", match.group(3)).strip()
+                if claimed and reason:
+                    issues.append(
+                        {
+                            "severity": "dismissed",
+                            "issue": claimed,
+                            "fix": f"FALSE POSITIVE: {reason}",
+                        }
+                    )
 
     logger.info(
         "Extracted %d antipatterns from story %s (epic %s)",
