@@ -523,7 +523,10 @@ class CodeReviewCompiler:
         files.update(strategic_files)
 
         # 1b. Include code antipatterns - reviewers should know what mistakes to look for
-        from bmad_assist.compiler.strategic_context import load_antipatterns, load_dismissed_findings
+        from bmad_assist.compiler.strategic_context import (
+            load_antipatterns,
+            load_dismissed_findings,
+        )
 
         files.update(load_antipatterns(context, "code"))
 
