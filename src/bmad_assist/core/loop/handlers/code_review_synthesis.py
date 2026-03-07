@@ -742,6 +742,20 @@ class CodeReviewSynthesisHandler(BaseHandler):
                 except Exception as e:
                     logger.warning("Antipatterns extraction failed (non-blocking): %s", e)
 
+                # Extract dismissed findings for code review context (best-effort, non-blocking)
+                try:
+                    from bmad_assist.antipatterns import extract_and_append_dismissed_findings
+
+                    extract_and_append_dismissed_findings(
+                        synthesis_content=extracted_synthesis,
+                        epic_id=epic_num,
+                        story_id=f"{epic_num}-{story_num}",
+                        project_path=self.project_path,
+                        config=self.config,
+                    )
+                except Exception as e:
+                    logger.warning("Dismissed findings extraction failed (non-blocking): %s", e)
+
                 # Story 13.10: Extract metrics and save synthesizer record
                 # Estimate tokens from char count (~4 chars per token)
                 estimated_output_tokens = len(result.stdout) // 4 if result.stdout else 0

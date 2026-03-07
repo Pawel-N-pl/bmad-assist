@@ -523,11 +523,14 @@ class CodeReviewCompiler:
         files.update(strategic_files)
 
         # 1b. Include code antipatterns - reviewers should know what mistakes to look for
-        from bmad_assist.compiler.strategic_context import load_antipatterns
+        from bmad_assist.compiler.strategic_context import load_antipatterns, load_dismissed_findings
 
         files.update(load_antipatterns(context, "code"))
 
-        # 1c. TEA Context (test-design) for reviewing against test plan
+        # 1c. Include dismissed findings - prevent re-flagging false positives
+        files.update(load_dismissed_findings(context))
+
+        # 1d. TEA Context (test-design) for reviewing against test plan
         files.update(collect_tea_context(context, "code_review", resolved))
 
         # 2. Git diff (embedded as virtual file, not in variables)

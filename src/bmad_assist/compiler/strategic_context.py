@@ -754,3 +754,62 @@ def load_antipatterns(
     except (OSError, UnicodeDecodeError) as e:
         logger.warning("Failed to read antipatterns: %s", e)
         return {}
+
+
+def load_dismissed_findings(
+    context: CompilerContext,
+) -> dict[str, str]:
+    """Load epic-scoped dismissed findings file for code review context.
+
+    Dismissed findings are previously investigated false positives and
+    intentional design decisions. Injecting them prevents reviewers from
+    re-flagging the same issues across rounds.
+
+    Args:
+        context: Compiler context with resolved variables.
+
+    Returns:
+        Dict with key "[DISMISSED FINDINGS - DO NOT RE-FLAG WITHOUT NEW EVIDENCE]"
+        and content, or empty dict if disabled/missing.
+
+    """
+    # Check config (reuse antipatterns.enabled flag)
+    try:
+        from bmad_assist.core.config import get_config
+
+        if not get_config().antipatterns.enabled:
+            logger.debug("Dismissed findings loading disabled in config")
+            return {}
+    except (ImportError, AttributeError, RuntimeError):
+        pass  # Config not available, proceed with default enabled
+
+    # Get epic_id
+    epic_id = context.resolved_variables.get("epic_num")
+    if not epic_id:
+        logger.debug("No epic_num in context, skipping dismissed findings")
+        return {}
+
+    # Build path
+    try:
+        from bmad_assist.core.paths import get_paths
+
+        paths = get_paths()
+        impl_artifacts = paths.implementation_artifacts
+    except RuntimeError:
+        impl_artifacts = context.project_root / "_bmad-output" / "implementation-artifacts"
+
+    dismissed_path = impl_artifacts / "dismissed-findings" / f"epic-{epic_id}-dismissed-findings.md"
+
+    if not dismissed_path.exists():
+        logger.debug("No dismissed findings file for epic %s", epic_id)
+        return {}
+
+    try:
+        content = dismissed_path.read_text(encoding="utf-8")
+        logger.info(
+            "Loaded dismissed findings for epic %s (%d chars)", epic_id, len(content)
+        )
+        return {"[DISMISSED FINDINGS - DO NOT RE-FLAG WITHOUT NEW EVIDENCE]": content}
+    except (OSError, UnicodeDecodeError) as e:
+        logger.warning("Failed to read dismissed findings: %s", e)
+        return {}

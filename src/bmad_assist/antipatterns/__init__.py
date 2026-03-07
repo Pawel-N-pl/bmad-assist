@@ -22,6 +22,11 @@ Usage:
     )
 """
 
+from bmad_assist.antipatterns.dismissed_extractor import (
+    append_to_dismissed_findings_file,
+    extract_and_append_dismissed_findings,
+    extract_dismissed_findings,
+)
 from bmad_assist.antipatterns.extractor import (
     append_to_antipatterns_file,
     extract_and_append_antipatterns,
@@ -32,4 +37,7 @@ __all__ = [
     "extract_antipatterns",
     "append_to_antipatterns_file",
     "extract_and_append_antipatterns",
+    "extract_dismissed_findings",
+    "append_to_dismissed_findings_file",
+    "extract_and_append_dismissed_findings",
 ]

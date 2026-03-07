@@ -40,6 +40,17 @@
     <action>Load {project_context} for coding standards (if exists)</action>
   </step>
 
+  <step n="1.5" goal="Check previously dismissed findings">
+    <critical>Before raising any finding, check the DISMISSED FINDINGS context section</critical>
+    <action>If provided, read the [DISMISSED FINDINGS] section carefully</action>
+    <action>For each finding you plan to raise, check if it matches a previously dismissed finding</action>
+    <action>If your finding matches a dismissal:
+      - Only re-flag if you have NEW EVIDENCE that contradicts the documented dismissal reason
+      - If re-flagging, explicitly state what new evidence you have and why the prior dismissal was incorrect
+      - If no new evidence, skip this finding entirely — do not score it</action>
+    <action>If no dismissed findings section exists, proceed normally</action>
+  </step>
+
   <step n="2" goal="Build review attack plan">
     <action>Extract ALL Acceptance Criteria from story</action>
     <action>Extract ALL Tasks/Subtasks with completion status ([x] vs [ ])</action>
