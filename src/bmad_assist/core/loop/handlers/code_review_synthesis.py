@@ -18,6 +18,7 @@ has write permission to modify the story file.
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,228 @@ from bmad_assist.core.paths import get_paths
 from bmad_assist.core.state import State
 from bmad_assist.core.types import EpicId
 from bmad_assist.security.integration import load_security_findings_from_cache
+from bmad_assist.core.loop.synthesis_contract import (
+    ExtractionQuality,
+    SynthesisDecision,
+    make_synthesis_decision,
+)
 from bmad_assist.validation.reports import extract_synthesis_report
 
 logger = logging.getLogger(__name__)
+
+# Markers for structured resolution block in synthesis output
+_RESOLUTION_START = "<!-- SYNTHESIS_RESOLUTION_START -->"
+_RESOLUTION_END = "<!-- SYNTHESIS_RESOLUTION_END -->"
+
+# Valid resolution values
+VALID_RESOLUTIONS = frozenset({"resolved", "rework", "halt"})
+
+# Integer count fields in the resolution block
+_COUNT_FIELDS = (
+    "verified_critical",
+    "verified_high",
+    "fixed_critical",
+    "fixed_high",
+    "remaining_critical",
+    "remaining_high",
+)
+
+# Regex patterns for layered extraction (Layer 2 and 3)
+_HEADER_RESOLUTION_RE = re.compile(
+    r"^\s*resolution\s*:\s*(resolved|rework|halt)\s*$", re.IGNORECASE | re.MULTILINE
+)
+_HEADER_INT_RE = re.compile(
+    r"^\s*(remaining_critical|remaining_high|fixed_critical|fixed_high"
+    r"|verified_critical|verified_high)\s*:\s*(\d+)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Semantic signals for Layer 3 (kept deliberately broad to catch paraphrases)
+_SEMANTIC_RESOLVED_RE = re.compile(
+    r"no remaining critical|all critical issues (have been )?fixed|"
+    r"all issues (have been )?addressed|no remaining issues",
+    re.IGNORECASE,
+)
+_SEMANTIC_REWORK_RE = re.compile(
+    r"remaining critical issue|recommend rework|requires? rework|needs? rework|"
+    r"critical issues? remain",
+    re.IGNORECASE,
+)
+_SEMANTIC_HALT_RE = re.compile(
+    r"cannot (reliably )?determine|unable to (reliably )?determine",
+    re.IGNORECASE,
+)
+
+
+def _parse_marker_block(block: str) -> dict[str, Any] | None:
+    """Parse key: value lines from a resolution block string.
+
+    Returns validated dict or None on validation failure.
+    """
+    parsed: dict[str, Any] = {}
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        key = key.strip()
+        value = value.strip()
+        if key and value:
+            parsed[key] = value
+
+    resolution = parsed.get("resolution")
+    if resolution not in VALID_RESOLUTIONS:
+        logger.warning(
+            "Invalid or missing resolution value in block: %r (valid: %s)",
+            resolution,
+            ", ".join(sorted(VALID_RESOLUTIONS)),
+        )
+        return None
+
+    for field in _COUNT_FIELDS:
+        raw = parsed.get(field)
+        if raw is not None:
+            try:
+                val = int(raw)
+                if val < 0:
+                    logger.warning("Negative count for %s: %d", field, val)
+                    return None
+                parsed[field] = val
+            except (ValueError, TypeError):
+                logger.warning("Non-integer count for %s: %r", field, raw)
+                return None
+
+    # Cross-validate: override "resolved" if remaining counts contradict
+    if parsed.get("resolution") == "resolved":
+        remaining_critical = parsed.get("remaining_critical", 0)
+        remaining_high = parsed.get("remaining_high", 0)
+        if isinstance(remaining_critical, int) and remaining_critical > 0:
+            logger.info(
+                "Cross-validation override: resolution 'resolved' but "
+                "remaining_critical=%d, overriding to 'rework'",
+                remaining_critical,
+            )
+            parsed["resolution"] = "rework"
+        elif isinstance(remaining_high, int) and remaining_high > 0:
+            logger.info(
+                "Cross-validation override: resolution 'resolved' but "
+                "remaining_high=%d, overriding to 'rework'",
+                remaining_high,
+            )
+            parsed["resolution"] = "rework"
+
+    return parsed
+
+
+def _extract_resolution_layered(
+    stdout: str,
+) -> tuple[dict[str, Any] | None, ExtractionQuality]:
+    """Extract synthesis resolution using a three-layer strategy.
+
+    Layer 1 — Exact markers (STRICT): search for SYNTHESIS_RESOLUTION_START/END.
+    Layer 2 — Section header fallback (DEGRADED): scan for bare "resolution: X" lines.
+    Layer 3 — Semantic fallback (DEGRADED): keyword signals → inferred resolution.
+
+    Returns:
+        (parsed_dict_or_None, ExtractionQuality)
+    """
+    # Layer 1: exact markers
+    pattern = re.compile(
+        re.escape(_RESOLUTION_START) + r"\s*(.*?)\s*" + re.escape(_RESOLUTION_END),
+        re.DOTALL,
+    )
+    matches = pattern.findall(stdout)
+    if matches:
+        # Markers found — if the block is invalid, do NOT fall through to Layer 2.
+        # Falling through when markers exist but have bad data would silently accept
+        # garbage (e.g., negative counts) via the header scan.
+        block = matches[-1].strip()
+        if block:
+            parsed = _parse_marker_block(block)
+            if parsed is not None:
+                return parsed, ExtractionQuality.STRICT
+        logger.warning(
+            "SYNTHESIS_RESOLUTION markers found but block is empty or invalid; "
+            "treating as FAILED (not falling through to header fallback)"
+        )
+        return None, ExtractionQuality.FAILED
+
+    # Layer 2: section header fallback (bare "resolution: X" key-value lines)
+    res_match = _HEADER_RESOLUTION_RE.search(stdout)
+    if res_match:
+        resolution_str = res_match.group(1).lower()
+        partial: dict[str, Any] = {"resolution": resolution_str}
+        for m in _HEADER_INT_RE.finditer(stdout):
+            partial[m.group(1).lower()] = int(m.group(2))
+
+        # Apply same cross-validation as marker path
+        if partial.get("resolution") == "resolved":
+            remaining_critical = partial.get("remaining_critical", 0)
+            remaining_high = partial.get("remaining_high", 0)
+            if isinstance(remaining_critical, int) and remaining_critical > 0:
+                partial["resolution"] = "rework"
+            elif isinstance(remaining_high, int) and remaining_high > 0:
+                partial["resolution"] = "rework"
+
+        logger.info(
+            "Resolution extracted via section header fallback: %s", partial.get("resolution")
+        )
+        return partial, ExtractionQuality.DEGRADED
+
+    # Layer 3: semantic keyword fallback
+    if _SEMANTIC_HALT_RE.search(stdout):
+        logger.info("Resolution inferred via semantic fallback: halt")
+        return {"resolution": "halt"}, ExtractionQuality.DEGRADED
+
+    if _SEMANTIC_REWORK_RE.search(stdout):
+        logger.info("Resolution inferred via semantic fallback: rework")
+        return {"resolution": "rework"}, ExtractionQuality.DEGRADED
+
+    if _SEMANTIC_RESOLVED_RE.search(stdout):
+        logger.info("Resolution inferred via semantic fallback: resolved")
+        return {"resolution": "resolved"}, ExtractionQuality.DEGRADED
+
+    logger.warning(
+        "All extraction layers failed: no markers, no key-value lines, no semantic signals "
+        "(stdout_len=%d, preview=%.200s)",
+        len(stdout),
+        stdout[:200] if stdout else "(empty)",
+    )
+    return None, ExtractionQuality.FAILED
+
+
+def extract_resolution(stdout: str) -> dict[str, Any] | None:
+    """Extract structured resolution block from synthesis LLM output.
+
+    Backward-compatible wrapper around the layered extraction.
+    Callers that need ExtractionQuality should call _extract_resolution_layered() directly.
+
+    Returns:
+        Parsed dict with resolution and counts, or None if all layers fail.
+    """
+    parsed, _ = _extract_resolution_layered(stdout)
+    return parsed
+
+
+def compute_resolution(
+    parsed: dict[str, Any] | None,
+    evidence_verdict: str,
+    evidence_score_data: dict[str, Any] | None = None,
+) -> str:
+    """Compute canonical resolution string (backward-compatible wrapper).
+
+    Delegates to make_synthesis_decision() with STRICT quality assumption
+    when parsed is not None (the old callers always called extract_resolution first,
+    which only returned valid markers-based results).
+
+    New code should call make_synthesis_decision() directly with ExtractionQuality.
+
+    Returns:
+        One of "resolved", "rework", or "halt".
+    """
+    quality = ExtractionQuality.STRICT if parsed is not None else ExtractionQuality.FAILED
+    decision = make_synthesis_decision(parsed, quality, evidence_verdict, evidence_score_data)
+    return decision.resolution.value
 
 
 class CodeReviewSynthesisHandler(BaseHandler):
@@ -665,13 +885,44 @@ class CodeReviewSynthesisHandler(BaseHandler):
 
             # Check for errors
             if result.exit_code != 0:
-                error_msg = result.stderr or f"Master LLM exited with code {result.exit_code}"
-                logger.warning(
-                    "Synthesis failed: exit_code=%d, stderr=%s",
-                    result.exit_code,
-                    result.stderr[:500] if result.stderr else "(empty)",
+                # Classify ToolCallGuard terminations as RETRYABLE so the runner
+                # can attempt a bounded retry rather than hard-failing the phase.
+                from bmad_assist.core.loop.synthesis_contract import FailureClass
+
+                is_guard_termination = bool(
+                    result.termination_reason
+                    and result.termination_reason.startswith("guard:")
                 )
-                phase_result = PhaseResult.fail(error_msg)
+                if is_guard_termination:
+                    logger.warning(
+                        "Synthesis terminated by ToolCallGuard: %s — classifying as RETRYABLE",
+                        result.termination_reason,
+                    )
+                    phase_result = PhaseResult.ok(
+                        {
+                            "response": result.stdout or "",
+                            "model": result.model,
+                            "duration_ms": result.duration_ms,
+                            "verdict": (
+                                evidence_score_data.get("verdict", "UNKNOWN")
+                                if evidence_score_data
+                                else "UNKNOWN"
+                            ),
+                            "resolution": "halt",
+                            "extraction_quality": ExtractionQuality.FAILED.value,
+                            "failure_class": FailureClass.RETRYABLE.value,
+                            "resolution_data": None,
+                            "synthesis_report_path": None,
+                        }
+                    )
+                else:
+                    error_msg = result.stderr or f"Master LLM exited with code {result.exit_code}"
+                    logger.warning(
+                        "Synthesis failed: exit_code=%d, stderr=%s",
+                        result.exit_code,
+                        result.stderr[:500] if result.stderr else "(empty)",
+                    )
+                    phase_result = PhaseResult.fail(error_msg)
             else:
                 # Success - save synthesis report
                 logger.info(
@@ -715,7 +966,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
 
                 model = self.get_model() or "unknown"
                 master_reviewer_id = f"master-{model}"
-                self._save_synthesis_report(
+                synthesis_report_path = self._save_synthesis_report(
                     content=extracted_synthesis,
                     master_reviewer_id=master_reviewer_id,
                     session_id=session_id,
@@ -764,12 +1015,33 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     else "UNKNOWN"
                 )
 
+                # Extract synthesis-authoritative resolution from LLM output
+                # using layered extraction (exact markers → headers → semantic)
+                resolution_data, extraction_quality = _extract_resolution_layered(result.stdout)
+                decision: SynthesisDecision = make_synthesis_decision(
+                    resolution_data, extraction_quality, verdict, evidence_score_data
+                )
+                logger.info(
+                    "Synthesis resolution: %s (quality=%s, evidence_verdict=%s, from_llm=%s)",
+                    decision.resolution.value,
+                    decision.extraction_quality.value,
+                    verdict,
+                    resolution_data is not None,
+                )
+
                 phase_result = PhaseResult.ok(
                     {
                         "response": result.stdout,
                         "model": result.model,
                         "duration_ms": result.duration_ms,
                         "verdict": verdict,
+                        "resolution": decision.resolution.value,
+                        "extraction_quality": decision.extraction_quality.value,
+                        "failure_class": (
+                            decision.failure_class.value if decision.failure_class else None
+                        ),
+                        "resolution_data": resolution_data,
+                        "synthesis_report_path": str(synthesis_report_path),
                     }
                 )
 
@@ -794,7 +1066,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
         duration_ms: int,
         reviews_dir: Path,
         failed_reviewers: list[str] | None = None,
-    ) -> None:
+    ) -> Path:
         """Save code review synthesis report with YAML frontmatter.
 
         Story 22.7: File path includes timestamp for traceability.
@@ -811,6 +1083,9 @@ class CodeReviewSynthesisHandler(BaseHandler):
             duration_ms: Synthesis duration in milliseconds.
             reviews_dir: Directory to save report.
             failed_reviewers: Optional list of failed reviewer IDs.
+
+        Returns:
+            Path to the saved synthesis report file.
 
         """
         import yaml
@@ -847,6 +1122,7 @@ class CodeReviewSynthesisHandler(BaseHandler):
 
         atomic_write(report_path, full_content)
         logger.info("Saved code review synthesis report: %s", report_path)
+        return report_path
 
     def _save_synthesizer_record(
         self,

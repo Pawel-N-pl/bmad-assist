@@ -2,10 +2,11 @@
   <critical>Communicate all responses in {communication_language} and generate all documents in {document_output_language}</critical>
 
   <critical>You are the MASTER SYNTHESIS agent. Your role is to evaluate validator findings
-    and produce a definitive synthesis with applied fixes.</critical>
-  <critical>You have WRITE PERMISSION to modify the story file being validated.</critical>
+    and produce a definitive synthesis with story updates expressed as STORY_PATCH blocks.</critical>
   <critical>All context (project_context.md, story file, anonymized validations) is EMBEDDED below - do NOT attempt to read files.</critical>
-  <critical>Apply changes to story file directly using atomic write pattern (temp file + rename).</critical>
+  <critical>DO NOT use Edit or Write tools to modify the story file directly.
+    Story updates are applied by the automation layer after your synthesis completes.
+    You express all story changes as STORY_PATCH blocks in your synthesis output (see Step 3).</critical>
 
   <step n="1" goal="Analyze validator findings">
     <action>Read all anonymized validator outputs (Validator A, B, C, D, etc.)</action>
@@ -57,22 +58,30 @@
     </action>
   </step>
 
-  <step n="3" goal="Apply changes to story file">
-    <action>For each verified issue (starting with Critical, then High), apply fix directly to story file</action>
-    <action>Changes should be natural improvements:
-      - DO NOT add review metadata or synthesis comments to story
-      - DO NOT reference the synthesis or validation process
-      - Preserve story structure, formatting, and style
-      - Make changes look like they were always there
+  <step n="3" goal="Express story changes as STORY_PATCH blocks">
+    <critical>DO NOT use Edit or Write tools. Express ALL story file changes as STORY_PATCH blocks in your synthesis output.</critical>
+    <action>For each verified issue (starting with Critical, then High) that requires a story change:
+      - Identify the exact Markdown heading of the section to update (e.g., "## Acceptance Criteria")
+      - Emit a STORY_PATCH block in your output with the complete replacement content for that section
     </action>
-    <action>For each change, log in synthesis output:
-      - File path modified
-      - Section/line reference (e.g., "AC4", "Task 2.3")
-      - Brief description of change
-      - Before snippet (2-3 lines context)
-      - After snippet (2-3 lines context)
+    <action>STORY_PATCH block format (must match exactly):
+      &lt;!-- STORY_PATCH_START heading="## exact heading text here" --&gt;
+      [Complete replacement content for the heading and its body — include the heading line itself]
+      &lt;!-- STORY_PATCH_END --&gt;
     </action>
-    <action>Use atomic write pattern for story modifications to prevent corruption</action>
+    <action>STORY_PATCH rules:
+      - Use the EXACT Markdown heading text from the story (lowercase is fine, must match exactly)
+      - Include the heading line itself inside the patch content
+      - Include ALL content in that section, not just the changed lines
+      - Each section can only appear once in a STORY_PATCH block
+      - DO NOT patch the same section more than once
+      - Changes should be natural improvements: no review metadata, no synthesis comments, no references to the validation process
+    </action>
+    <action>Log each patch in the Changes Applied section of your synthesis report:
+      - Section heading patched
+      - Brief description of what changed
+      - Before/after snippet (2-3 lines context)
+    </action>
   </step>
 
   <step n="4" goal="Generate synthesis report">

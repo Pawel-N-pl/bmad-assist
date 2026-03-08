@@ -1080,3 +1080,525 @@ class TestArchiveArtifacts:
             mock_run.return_value = MagicMock(returncode=1, stderr="error")
             # Should not raise
             _run_archive_artifacts(tmp_path)
+
+
+class TestSynthesisResolution:
+    """Tests for synthesis-authoritative resolution branching in the runner.
+
+    Verifies that the runner branches on resolution (from synthesis) rather than
+    raw verdict alone, enabling synthesis to be authoritative for that review cycle.
+    """
+
+    @pytest.fixture
+    def rework_config(self, tmp_path: Path) -> Config:
+        """Config with code_review_rework enabled (via default + patched loop config)."""
+        return load_config(
+            {
+                "providers": {"master": {"provider": "claude", "model": "opus_4"}},
+                "state_path": str(tmp_path / "state.yaml"),
+            }
+        )
+
+    @pytest.fixture
+    def _patch_loop_config(self):
+        """Patch get_loop_config to enable rework with max_rework_attempts=2."""
+        from bmad_assist.core.config.models.loop import LoopConfig
+
+        rework_loop = LoopConfig(
+            story=[
+                "create_story",
+                "validate_story",
+                "validate_story_synthesis",
+                "dev_story",
+                "code_review",
+                "code_review_synthesis",
+            ],
+            code_review_rework=True,
+            max_rework_attempts=2,
+        )
+        with patch(
+            "bmad_assist.core.config.get_loop_config", return_value=rework_loop
+        ):
+            yield
+
+    @pytest.mark.usefixtures("_patch_loop_config")
+    def test_reject_with_resolved_resolution_does_not_rework(
+        self, tmp_path: Path, rework_config: Config
+    ) -> None:
+        """REJECT verdict + resolution=resolved → advances (no rework).
+
+        This is the core scenario: synthesis fixed all issues in-round,
+        so the stale REJECT verdict should not trigger rework.
+        """
+        from bmad_assist.core.loop import PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        next_state = State(
+            current_epic=1,
+            current_story="1.2",
+            current_phase=Phase.CREATE_STORY,
+        )
+
+        call_count = [0]
+
+        def controlled_execute(s):
+            call_count[0] += 1
+            if call_count[0] > 3:
+                raise StateError("Breaking loop for test")
+            # Return REJECT verdict but resolved resolution
+            return PhaseResult.ok(
+                {"verdict": "REJECT", "resolution": "resolved"}
+            )
+
+        saved_states: list[State] = []
+
+        def track_save(s, path):
+            saved_states.append(s)
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=controlled_execute,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state", side_effect=track_save):
+                    with patch(
+                        "bmad_assist.core.loop.runner.handle_story_completion"
+                    ) as mock_story:
+                        mock_story.return_value = (next_state, False)
+                        with patch(
+                            "bmad_assist.core.loop.runner.handle_epic_completion"
+                        ) as mock_epic:
+                            mock_epic.return_value = (next_state, True)
+                            try:
+                                run_loop(
+                                    rework_config,
+                                    tmp_path,
+                                    [1],
+                                    lambda x: ["1.1", "1.2"],
+                                )
+                            except StateError:
+                                pass
+
+        # Story completion was called — resolution=resolved overrode REJECT verdict
+        mock_story.assert_called()
+        # Phase should NOT have been set back to DEV_STORY
+        for s in saved_states:
+            assert s.current_phase != Phase.DEV_STORY
+
+    @pytest.mark.usefixtures("_patch_loop_config")
+    def test_reject_with_rework_resolution_does_rework(
+        self, tmp_path: Path, rework_config: Config
+    ) -> None:
+        """REJECT verdict + resolution=rework → loops back to DEV_STORY."""
+        from bmad_assist.core.loop import PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        call_count = [0]
+
+        def controlled_execute(s):
+            call_count[0] += 1
+            if call_count[0] > 1:
+                raise StateError("Breaking loop for test")
+            return PhaseResult.ok(
+                {"verdict": "REJECT", "resolution": "rework"}
+            )
+
+        saved_states: list[State] = []
+
+        def track_save(s, path):
+            saved_states.append(s)
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=controlled_execute,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state", side_effect=track_save):
+                    with patch(
+                        "bmad_assist.core.loop.runner.handle_story_completion"
+                    ) as mock_story:
+                        mock_story.return_value = (state, False)
+                        try:
+                            run_loop(
+                                rework_config,
+                                tmp_path,
+                                [1],
+                                lambda x: ["1.1"],
+                            )
+                        except StateError:
+                            pass
+
+        # Phase should have been set back to DEV_STORY for rework
+        rework_saves = [s for s in saved_states if s.current_phase == Phase.DEV_STORY]
+        assert len(rework_saves) >= 1
+        assert rework_saves[0].code_review_rework_count == 1
+        assert rework_saves[0].last_synthesis_resolution == "rework"
+
+    @pytest.mark.usefixtures("_patch_loop_config")
+    def test_missing_resolution_falls_back_to_verdict(
+        self, tmp_path: Path, rework_config: Config
+    ) -> None:
+        """No resolution field + REJECT verdict → rework (backward compat)."""
+        from bmad_assist.core.loop import PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        call_count = [0]
+
+        def controlled_execute(s):
+            call_count[0] += 1
+            if call_count[0] > 1:
+                raise StateError("Breaking loop for test")
+            # No resolution field — old-style output
+            return PhaseResult.ok({"verdict": "REJECT"})
+
+        saved_states: list[State] = []
+
+        def track_save(s, path):
+            saved_states.append(s)
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=controlled_execute,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state", side_effect=track_save):
+                    with patch(
+                        "bmad_assist.core.loop.runner.handle_story_completion"
+                    ) as mock_story:
+                        mock_story.return_value = (state, False)
+                        try:
+                            run_loop(
+                                rework_config,
+                                tmp_path,
+                                [1],
+                                lambda x: ["1.1"],
+                            )
+                        except StateError:
+                            pass
+
+        # Should fall back to verdict-based rework
+        rework_saves = [s for s in saved_states if s.current_phase == Phase.DEV_STORY]
+        assert len(rework_saves) >= 1
+
+    @pytest.mark.usefixtures("_patch_loop_config")
+    def test_halt_resolution_stops_loop(
+        self, tmp_path: Path, rework_config: Config
+    ) -> None:
+        """resolution=halt → stops loop via GUARDIAN_HALT, does NOT advance story."""
+        from bmad_assist.core.loop import PhaseResult, run_loop
+        from bmad_assist.core.loop.types import LoopExitReason
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        def controlled_execute(s):
+            return PhaseResult.ok(
+                {"verdict": "REJECT", "resolution": "halt"}
+            )
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=controlled_execute,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state"):
+                    with patch(
+                        "bmad_assist.core.loop.runner.handle_story_completion"
+                    ) as mock_story:
+                        mock_story.return_value = (state, False)
+                        exit_reason = run_loop(
+                            rework_config,
+                            tmp_path,
+                            [1],
+                            lambda x: ["1.1"],
+                        )
+
+        # halt should stop the loop — story completion should NOT be called
+        mock_story.assert_not_called()
+        assert exit_reason == LoopExitReason.GUARDIAN_HALT
+
+    def test_state_persistence_survives_resume(self, tmp_path: Path) -> None:
+        """Synthesis state fields persist and survive serialization."""
+        from bmad_assist.core.state import Phase, State, save_state
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.DEV_STORY,
+            code_review_rework_count=1,
+            last_synthesis_resolution="rework",
+            last_synthesis_verdict="REJECT",
+            last_synthesis_report_path="/tmp/synthesis-1-1.md",
+            last_synthesis_story="1.1",
+        )
+
+        state_path = tmp_path / "state.yaml"
+        save_state(state, state_path)
+
+        from bmad_assist.core.state import load_state
+
+        loaded = load_state(state_path)
+        assert loaded.last_synthesis_resolution == "rework"
+        assert loaded.last_synthesis_verdict == "REJECT"
+        assert loaded.last_synthesis_report_path == "/tmp/synthesis-1-1.md"
+        assert loaded.last_synthesis_story == "1.1"
+        assert loaded.code_review_rework_count == 1
+
+
+class TestSynthesisRetry:
+    """Tests for bounded RETRYABLE synthesis retry and halt-on-exhaustion in runner.
+
+    Verifies that when CODE_REVIEW_SYNTHESIS returns failure_class=retryable
+    the runner stays on the same phase and retries, up to max_synthesis_retries,
+    then emits GUARDIAN_HALT when retries are exhausted.
+    """
+
+    @pytest.fixture
+    def base_config(self, tmp_path: Path) -> "Config":
+        """Config suitable for synthesis retry tests."""
+        return load_config(
+            {
+                "providers": {"master": {"provider": "claude", "model": "opus_4"}},
+                "state_path": str(tmp_path / "state.yaml"),
+            }
+        )
+
+    @pytest.fixture
+    def _patch_loop_config_retry(self):
+        """Patch get_loop_config: max_synthesis_retries=1 (default), rework off."""
+        from bmad_assist.core.config.models.loop import LoopConfig
+
+        retry_loop = LoopConfig(
+            story=[
+                "create_story",
+                "dev_story",
+                "code_review",
+                "code_review_synthesis",
+            ],
+            code_review_rework=False,
+            max_synthesis_retries=1,
+        )
+        with patch(
+            "bmad_assist.core.config.get_loop_config", return_value=retry_loop
+        ):
+            yield
+
+    @pytest.fixture
+    def _patch_loop_config_no_retry(self):
+        """Patch get_loop_config: max_synthesis_retries=0 (halt immediately)."""
+        from bmad_assist.core.config.models.loop import LoopConfig
+
+        no_retry_loop = LoopConfig(
+            story=[
+                "create_story",
+                "dev_story",
+                "code_review",
+                "code_review_synthesis",
+            ],
+            code_review_rework=False,
+            max_synthesis_retries=0,
+        )
+        with patch(
+            "bmad_assist.core.config.get_loop_config", return_value=no_retry_loop
+        ):
+            yield
+
+    @pytest.mark.usefixtures("_patch_loop_config_retry")
+    def test_retryable_failure_stays_on_synthesis_phase(
+        self, tmp_path: Path, base_config: "Config"
+    ) -> None:
+        """RETRYABLE failure_class → runner retries CODE_REVIEW_SYNTHESIS once.
+
+        On the first call the handler returns failure_class=retryable.
+        The runner should not advance to story completion; instead it re-runs
+        CODE_REVIEW_SYNTHESIS. The second call returns a clean resolved result
+        so the loop can advance.
+        """
+        from bmad_assist.core.loop import LoopExitReason, PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        next_state = State(
+            current_epic=1,
+            current_story="1.2",
+            current_phase=Phase.CREATE_STORY,
+        )
+
+        call_count = [0]
+
+        def controlled_execute(s):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: retryable failure (e.g. ToolCallGuard termination)
+                return PhaseResult.ok(
+                    {
+                        "failure_class": "retryable",
+                        "extraction_quality": "failed",
+                    }
+                )
+            if call_count[0] == 2:
+                # Second call (retry): clean resolved result
+                return PhaseResult.ok(
+                    {
+                        "verdict": "PASS",
+                        "resolution": "resolved",
+                        "extraction_quality": "strict",
+                        "failure_class": None,
+                    }
+                )
+            # Break loop after story completion advances
+            raise StateError("Breaking loop for test")
+
+        saved_states: list["State"] = []
+
+        def track_save(s, path):
+            saved_states.append(s)
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=controlled_execute,
+            ):
+                with patch(
+                    "bmad_assist.core.loop.runner.save_state", side_effect=track_save
+                ):
+                    with patch(
+                        "bmad_assist.core.loop.runner.handle_story_completion"
+                    ) as mock_story:
+                        mock_story.return_value = (next_state, False)
+                        with patch(
+                            "bmad_assist.core.loop.runner.handle_epic_completion"
+                        ) as mock_epic:
+                            mock_epic.return_value = (next_state, True)
+                            try:
+                                run_loop(
+                                    base_config,
+                                    tmp_path,
+                                    [1],
+                                    lambda x: ["1.1", "1.2"],
+                                )
+                            except StateError:
+                                pass
+
+        # execute_phase called at least twice (retryable + retry)
+        assert call_count[0] >= 2, f"Expected ≥2 calls, got {call_count[0]}"
+
+        # Retry state should have synthesis_retry_count incremented
+        retry_saves = [s for s in saved_states if s.synthesis_retry_count > 0]
+        assert len(retry_saves) >= 1, "Expected at least one save with synthesis_retry_count > 0"
+        assert retry_saves[0].synthesis_retry_count == 1
+
+    @pytest.mark.usefixtures("_patch_loop_config_retry")
+    def test_retryable_exhausted_emits_guardian_halt(
+        self, tmp_path: Path, base_config: "Config"
+    ) -> None:
+        """RETRYABLE failure_class exhausted → GUARDIAN_HALT exit reason.
+
+        When every synthesis attempt returns retryable and retries are exhausted
+        (synthesis_retry_count >= max_synthesis_retries), the runner must
+        GUARDIAN_HALT rather than silently advancing.
+        """
+        from bmad_assist.core.loop import LoopExitReason, PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        def always_retryable(s):
+            return PhaseResult.ok(
+                {
+                    "failure_class": "retryable",
+                    "extraction_quality": "failed",
+                }
+            )
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=always_retryable,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state"):
+                    exit_reason = run_loop(
+                        base_config,
+                        tmp_path,
+                        [1],
+                        lambda x: ["1.1"],
+                    )
+
+        assert exit_reason == LoopExitReason.GUARDIAN_HALT
+
+    @pytest.mark.usefixtures("_patch_loop_config_no_retry")
+    def test_retryable_with_zero_max_retries_halts_immediately(
+        self, tmp_path: Path, base_config: "Config"
+    ) -> None:
+        """max_synthesis_retries=0 → GUARDIAN_HALT on first retryable failure.
+
+        With zero retries configured, the runner must halt without attempting
+        any retry, even on the first RETRYABLE failure.
+        """
+        from bmad_assist.core.loop import LoopExitReason, PhaseResult, run_loop
+        from bmad_assist.core.state import Phase, State
+
+        state = State(
+            current_epic=1,
+            current_story="1.1",
+            current_phase=Phase.CODE_REVIEW_SYNTHESIS,
+        )
+
+        call_count = [0]
+
+        def retryable_once(s):
+            call_count[0] += 1
+            return PhaseResult.ok(
+                {
+                    "failure_class": "retryable",
+                    "extraction_quality": "failed",
+                }
+            )
+
+        with patch("bmad_assist.core.loop.runner.load_state", return_value=state):
+            with patch(
+                "bmad_assist.core.loop.runner.execute_phase",
+                side_effect=retryable_once,
+            ):
+                with patch("bmad_assist.core.loop.runner.save_state"):
+                    exit_reason = run_loop(
+                        base_config,
+                        tmp_path,
+                        [1],
+                        lambda x: ["1.1"],
+                    )
+
+        assert exit_reason == LoopExitReason.GUARDIAN_HALT
+        # Only called once — no retry attempted
+        assert call_count[0] == 1

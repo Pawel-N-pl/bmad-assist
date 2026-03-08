@@ -275,6 +275,14 @@ class State(BaseModel):
     epic_setup_complete: bool = False  # Reset to False on epic change
     # Code review rework loop: tracks rework attempts per story
     code_review_rework_count: int = 0  # Reset to 0 on story change
+    # Synthesis-authoritative resolution: persisted for resume determinism and debugging
+    last_synthesis_resolution: str | None = None  # "rework", "resolved", "halt", or None
+    last_synthesis_verdict: str | None = None  # Evidence Score verdict (REJECT, PASS, etc.)
+    last_synthesis_report_path: str | None = None  # Path to synthesis report file
+    last_synthesis_story: str | None = None  # Story ID when synthesis ran
+    last_synthesis_extraction_quality: str | None = None  # "strict", "degraded", "failed"
+    last_synthesis_failure_class: str | None = None  # "retryable", "halt", "ignore", or None
+    synthesis_retry_count: int = 0  # Bounded retry counter; reset per story like rework_count
 
 
 def save_state(state: State, path: str | Path) -> None:

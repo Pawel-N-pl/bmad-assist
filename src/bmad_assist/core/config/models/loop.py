@@ -81,6 +81,16 @@ class LoopConfig(BaseModel):
         le=5,
         description="Maximum rework cycles before continuing despite negative verdict (1-5)",
     )
+    max_synthesis_retries: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description=(
+            "Maximum bounded retries for RETRYABLE synthesis failures "
+            "(ToolCallGuard termination, provider truncation). "
+            "0 = halt immediately on first failure (0-3)"
+        ),
+    )
 
     @field_validator("epic_setup", "story", "epic_teardown", mode="before")
     @classmethod

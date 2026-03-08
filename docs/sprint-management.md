@@ -378,6 +378,24 @@ loop:
     - retrospective
 ```
 
+## Synthesis Extraction Quality
+
+When `code_review_synthesis` or `validate_story_synthesis` runs, the runner records how reliably the LLM output was parsed. This metadata is stored in `state.yaml` — it is not reflected in `sprint-status.yaml`, which only tracks the four BMAD-facing statuses (`backlog`, `in-progress`, `review`, `done`).
+
+### Extraction quality levels
+
+| extraction_quality | meaning |
+|---|---|
+| `strict` | Exact HTML-comment markers found; all fields valid |
+| `degraded` | Fell back to section-header or semantic keyword scan |
+| `failed` | No usable structure found; decision based on evidence or manual review |
+
+### What happens on synthesis halt
+
+When the runner cannot derive a trusted resolution (contradictory evidence, fully failed extraction with no pre-synthesis evidence, or repeated ToolCallGuard terminations), it exits with `GUARDIAN_HALT`. The story's visible sprint status stays at its last recorded value — it is **not** rolled back to `backlog`. The runner's `state.yaml` records `last_synthesis_resolution`, `last_synthesis_extraction_quality`, and `last_synthesis_failure_class` for diagnosis.
+
+After resolving the root cause (see [Troubleshooting](troubleshooting.md)), resume the run normally; the loop will retry from the halted phase using the persisted state.
+
 ## See Also
 
 - [Configuration Reference](configuration.md) - Main configuration options

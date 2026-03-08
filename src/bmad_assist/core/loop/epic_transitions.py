@@ -279,6 +279,13 @@ def advance_to_next_epic(
                     "current_phase": first_teardown_phase,
                     "epic_setup_complete": False,  # Reset for new epic
                     "code_review_rework_count": 0,  # Reset rework counter
+                    "synthesis_retry_count": 0,
+                    "last_synthesis_resolution": None,
+                    "last_synthesis_verdict": None,
+                    "last_synthesis_report_path": None,
+                    "last_synthesis_story": None,
+                    "last_synthesis_extraction_quality": None,
+                    "last_synthesis_failure_class": None,
                     "updated_at": now,
                 }
             )
@@ -301,6 +308,13 @@ def advance_to_next_epic(
             "current_phase": Phase.CREATE_STORY,
             "epic_setup_complete": False,  # Reset for new epic
             "code_review_rework_count": 0,  # Reset rework counter
+            "synthesis_retry_count": 0,
+            "last_synthesis_resolution": None,
+            "last_synthesis_verdict": None,
+            "last_synthesis_report_path": None,
+            "last_synthesis_story": None,
+            "last_synthesis_extraction_quality": None,
+            "last_synthesis_failure_class": None,
             "updated_at": now,
         }
     )
