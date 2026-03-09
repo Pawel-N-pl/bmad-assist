@@ -235,6 +235,13 @@ def advance_to_next_story(state: State, epic_stories: list[str]) -> State | None
             "current_story": next_story,
             "current_phase": Phase.CREATE_STORY,
             "code_review_rework_count": 0,
+            "synthesis_retry_count": 0,
+            "last_synthesis_resolution": None,
+            "last_synthesis_verdict": None,
+            "last_synthesis_report_path": None,
+            "last_synthesis_story": None,
+            "last_synthesis_extraction_quality": None,
+            "last_synthesis_failure_class": None,
             "updated_at": now,
         }
     )

@@ -125,19 +125,20 @@ import { mergeTests } from '@playwright/test';
 import { test as apiRequestFixture } from '@seontechnologies/playwright-utils/api-request/fixtures';
 import { test as authFixture } from '@seontechnologies/playwright-utils/auth-session/fixtures';
 import { test as recurseFixture } from '@seontechnologies/playwright-utils/recurse/fixtures';
-import { test as logFixture } from '@seontechnologies/playwright-utils/log/fixtures';
+// NOTE: Do NOT include log fixture in mergeTests — use direct import instead (see log.md)
 
 // Merge all fixtures into one test object
-export const test = mergeTests(apiRequestFixture, authFixture, recurseFixture, logFixture);
+export const test = mergeTests(apiRequestFixture, authFixture, recurseFixture);
 
 export { expect } from '@playwright/test';
 ```
 
 ```typescript
 // In your tests
+import { log } from '@seontechnologies/playwright-utils';
 import { test, expect } from '../support/merged-fixtures';
 
-test('all utilities available', async ({ apiRequest, authToken, recurse, log }) => {
+test('all utilities available', async ({ apiRequest, authToken, recurse }) => {
   await log.step('Making authenticated API request');
 
   const { body } = await apiRequest({
@@ -240,13 +241,17 @@ test('bad', async ({ request, authToken }) => {
 **✅ Use consistent import style:**
 
 ```typescript
+import { log } from '@seontechnologies/playwright-utils';
 import { test } from '../support/merged-fixtures';
 
 test('good', async ({ apiRequest, authToken }) => {
-  // Clean - all from fixtures
+  // All from fixtures, except log which is always a direct import
+  await log.step('Fetching users');
   await apiRequest({ method: 'GET', path: '/api/users' });
 });
 ```
+
+> **Exception**: `log` is always a direct import. The log fixture wraps it as an incompatible callable function — do NOT include it in `mergeTests` or destructure `{ log }` from test params. See `log.md` for details.
 
 **❌ Don't import everything when you need one utility:**
 

@@ -1801,3 +1801,64 @@ class TestCompressionPipelineIntegration:
             # Standard custom fields should also be present
             assert saved_record.custom.get("phase") == "code-review-synthesis"
             assert saved_record.custom.get("reviewer_count") == 2  # from cached_reviews fixture
+
+
+class TestResolutionMarkerOrdering:
+    """Regression: SYNTHESIS_RESOLUTION block must appear before CODE_REVIEW_SYNTHESIS_END.
+
+    Providers are configured to terminate early when they detect
+    CODE_REVIEW_SYNTHESIS_END. If the resolution block is instructed to
+    appear after that marker, it is never emitted and extract_resolution()
+    returns None, falling back to stale verdict behavior.
+    """
+
+    def test_resolution_markers_before_end_marker_in_instructions(self) -> None:
+        """SYNTHESIS_RESOLUTION_START must appear before CODE_REVIEW_SYNTHESIS_END
+        in the installed workflow instructions."""
+        from pathlib import Path
+
+        import bmad_assist.workflows
+
+        workflows_dir = Path(bmad_assist.workflows.__file__).parent
+        instructions_path = (
+            workflows_dir / "code-review-synthesis" / "instructions.xml"
+        )
+        content = instructions_path.read_text()
+
+        # Search for the actual marker directives (XML-escaped in the instructions)
+        resolution_start_pos = content.find("SYNTHESIS_RESOLUTION_START --")
+        end_marker_pos = content.find("CODE_REVIEW_SYNTHESIS_END --")
+
+        assert resolution_start_pos != -1, (
+            "SYNTHESIS_RESOLUTION_START marker not found in instructions"
+        )
+        assert end_marker_pos != -1, (
+            "CODE_REVIEW_SYNTHESIS_END marker not found in instructions"
+        )
+        assert resolution_start_pos < end_marker_pos, (
+            "SYNTHESIS_RESOLUTION_START must appear BEFORE CODE_REVIEW_SYNTHESIS_END "
+            "in instructions.xml, otherwise providers terminate early and truncate "
+            "the resolution block"
+        )
+
+    def test_metrics_markers_before_end_marker_in_instructions(self) -> None:
+        """METRICS_JSON_START must appear before CODE_REVIEW_SYNTHESIS_END."""
+        from pathlib import Path
+
+        import bmad_assist.workflows
+
+        workflows_dir = Path(bmad_assist.workflows.__file__).parent
+        instructions_path = (
+            workflows_dir / "code-review-synthesis" / "instructions.xml"
+        )
+        content = instructions_path.read_text()
+
+        metrics_start_pos = content.find("METRICS_JSON_START --")
+        end_marker_pos = content.find("CODE_REVIEW_SYNTHESIS_END --")
+
+        assert metrics_start_pos != -1, "METRICS_JSON_START marker not found in instructions"
+        assert end_marker_pos != -1, "CODE_REVIEW_SYNTHESIS_END marker not found in instructions"
+        assert metrics_start_pos < end_marker_pos, (
+            "METRICS_JSON_START must appear BEFORE CODE_REVIEW_SYNTHESIS_END "
+            "so structured metrics are emitted before providers terminate the stream"
+        )

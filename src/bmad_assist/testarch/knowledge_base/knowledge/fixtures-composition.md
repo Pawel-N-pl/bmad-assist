@@ -380,3 +380,26 @@ test('my test', async ({ fixture1, fixture2, ..., fixture20 }) => {
 // Merge the 4-6 fixtures your project actually needs
 const test = mergeTests(apiRequestFixture, authFixture, recurseFixture, customFixtures);
 ```
+
+**❌ Including log fixture in mergeTests:**
+
+```typescript
+import { test as logFixture } from '@seontechnologies/playwright-utils/log/fixtures';
+const test = mergeTests(apiRequestFixture, authFixture, logFixture);
+
+test('broken', async ({ log }) => {
+  await log.step('This crashes'); // TypeError: log.step is not a function
+  // The fixture injects log as a callable function, NOT the object with .step()/.info()
+});
+```
+
+**✅ Use log as a direct import (never as a fixture):**
+
+```typescript
+import { log } from '@seontechnologies/playwright-utils';
+import { test } from '../support/merged-fixtures';
+
+test('works', async ({ apiRequest }) => {
+  await log.step('Making request'); // Direct import — always works
+});
+```
