@@ -816,8 +816,8 @@ class ClaudeSDKProvider(BaseProvider):
             # Re-raise ProviderError (e.g., "No response received")
             raise
         except Exception as e:
-            # Check if this is a timeout-related error that should be retryable
             error_str = str(e).lower()
+            # Check if this is a timeout-related error that should be retryable
             if "timeout" in error_str or "control request timeout" in error_str:
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
                 # Include captured stderr for diagnostics
@@ -836,6 +836,17 @@ class ClaudeSDKProvider(BaseProvider):
                     stderr_tail[:500] if stderr_tail else "(none captured)",
                 )
                 raise ProviderTimeoutError(f"SDK timeout: {e}") from e
+            # CLI crash (exit code 1) during message reading is transient —
+            # treat as retryable timeout so invoke_with_timeout_retry can retry
+            if "exit code" in error_str or "command failed" in error_str:
+                logger.warning(
+                    "SDK CLI crash (transient): model=%s, error=%s",
+                    effective_model,
+                    str(e)[:200],
+                )
+                raise ProviderTimeoutError(
+                    f"SDK CLI crash (retryable): {e}"
+                ) from e
             # Catch any unexpected exception and wrap in ProviderError
             # NO FALLBACK - error propagates immediately
             logger.error("Unexpected SDK error: %s", e)

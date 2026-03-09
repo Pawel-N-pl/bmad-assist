@@ -515,9 +515,13 @@ def parse_evidence_findings(
 
     # If no findings and no clean passes and no score, return None
     if not findings and clean_passes == 0 and parsed_score is None:
+        # Log snippet of content for format diagnosis
+        snippet = content[:300].replace("\n", " ").strip() if content else "(empty)"
         logger.warning(
-            "Failed to parse Evidence Score from %s: no findings, clean passes, or score found",
+            "Failed to parse Evidence Score from %s: no findings, clean passes, "
+            "or score found. Content preview: %.300s",
             validator_id,
+            snippet,
         )
         return None
 

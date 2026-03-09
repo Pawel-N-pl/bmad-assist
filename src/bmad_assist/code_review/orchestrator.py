@@ -46,6 +46,7 @@ from bmad_assist.benchmarking import (
 from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.config import Config, get_phase_retries, get_phase_timeout
+from bmad_assist.core.config.models.features import ToolGuardConfig
 from bmad_assist.core.config.loaders import parse_parallel_delay
 from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
@@ -299,6 +300,7 @@ async def _invoke_reviewer(
     provider_name: str | None = None,
     thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    tool_guard_config: ToolGuardConfig | None = None,
 ) -> tuple[str, ValidationOutput | None, DeterministicMetrics | None, str | None]:
     """Invoke a single reviewer using asyncio.to_thread.
 
@@ -335,7 +337,14 @@ async def _invoke_reviewer(
         # Per-provider guard for multi-LLM independence
         from bmad_assist.providers.tool_guard import ToolCallGuard
 
-        guard = ToolCallGuard()
+        if tool_guard_config is not None:
+            guard = ToolCallGuard(
+                max_total_calls=tool_guard_config.max_total_calls,
+                max_interactions_per_file=tool_guard_config.max_interactions_per_file,
+                max_calls_per_minute=tool_guard_config.max_calls_per_minute,
+            )
+        else:
+            guard = ToolCallGuard()
 
         # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
         fallback_invoke_fn = None
@@ -776,6 +785,7 @@ async def run_code_review_phase(
             provider_name=multi_config.provider,
             thinking=multi_config.thinking,
             reasoning_effort=multi_config.reasoning_effort,
+            tool_guard_config=config.tool_guard,
         )
         task = asyncio.create_task(delayed_invoke(delay, coro))
         tasks.append(task)
@@ -806,6 +816,7 @@ async def run_code_review_phase(
             cwd=project_path,
             display_model=config.providers.master.display_model,
             provider_name=config.providers.master.provider,
+            tool_guard_config=config.tool_guard,
         )
         master_task = asyncio.create_task(delayed_invoke(master_delay, master_coro))
         tasks.append(master_task)
