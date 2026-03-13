@@ -358,7 +358,7 @@ class ContextBuilder:
             self._add_file(single_epic_file, PRIORITY_EPIC)
             logger.debug("Added single epic file: %s", single_epic_file)
         else:
-            logger.warning("No epic files found for epic %s", epic_num)
+            logger.debug("No epic files found for epic %s (epics may be loaded from sharded loader)", epic_num)
 
         return self
 

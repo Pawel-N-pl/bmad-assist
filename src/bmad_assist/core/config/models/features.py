@@ -100,7 +100,7 @@ class ToolGuardConfig(BaseModel):
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     max_interactions_per_file: int = Field(
-        default=15,
+        default=25,
         ge=1,
         description="Max combined read+write+edit per file path",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
