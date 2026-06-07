@@ -1,5 +1,18 @@
 # bmad-assist
 
+> [!WARNING]
+> ## 🪦 This project is no longer maintained
+>
+> **bmad-assist** is in **end-of-life** status. It was a solo project and only works with BMAD **v6.0.0-alpha.22** (an early alpha release). It still runs against that version, but will receive **no further updates, fixes, or support**.
+>
+> Active development has moved to its spiritual successor:
+>
+> ### 👉 [**bmad-automator**](https://github.com/bmad-code-org/bmad-automator)
+>
+> A **skills-based**, **community-maintained** tool that works with the **latest BMAD versions**. If you're starting out or migrating, use that instead.
+>
+> *This repository stays online for posterity and reference. Huge thanks to everyone who used it, forked it, filed issues, and sent PRs. 🙏*
+
 CLI tool that reads your project documentation (PRD, architecture, epics) and implements it story by story using multiple LLMs. Built on the [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) methodology.
 
 ## What does it do?

@@ -2,6 +2,19 @@
 
 All notable changes to bmad-assist are documented in this file.
 
+## [End of Life] - 2026-06-07
+
+**bmad-assist is now deprecated and no longer maintained.**
+
+This project was a solo effort built against BMAD **v6.0.0-alpha.22** (an early alpha).
+It still works with that version but will receive no further updates, fixes, or support. Active
+development has moved to its skills-based, community-maintained successor:
+**[bmad-automator](https://github.com/bmad-code-org/bmad-automator)**.
+
+See [`DEPRECATED.md`](./DEPRECATED.md) for the full notice and migration guidance.
+
+`v0.4.34` is the final release. Thanks to everyone who used and contributed to the project. 🙏
+
 ## [0.4.34] - 2026-03-07
 
 ### Added
