@@ -227,6 +227,14 @@ def extract_antipatterns(
         # Flush any remaining block
         _flush_block()
 
+    if section_match and not issues:
+        logger.debug(
+            "Issues Verified section found but 0 items extracted for story %s "
+            "(section length: %d chars)",
+            story_id,
+            len(section_match.group(0)),
+        )
+
     # --- Also extract dismissed findings (false positives) as severity="dismissed" ---
     # Idea credit: @derron1 (GitHub PR #39)
     dismissed_section = DISMISSED_SECTION_PATTERN.search(synthesis_content)

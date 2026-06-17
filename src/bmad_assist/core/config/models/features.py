@@ -86,7 +86,16 @@ class ToolGuardConfig(BaseModel):
 
     Attributes:
         max_total_calls: Hard cap on total tool calls per invocation.
+        max_total_calls_per_phase: Optional per-phase overrides for
+            ``max_total_calls``. e.g. ``{"dev_story": 600}``. Phases not
+            listed fall back to ``max_total_calls``. Useful because
+            dev_story legitimately needs more tool calls than e.g. a
+            validation or review phase.
         max_interactions_per_file: Max combined read+write+edit per file path.
+        max_interactions_per_file_trimmed: Elevated per-file cap for files
+            that were budget-trimmed out of the prompt context. Such files
+            must be read via tool calls, so they need a higher cap. None
+            means "auto: 2x max_interactions_per_file".
         max_calls_per_minute: Sliding-window rate cap (calls per 60s).
 
     """
@@ -99,16 +108,122 @@ class ToolGuardConfig(BaseModel):
         description="Hard cap on total tool calls per invocation",
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
+    max_total_calls_per_phase: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Per-phase overrides for max_total_calls. Keys are phase names "
+            '(e.g. "dev_story", "create_story"), values are the total-call '
+            "cap for that phase. Phases not listed use max_total_calls."
+        ),
+        json_schema_extra={"security": "safe", "ui_widget": "object"},
+    )
     max_interactions_per_file: int = Field(
-        default=15,
+        default=40,
         ge=1,
         description="Max combined read+write+edit per file path",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+    max_interactions_per_file_trimmed: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Elevated per-file cap for files that were budget-trimmed out of "
+            "the prompt context (model must read them via tools). None = auto, "
+            "uses 2x max_interactions_per_file."
+        ),
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
     max_calls_per_minute: int = Field(
         default=90,
         ge=1,
         description="Sliding-window rate cap (calls per 60s)",
+        json_schema_extra={"security": "safe", "ui_widget": "number"},
+    )
+
+    def get_elevated_file_cap(self) -> int:
+        """Resolve the elevated per-file cap.
+
+        Returns max_interactions_per_file_trimmed when set, otherwise auto:
+        2 * max_interactions_per_file.
+
+        Returns:
+            Effective elevated per-file interaction cap.
+
+        """
+        if self.max_interactions_per_file_trimmed is not None:
+            return self.max_interactions_per_file_trimmed
+        return self.max_interactions_per_file * 2
+
+    def get_max_total_calls(self, phase: str) -> int:
+        """Resolve max_total_calls for a specific phase.
+
+        Normalizes hyphens to underscores so callers can pass either
+        ``"dev_story"`` or ``"dev-story"``. Falls back to
+        ``max_total_calls`` for phases without an explicit override.
+
+        Args:
+            phase: Phase name (e.g. "dev_story", "code_review").
+
+        Returns:
+            Per-phase cap when configured, otherwise the global default.
+
+        """
+        normalized = phase.replace("-", "_")
+        override = self.max_total_calls_per_phase.get(normalized)
+        if override is not None:
+            if override < 1:
+                # Treat a misconfigured 0/negative as "use default" rather
+                # than throwing — the guard constructor validates >=1
+                # separately and would otherwise crash the run.
+                return self.max_total_calls
+            return override
+        return self.max_total_calls
+
+
+class GitConfig(BaseModel):
+    """Git diff handling configuration.
+
+    Controls how bmad-assist filters and validates diffs for code review.
+
+    Attributes:
+        garbage_exclude_paths: Additional file paths or glob-style patterns
+            that the diff-quality validator must NOT classify as "garbage".
+            Use this to whitelist tracked files like ".opencode/package-lock.json"
+            that legitimately appear in your diffs.
+        garbage_extra_patterns: Additional regex patterns to classify as
+            garbage (appended to the built-in list). Use this when your repo
+            generates files the defaults don't cover.
+        max_garbage_ratio: Maximum allowed ratio of garbage files in a diff
+            before the validator flags it (0.0-1.0).
+
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    garbage_exclude_paths: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Repo-relative paths or glob patterns to whitelist from garbage "
+            "detection. E.g. ['.opencode/package-lock.json', 'vendor/*.lock']."
+        ),
+        json_schema_extra={"security": "safe", "ui_widget": "list"},
+    )
+    garbage_extra_patterns: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Additional regex patterns to classify as garbage (appended to "
+            "the built-in list)."
+        ),
+        json_schema_extra={"security": "safe", "ui_widget": "list"},
+    )
+    max_garbage_ratio: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Max ratio of garbage files in a diff before the validator flags "
+            "it. 0.0-1.0."
+        ),
         json_schema_extra={"security": "safe", "ui_widget": "number"},
     )
 

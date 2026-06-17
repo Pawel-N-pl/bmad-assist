@@ -820,3 +820,201 @@ class TestClaudeSDKIntegration:
 
         assert query is not None
         assert ClaudeAgentOptions is not None
+
+
+# =============================================================================
+# Model logging mismatch (Fix #2) and SDK stderr capture (Fix #3)
+# =============================================================================
+#
+# When invoking the claude SDK with display_model="glm-5.1" but underlying
+# model="opus" (e.g. via ~/.claude/glm.json settings file), the crash log
+# used to emit "model=opus" — confusing operators who configured glm-5.1.
+# After Fix #2, the log includes both display and SDK model when they
+# differ. Fix #3 also dumps captured CLI stderr to a per-run debug file.
+
+
+class TestSdkCrashLogIncludesDisplayModel:
+    """Crash warnings must surface the user-visible display model."""
+
+    @pytest.fixture
+    def provider(self) -> ClaudeSDKProvider:
+        return ClaudeSDKProvider()
+
+    def test_cli_crash_log_uses_display_model_when_different(
+        self, provider: ClaudeSDKProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """When display_model differs from the SDK model, log both."""
+        import logging
+
+        # Simulate the bundled SDK raising the exact exception bmad-assist
+        # was getting in production: "Command failed with exit code 1".
+        async_mock = AsyncMock(side_effect=Exception("Command failed with exit code 1"))
+        with (
+            patch.object(provider, "_invoke_async", async_mock),
+            caplog.at_level(logging.WARNING, logger="bmad_assist.providers.claude_sdk"),
+        ):
+            with pytest.raises(ProviderTimeoutError):
+                provider.invoke("Hello", model="opus", display_model="glm-5.1")
+
+        # Crash warning must mention BOTH glm-5.1 (user-facing) and opus
+        # (sdk model bound under the hood) — operators searching their
+        # config for "glm-5.1" must find a hit.
+        crash_warnings = [
+            r for r in caplog.records if "SDK CLI crash" in r.getMessage()
+        ]
+        assert crash_warnings, "expected SDK CLI crash warning"
+        msg = crash_warnings[-1].getMessage()
+        assert "glm-5.1" in msg
+        assert "sdk_model=opus" in msg
+
+    def test_cli_crash_log_omits_sdk_model_when_same(
+        self, provider: ClaudeSDKProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No display_model override → log just the model, no sdk_model= suffix."""
+        import logging
+
+        async_mock = AsyncMock(side_effect=Exception("Command failed with exit code 1"))
+        with (
+            patch.object(provider, "_invoke_async", async_mock),
+            caplog.at_level(logging.WARNING, logger="bmad_assist.providers.claude_sdk"),
+        ):
+            with pytest.raises(ProviderTimeoutError):
+                provider.invoke("Hello", model="opus")  # no display_model
+
+        crash_warnings = [
+            r for r in caplog.records if "SDK CLI crash" in r.getMessage()
+        ]
+        assert crash_warnings
+        msg = crash_warnings[-1].getMessage()
+        assert "opus" in msg
+        # No display_model override → don't add sdk_model= noise.
+        assert "sdk_model=" not in msg
+
+
+class TestSdkStderrCaptureToDebugFile:
+    """SDK CLI stderr is dumped to a per-run debug file on crash."""
+
+    @pytest.fixture
+    def provider(self) -> ClaudeSDKProvider:
+        return ClaudeSDKProvider()
+
+    def test_dump_stderr_writes_debug_file_when_run_dir_exists(
+        self, provider: ClaudeSDKProvider, tmp_path: Path
+    ) -> None:
+        """When a run-scoped dir is active, _dump_stderr_debug_log writes a file."""
+        from bmad_assist.core import io as core_io
+
+        # Seed thread-local run dir
+        original = getattr(core_io._run_context, "prompts_dir", None)
+        try:
+            run_dir = tmp_path / "run-test"
+            core_io._run_context.prompts_dir = run_dir
+
+            provider._last_stderr_lines = [
+                "node:internal/process/promises:391\n",
+                "    triggerUncaughtException(err, true);\n",
+                "    ^\n",
+                "Error: ENOMEM: not enough memory\n",
+            ]
+            provider._dump_stderr_debug_log(
+                shown_model="glm-5.1",
+                effective_model="opus",
+                error="Command failed with exit code 1",
+            )
+
+            assert run_dir.exists()
+            dumps = list(run_dir.glob("sdk-stderr-*.log"))
+            assert len(dumps) == 1
+            content = dumps[0].read_text()
+            assert "display_model: glm-5.1" in content
+            assert "effective_model: opus" in content
+            assert "ENOMEM" in content
+            assert "stderr_lines_captured: 4" in content
+        finally:
+            if original is None:
+                if hasattr(core_io._run_context, "prompts_dir"):
+                    delattr(core_io._run_context, "prompts_dir")
+            else:
+                core_io._run_context.prompts_dir = original
+
+    def test_dump_stderr_no_run_dir_is_silent(
+        self, provider: ClaudeSDKProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Outside a run (e.g. unit tests), no orphan files are written."""
+        from bmad_assist.core import io as core_io
+
+        original = getattr(core_io._run_context, "prompts_dir", None)
+        try:
+            if hasattr(core_io._run_context, "prompts_dir"):
+                delattr(core_io._run_context, "prompts_dir")
+
+            provider._last_stderr_lines = ["err\n"]
+            # Must not raise even with no run dir set.
+            provider._dump_stderr_debug_log(
+                shown_model="opus",
+                effective_model="opus",
+                error="boom",
+            )
+        finally:
+            if original is not None:
+                core_io._run_context.prompts_dir = original
+
+    def test_dump_stderr_swallows_write_errors(
+        self, provider: ClaudeSDKProvider, tmp_path: Path
+    ) -> None:
+        """Diagnostic dumping must never mask the original error."""
+        from bmad_assist.core import io as core_io
+
+        # Point run dir at a path that can't be created (file collision).
+        blocker = tmp_path / "blocked"
+        blocker.write_text("not a directory")
+
+        original = getattr(core_io._run_context, "prompts_dir", None)
+        try:
+            core_io._run_context.prompts_dir = blocker / "subdir"
+            provider._last_stderr_lines = ["err\n"]
+            # Must not raise even though mkdir/write will fail.
+            provider._dump_stderr_debug_log(
+                shown_model="opus",
+                effective_model="opus",
+                error="boom",
+            )
+        finally:
+            if original is None:
+                if hasattr(core_io._run_context, "prompts_dir"):
+                    delattr(core_io._run_context, "prompts_dir")
+            else:
+                core_io._run_context.prompts_dir = original
+
+
+class TestGetCurrentRunDir:
+    """Public accessor for the run-scoped prompts directory."""
+
+    def test_returns_none_when_no_run_active(self) -> None:
+        from bmad_assist.core import io as core_io
+        from bmad_assist.core.io import get_current_run_dir
+
+        original = getattr(core_io._run_context, "prompts_dir", None)
+        try:
+            if hasattr(core_io._run_context, "prompts_dir"):
+                delattr(core_io._run_context, "prompts_dir")
+            assert get_current_run_dir() is None
+        finally:
+            if original is not None:
+                core_io._run_context.prompts_dir = original
+
+    def test_returns_active_run_dir(self, tmp_path: Path) -> None:
+        from bmad_assist.core import io as core_io
+        from bmad_assist.core.io import get_current_run_dir
+
+        original = getattr(core_io._run_context, "prompts_dir", None)
+        try:
+            run_dir = tmp_path / "run-abc"
+            core_io._run_context.prompts_dir = run_dir
+            assert get_current_run_dir() == run_dir
+        finally:
+            if original is None:
+                if hasattr(core_io._run_context, "prompts_dir"):
+                    delattr(core_io._run_context, "prompts_dir")
+            else:
+                core_io._run_context.prompts_dir = original

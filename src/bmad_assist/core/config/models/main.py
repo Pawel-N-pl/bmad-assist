@@ -9,6 +9,7 @@ from bmad_assist.core.config.models.features import (
     AntipatternConfig,
     BenchmarkingConfig,
     CompilerConfig,
+    GitConfig,
     QAConfig,
     TimeoutsConfig,
     ToolGuardConfig,
@@ -149,6 +150,10 @@ class Config(BaseModel):
     tool_guard: ToolGuardConfig = Field(
         default_factory=ToolGuardConfig,
         description="ToolCallGuard watchdog thresholds (optional)",
+    )
+    git: GitConfig = Field(
+        default_factory=GitConfig,
+        description="Git diff handling configuration (garbage detection, etc.)",
     )
 
     @model_validator(mode="before")

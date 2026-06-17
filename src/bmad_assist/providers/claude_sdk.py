@@ -160,6 +160,72 @@ class ClaudeSDKProvider(BaseProvider):
         """
         return model in SUPPORTED_MODELS or model.startswith("claude-")
 
+    def _dump_stderr_debug_log(
+        self,
+        shown_model: str,
+        effective_model: str,
+        error: str,
+    ) -> None:
+        """Write captured SDK subprocess stderr + error to a per-run debug file.
+
+        The bundled claude-agent-sdk raises Exception("Command failed with exit
+        code 1: Check stderr output for details") with the literal string — the
+        actual stderr from the subprocess is only surfaced via the `stderr`
+        callback we passed to ClaudeAgentOptions, collected in
+        `self._last_stderr_lines`. This helper persists those lines (plus the
+        original error) to a timestamped file next to the run's prompts so
+        operators can diagnose the crash.
+
+        Writes on best-effort basis — failures to write are swallowed (we are
+        already in an error path and must not mask the original exception).
+
+        Args:
+            shown_model: Display model (user-visible name, e.g. "glm-5.1").
+            effective_model: Underlying Claude model the SDK was bound to.
+            error: str(exception) from the caught SDK failure.
+
+        """
+        try:
+            from bmad_assist.core.io import get_current_run_dir, get_timestamp
+
+            stderr_lines: list[str] = list(
+                getattr(self, "_last_stderr_lines", []) or []
+            )
+            # Nothing useful to dump and no error context worth saving
+            if not stderr_lines and not error:
+                return
+
+            run_dir = get_current_run_dir()
+            if run_dir is None:
+                # Outside a bmad-assist run (unit tests, ad-hoc invocation).
+                # Fall back to CLAUDE_SDK_DEBUG-controlled logging only — don't
+                # create orphan debug files in unknown locations.
+                logger.debug(
+                    "SDK crash stderr (no run dir): lines=%d, error=%s",
+                    len(stderr_lines),
+                    error[:200],
+                )
+                return
+
+            run_dir.mkdir(parents=True, exist_ok=True)
+            ts = get_timestamp()
+            debug_file = run_dir / f"sdk-stderr-{ts}.log"
+            header = (
+                f"# Claude SDK crash diagnostic\n"
+                f"# timestamp: {ts}\n"
+                f"# display_model: {shown_model}\n"
+                f"# effective_model: {effective_model}\n"
+                f"# stderr_lines_captured: {len(stderr_lines)}\n"
+                f"# error: {error[:500]}\n"
+                f"# ---\n"
+            )
+            body = "".join(stderr_lines) if stderr_lines else "(no stderr captured)\n"
+            debug_file.write_text(header + body, encoding="utf-8")
+            logger.info("SDK crash diagnostic written to %s", debug_file)
+        except Exception as dump_err:  # pragma: no cover - defensive
+            # Never let diagnostic dumping mask the original error
+            logger.debug("Failed to write SDK stderr debug log: %s", dump_err)
+
     def _resolve_settings(
         self,
         settings_file: Path | None,
@@ -394,6 +460,12 @@ class ClaudeSDKProvider(BaseProvider):
                     cli_path or "sdk-default",
                     len(self._last_stderr_lines),
                     stderr_tail[:300] if stderr_tail else "(none captured)",
+                )
+                # Persist full stderr to per-run debug file for post-mortem
+                self._dump_stderr_debug_log(
+                    shown_model=shown_model,
+                    effective_model=model,
+                    error=f"SDK initialization timeout ({init_timeout}s)",
                 )
                 # Remember failure timestamp — SDK will be retried after cooldown
                 global _sdk_init_failed_at
@@ -816,29 +888,58 @@ class ClaudeSDKProvider(BaseProvider):
             # Re-raise ProviderError (e.g., "No response received")
             raise
         except Exception as e:
-            # Check if this is a timeout-related error that should be retryable
             error_str = str(e).lower()
+            # Log display model (user-visible) + underlying model when they differ,
+            # e.g. display_model="glm-5.1" but effective_model="opus" when pointed
+            # at a non-Anthropic endpoint via ~/.claude/glm.json settings file.
+            model_label = (
+                f"{shown_model} (sdk_model={effective_model})"
+                if shown_model != effective_model
+                else shown_model
+            )
+            # Capture stderr tail once for reuse across error branches.
+            stderr_tail = ""
+            if hasattr(self, "_last_stderr_lines") and self._last_stderr_lines:
+                stderr_tail = "; ".join(
+                    line.rstrip() for line in self._last_stderr_lines[-10:]
+                )
+            # Also dump full stderr to the per-run debug log so operators can
+            # diagnose "Command failed with exit code 1: (empty)" crashes.
+            self._dump_stderr_debug_log(
+                shown_model=shown_model,
+                effective_model=effective_model,
+                error=str(e),
+            )
+            # Check if this is a timeout-related error that should be retryable
             if "timeout" in error_str or "control request timeout" in error_str:
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
-                # Include captured stderr for diagnostics
-                stderr_tail = ""
-                if hasattr(self, "_last_stderr_lines") and self._last_stderr_lines:
-                    stderr_tail = "; ".join(
-                        line.rstrip() for line in self._last_stderr_lines[-10:]
-                    )
                 logger.warning(
                     "SDK initialization timeout: model=%s, duration_ms=%d, error=%s, "
                     "stderr_lines=%d, stderr_tail=%s",
-                    effective_model,
+                    model_label,
                     duration_ms,
                     str(e)[:100],
                     len(getattr(self, "_last_stderr_lines", [])),
                     stderr_tail[:500] if stderr_tail else "(none captured)",
                 )
                 raise ProviderTimeoutError(f"SDK timeout: {e}") from e
+            # CLI crash (exit code 1) during message reading is transient —
+            # treat as retryable timeout so invoke_with_timeout_retry can retry
+            if "exit code" in error_str or "command failed" in error_str:
+                logger.warning(
+                    "SDK CLI crash (transient): model=%s, error=%s, "
+                    "stderr_lines=%d, stderr_tail=%s",
+                    model_label,
+                    str(e)[:200],
+                    len(getattr(self, "_last_stderr_lines", [])),
+                    stderr_tail[:500] if stderr_tail else "(none captured)",
+                )
+                raise ProviderTimeoutError(
+                    f"SDK CLI crash (retryable): {e}"
+                ) from e
             # Catch any unexpected exception and wrap in ProviderError
             # NO FALLBACK - error propagates immediately
-            logger.error("Unexpected SDK error: %s", e)
+            logger.error("Unexpected SDK error (model=%s): %s", model_label, e)
             raise ProviderError(f"Unexpected SDK error: {e}") from e
 
         duration_ms = int((time.perf_counter() - start_time) * 1000)

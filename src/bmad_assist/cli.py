@@ -37,7 +37,11 @@ from bmad_assist.core.config_generator import run_config_wizard
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop import LoopExitReason, run_loop
-from bmad_assist.core.loop.interactive import set_non_interactive, set_skip_story_prompts
+from bmad_assist.core.loop.interactive import (
+    set_backfill_enabled,
+    set_non_interactive,
+    set_skip_story_prompts,
+)
 from bmad_assist.core.paths import init_paths
 from bmad_assist.core.state import Phase, get_state_path, load_state, save_state, update_position
 from bmad_assist.core.types import EpicId, epic_sort_key, parse_epic_id
@@ -266,6 +270,11 @@ def run(
         "--skip-story-prompts",
         help="Skip continuation prompts between stories (but still prompt at epic boundaries)",
     ),
+    backfill: bool = typer.Option(
+        False,
+        "--backfill",
+        help="After current story, implement missed/skipped stories before continuing forward",
+    ),
     debug: bool = typer.Option(
         False,
         "--debug",
@@ -378,6 +387,10 @@ def run(
     # Set skip-story-prompts mode if flag is passed
     if skip_story_prompts:
         set_skip_story_prompts(True)
+
+    # Set backfill mode if flag is passed
+    if backfill:
+        set_backfill_enabled(True)
 
     # Set environment variables for flags
     if debug_jsonl:

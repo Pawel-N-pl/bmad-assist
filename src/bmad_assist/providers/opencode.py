@@ -60,6 +60,65 @@ logger = logging.getLogger(__name__)
 # Default timeout in seconds (5 minutes)
 DEFAULT_TIMEOUT: int = 300
 
+# Output-idle watchdog: if the subprocess produces NO bytes for this many
+# seconds, kill it early and raise ProviderTimeoutError. Complements the
+# hard wall-clock timeout — without this, a silently-stuck CLI (observed
+# with opencode/glm-5.1 producing no output for 30 minutes) wastes the
+# full ``timeout`` before recovery. Override with env var
+# ``BMAD_PROVIDER_IDLE_TIMEOUT`` (seconds); set to 0 to disable.
+_DEFAULT_IDLE_TIMEOUT_SECONDS: float = 300.0
+
+# How often to check the idle timestamp while waiting for the subprocess.
+_IDLE_POLL_INTERVAL_SECONDS: float = 5.0
+
+
+def _resolve_idle_timeout() -> float:
+    """Resolve the output-idle timeout from env var, falling back to default.
+
+    Returns 0.0 to disable the watchdog (in which case the main wait
+    loop still polls but never fires an idle timeout).
+    """
+    raw = os.environ.get("BMAD_PROVIDER_IDLE_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_IDLE_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid BMAD_PROVIDER_IDLE_TIMEOUT=%r (expected float), using default %ss",
+            raw,
+            _DEFAULT_IDLE_TIMEOUT_SECONDS,
+        )
+        return _DEFAULT_IDLE_TIMEOUT_SECONDS
+    return max(0.0, value)
+
+
+class _IdleTracker:
+    """Thread-safe "last activity" timestamp for the output-idle watchdog.
+
+    Reader threads call :meth:`mark` on every byte/line received from the
+    subprocess. The main thread periodically checks :meth:`idle_for` and
+    kills the subprocess if it exceeds the configured idle timeout.
+
+    Python's GIL makes single float assignment atomic, so a lock isn't
+    strictly required — but using one keeps the semantics explicit and
+    future-proofs against GIL-free builds.
+    """
+
+    def __init__(self) -> None:
+        self._last_at: float = time.monotonic()
+        self._lock = threading.Lock()
+
+    def mark(self) -> None:
+        """Record that activity happened right now."""
+        with self._lock:
+            self._last_at = time.monotonic()
+
+    def idle_for(self) -> float:
+        """Return seconds since the last marked activity."""
+        with self._lock:
+            return time.monotonic() - self._last_at
+
 # Maximum prompt length in error messages before truncation
 PROMPT_TRUNCATE_LENGTH: int = 100
 
@@ -428,11 +487,18 @@ class OpenCodeProvider(BaseProvider):
                     text_parts: list[str],
                     json_logger: DebugJsonLogger,
                     color_idx: int | None,
+                    idle_tracker: _IdleTracker,
                 ) -> None:
                     """Process OpenCode stream-json output, extracting text and logging."""
                     nonlocal session_id
                     warned_tools: set[str] = set()  # Dedupe restricted tool warnings
                     for line in iter(stream.readline, ""):
+                        # Any byte from the CLI counts as activity — reset
+                        # the idle watchdog BEFORE processing so even empty
+                        # lines (which we skip below) still keep the
+                        # watchdog alive during a legitimate slow start.
+                        idle_tracker.mark()
+
                         stripped = line.strip()
                         if not stripped:
                             continue
@@ -534,9 +600,13 @@ class OpenCodeProvider(BaseProvider):
                     stream: Any,
                     chunks: list[str],
                     color_idx: int | None,
+                    idle_tracker: _IdleTracker,
                 ) -> None:
                     """Read stderr stream."""
                     for line in iter(stream.readline, ""):
+                        # stderr activity counts for the idle watchdog too
+                        # (e.g. auth errors, diagnostic logs).
+                        idle_tracker.mark()
                         chunks.append(line)
                         if should_print_progress():
                             stripped = line.rstrip()
@@ -553,6 +623,12 @@ class OpenCodeProvider(BaseProvider):
                     assert guard_kill_event is not None and guard_done_event is not None
                     guard_monitor = start_guard_monitor(process, guard_kill_event, guard_done_event)
 
+                # Output-idle watchdog: reader threads mark() on every byte
+                # received, and the main wait loop below polls idle_for()
+                # to kill a silently-stuck CLI early.
+                idle_tracker = _IdleTracker()
+                idle_timeout = _resolve_idle_timeout()
+
                 # Start reader threads
                 stdout_thread = threading.Thread(
                     target=process_json_stream,
@@ -561,11 +637,12 @@ class OpenCodeProvider(BaseProvider):
                         response_text_parts,
                         debug_json_logger,
                         color_index,
+                        idle_tracker,
                     ),
                 )
                 stderr_thread = threading.Thread(
                     target=read_stderr,
-                    args=(process.stderr, stderr_chunks, color_index),
+                    args=(process.stderr, stderr_chunks, color_index, idle_tracker),
                 )
                 stdout_thread.start()
                 stderr_thread.start()
@@ -579,10 +656,52 @@ class OpenCodeProvider(BaseProvider):
                     tag = format_tag("WAITING", color_index)
                     write_progress(f"{tag} Streaming response...")
 
-                # Wait for process with timeout
-                try:
-                    returncode = process.wait(timeout=effective_timeout)
-                except TimeoutExpired:
+                # Wait for process: two paths.
+                #
+                # 1. Short timeouts (timeout <= idle_timeout) OR watchdog
+                #    disabled: single-shot ``process.wait(timeout)``. The
+                #    idle watchdog can't physically fire in this regime
+                #    because the hard timeout wins first, so the polling
+                #    loop adds no value and would interfere with test
+                #    fixtures that mock ``wait`` to raise TimeoutExpired
+                #    immediately.
+                #
+                # 2. Long timeouts with idle watchdog enabled: poll every
+                #    _IDLE_POLL_INTERVAL_SECONDS. On each TimeoutExpired
+                #    from the inner wait:
+                #    - If total elapsed >= effective_timeout: hard.
+                #    - Else if idle_for() >= idle_timeout: early-kill
+                #      with reason="idle". Recovers minutes-faster from
+                #      silently-stuck CLIs (the observed failure mode).
+                timeout_reason: str | None = None
+                use_idle_polling = (
+                    idle_timeout > 0 and effective_timeout > idle_timeout
+                )
+                if not use_idle_polling:
+                    try:
+                        returncode = process.wait(timeout=effective_timeout)
+                    except TimeoutExpired:
+                        timeout_reason = "hard"
+                else:
+                    wait_start = time.perf_counter()
+                    while True:
+                        try:
+                            returncode = process.wait(
+                                timeout=_IDLE_POLL_INTERVAL_SECONDS
+                            )
+                            break
+                        except TimeoutExpired:
+                            elapsed = time.perf_counter() - wait_start
+                            if elapsed >= effective_timeout:
+                                timeout_reason = "hard"
+                                break
+                            if idle_tracker.idle_for() >= idle_timeout:
+                                timeout_reason = "idle"
+                                break
+                            # Still within budget; keep waiting.
+                            continue
+
+                if timeout_reason is not None:
                     process.kill()
                     # Join threads with timeout - should terminate quickly after kill
                     stdout_thread.join(timeout=2)
@@ -606,6 +725,25 @@ class OpenCodeProvider(BaseProvider):
                         model=effective_model,
                         command=tuple(command),
                     )
+
+                    if timeout_reason == "idle":
+                        idle_seconds = idle_tracker.idle_for()
+                        logger.warning(
+                            "Provider idle-timeout: provider=%s, model=%s, "
+                            "idle_for=%.1fs, limit=%.0fs, duration_ms=%d, prompt=%s",
+                            self.provider_name,
+                            effective_model,
+                            idle_seconds,
+                            idle_timeout,
+                            duration_ms,
+                            truncated,
+                        )
+                        raise ProviderTimeoutError(
+                            f"OpenCode CLI produced no output for "
+                            f"{idle_seconds:.0f}s (idle-timeout limit "
+                            f"{idle_timeout:.0f}s): {truncated}",
+                            partial_result=partial_result,
+                        ) from None
 
                     logger.warning(
                         "Provider timeout: provider=%s, model=%s, timeout=%ds, "

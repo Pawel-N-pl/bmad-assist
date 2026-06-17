@@ -208,6 +208,12 @@ class HelperProviderConfig(BaseModel):
         description="Model identifier for CLI: haiku, sonnet, etc.",
         json_schema_extra={"security": "risky", "ui_widget": "dropdown"},
     )
+    timeout: int = Field(
+        default=120,
+        ge=10,
+        description="Timeout in seconds for helper LLM calls (eligibility, summarization)",
+        json_schema_extra={"security": "safe", "ui_widget": "number", "unit": "s"},
+    )
     model_name: str | None = Field(
         None,
         description="Display name for model (used in logs/reports instead of model)",

@@ -22,9 +22,10 @@ logger = logging.getLogger(__name__)
 
 # Regex patterns for epic file parsing
 # Pattern: ## Story X.Y: Title (2+ hashes - supports ##, ###, ####, etc.)
+# Supports sub-stories: 10.3a, 10.3a-ii, 10.3a-iii, 10.4b, etc.
 # Note: \s* before colon supports French typographic convention (space before colon)
 STORY_HEADER_PATTERN = re.compile(
-    r"^#{2,}\s+Story\s+(\d+)\.(\d+)\s*:\s+(.+)$",
+    r"^#{2,}\s+Story\s+(\d+)\.([\w]+(?:-[\w]+)*)\s*:\s+(.+)$",
     re.MULTILINE,
 )
 
@@ -53,7 +54,7 @@ DEPENDENCIES_PATTERN = re.compile(
 )
 
 # Pattern to extract story numbers from dependencies
-STORY_NUMBER_PATTERN = re.compile(r"(\d+\.\d+)")
+STORY_NUMBER_PATTERN = re.compile(r"(\d+\.[\w]+(?:-[\w]+)*)")
 
 # Pattern for non-standard dependency codes like PRSP-5-1, REFACTOR-2-1
 NON_STANDARD_DEP_PATTERN = re.compile(r"([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)", re.IGNORECASE)

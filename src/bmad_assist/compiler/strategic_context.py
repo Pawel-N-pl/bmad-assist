@@ -300,7 +300,7 @@ def _compress_or_truncate(
             f"Output ONLY the compressed document, no preamble.\n\n"
             f"---\n{content}\n---"
         )
-        result = provider.invoke(prompt, model=helper.model, timeout=120)
+        result = provider.invoke(prompt, model=helper.model, timeout=helper.timeout)
         compressed = provider.parse_output(result).strip()
         actual = estimate_tokens(compressed)
 

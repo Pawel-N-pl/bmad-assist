@@ -110,10 +110,28 @@ def _capture_git_diff(context: CompilerContext) -> str:
         # - P0: Path filtering (excludes cache, metadata, node_modules, etc.)
         # - P0: Merge-base detection (handles merge commits correctly)
         # - P1: Quality validation (warns if garbage ratio too high)
+        # User-configurable garbage detection: load from config (best-effort,
+        # fall back to defaults if config isn't accessible — e.g. in tests).
+        max_garbage_ratio = 0.3
+        extra_garbage_patterns: tuple[str, ...] = ()
+        exclude_paths: tuple[str, ...] = ()
+        try:
+            from bmad_assist.core.config.loaders import get_config
+
+            git_cfg = get_config().git
+            max_garbage_ratio = git_cfg.max_garbage_ratio
+            extra_garbage_patterns = git_cfg.garbage_extra_patterns
+            exclude_paths = git_cfg.garbage_exclude_paths
+        except Exception:
+            # Config not loaded (tests, ad-hoc invocation) - use defaults
+            pass
+
         diff_content, validation = get_validated_diff(
             project_root,
-            max_garbage_ratio=0.3,
+            max_garbage_ratio=max_garbage_ratio,
             raise_on_invalid=False,  # Warn but don't block
+            extra_garbage_patterns=extra_garbage_patterns,
+            exclude_paths=exclude_paths,
         )
 
         # Log validation results for debugging

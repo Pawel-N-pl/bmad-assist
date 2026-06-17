@@ -369,3 +369,146 @@ class TestGarbagePatternsIncludeBmadPaths:
         result = validate_diff_quality(diff_content)
         assert result.garbage_files == 1
         assert result.source_files == 1
+
+
+# =============================================================================
+# Configurable Garbage Patterns (Fix #4)
+# =============================================================================
+#
+# validate_diff_quality() must accept user-configurable extra patterns and
+# whitelist exclusions so users can control which files count as garbage.
+
+
+class TestConfigurableGarbagePatterns:
+    """User-supplied garbage patterns and exclude paths."""
+
+    def test_exclude_paths_whitelist_default_garbage(self) -> None:
+        """An exclude_paths entry must override default garbage classification.
+
+        The original report: ``.opencode/package-lock.json`` is a tracked
+        file in the user's repo but matches the default ``package-lock.json$``
+        pattern. With it whitelisted, it should count as a source file.
+        """
+        diff_content = (
+            " .opencode/package-lock.json | 200 +++++++++++++++++\n"
+            " src/main.py | 5 +-\n"
+            " 2 files changed\n"
+        )
+        result = validate_diff_quality(
+            diff_content,
+            exclude_paths=[".opencode/package-lock.json"],
+        )
+        assert result.garbage_files == 0
+        assert result.source_files == 2
+        assert result.is_valid is True
+
+    def test_exclude_paths_glob_pattern(self) -> None:
+        """exclude_paths supports fnmatch glob patterns."""
+        diff_content = (
+            " vendor/foo.lock | 10 +\n"
+            " vendor/bar.lock | 5 +\n"
+            " src/main.py | 1 +\n"
+        )
+        result = validate_diff_quality(
+            diff_content,
+            exclude_paths=["vendor/*.lock"],
+        )
+        assert result.garbage_files == 0
+        assert result.source_files == 3
+
+    def test_exclude_paths_basename_match(self) -> None:
+        """Bare basenames in exclude_paths should match by suffix."""
+        diff_content = (
+            " a/b/c/special.lock | 3 +\n"
+            " src/main.py | 1 +\n"
+        )
+        # Bare "special.lock" without glob metachars should match by
+        # path.endswith("/special.lock").
+        result = validate_diff_quality(
+            diff_content,
+            exclude_paths=["special.lock"],
+        )
+        assert result.garbage_files == 0
+
+    def test_extra_garbage_patterns_appended(self) -> None:
+        """extra_garbage_patterns must be appended to the default list."""
+        diff_content = (
+            " src/generated/api.ts | 500 +++++\n"
+            " src/main.py | 5 +-\n"
+        )
+        # Without extra: api.ts is a source file
+        baseline = validate_diff_quality(diff_content)
+        assert baseline.garbage_files == 0
+        # With extra pattern: api.ts becomes garbage
+        with_extra = validate_diff_quality(
+            diff_content,
+            extra_garbage_patterns=[r"src/generated/"],
+        )
+        assert with_extra.garbage_files == 1
+        assert with_extra.source_files == 1
+
+    def test_exclude_takes_priority_over_extra_patterns(self) -> None:
+        """exclude_paths is a whitelist override over extra_garbage_patterns."""
+        diff_content = " src/generated/api.ts | 1 +\n src/main.py | 1 +\n"
+        result = validate_diff_quality(
+            diff_content,
+            extra_garbage_patterns=[r"src/generated/"],
+            exclude_paths=["src/generated/api.ts"],
+        )
+        # Exclude wins → counted as source.
+        assert result.garbage_files == 0
+        assert result.source_files == 2
+
+    def test_default_behavior_unchanged_without_overrides(self) -> None:
+        """No new params → behavior matches the legacy hardcoded list."""
+        diff_content = (
+            " .bmad-assist/state.yaml | 6 +-\n"
+            " package-lock.json | 100 +\n"
+            " src/main.py | 5 +-\n"
+        )
+        result = validate_diff_quality(diff_content)
+        assert result.garbage_files == 2
+        assert result.source_files == 1
+
+
+class TestGitConfigModel:
+    """GitConfig is wired through to the main Config and validates."""
+
+    def test_default_git_config_has_zero_overrides(self) -> None:
+        """Default GitConfig has empty exclude/extra lists and 0.3 ratio."""
+        from bmad_assist.core.config.models.features import GitConfig
+
+        cfg = GitConfig()
+        assert cfg.garbage_exclude_paths == ()
+        assert cfg.garbage_extra_patterns == ()
+        assert cfg.max_garbage_ratio == 0.3
+
+    def test_git_config_round_trip(self) -> None:
+        """Building from dict preserves provided values."""
+        from bmad_assist.core.config.models.features import GitConfig
+
+        cfg = GitConfig(
+            garbage_exclude_paths=(".opencode/package-lock.json",),
+            garbage_extra_patterns=(r"^vendor/",),
+            max_garbage_ratio=0.5,
+        )
+        assert ".opencode/package-lock.json" in cfg.garbage_exclude_paths
+        assert r"^vendor/" in cfg.garbage_extra_patterns
+        assert cfg.max_garbage_ratio == 0.5
+
+    def test_main_config_exposes_git_section(self) -> None:
+        """main.Config aggregates GitConfig under .git."""
+        from bmad_assist.core.config.models.features import GitConfig
+        from bmad_assist.core.config.models.main import Config
+        from bmad_assist.core.config.models.providers import (
+            MasterProviderConfig,
+            ProviderConfig,
+        )
+
+        config = Config(
+            providers=ProviderConfig(
+                master=MasterProviderConfig(provider="claude", model="opus")
+            )
+        )
+        assert isinstance(config.git, GitConfig)
+        assert config.git.max_garbage_ratio == 0.3

@@ -637,3 +637,204 @@ class TestDocstringsExist:
     def test_supports_model_has_docstring(self) -> None:
         """Test supports_model() has docstring."""
         assert OpenCodeProvider.supports_model.__doc__ is not None
+
+
+# =============================================================================
+# Output-idle watchdog (Task 12)
+# =============================================================================
+#
+# When the opencode CLI produces no bytes for idle_timeout seconds, the
+# wait loop must kill it early and raise ProviderTimeoutError with a
+# distinct "idle" message. Without this, a silently-stuck CLI wastes
+# the full hard timeout (observed: 30 minutes on zai-coding-plan/glm-5.1).
+
+import time as _time
+
+from bmad_assist.providers.opencode import (  # noqa: E402
+    _IDLE_POLL_INTERVAL_SECONDS,
+    _DEFAULT_IDLE_TIMEOUT_SECONDS,
+    _IdleTracker,
+    _resolve_idle_timeout,
+)
+
+
+class TestIdleTracker:
+    """_IdleTracker tracks last-activity timestamp for the watchdog."""
+
+    def test_fresh_tracker_has_near_zero_idle(self) -> None:
+        tracker = _IdleTracker()
+        # Small elapsed time between construction and reading is fine.
+        assert tracker.idle_for() < 0.5
+
+    def test_mark_resets_idle(self) -> None:
+        tracker = _IdleTracker()
+        _time.sleep(0.05)
+        assert tracker.idle_for() >= 0.04
+        tracker.mark()
+        assert tracker.idle_for() < 0.02
+
+    def test_idle_for_monotonic_increase(self) -> None:
+        tracker = _IdleTracker()
+        first = tracker.idle_for()
+        _time.sleep(0.02)
+        second = tracker.idle_for()
+        assert second >= first
+
+
+class TestResolveIdleTimeout:
+    """_resolve_idle_timeout honors env var."""
+
+    def test_default_when_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("BMAD_PROVIDER_IDLE_TIMEOUT", raising=False)
+        assert _resolve_idle_timeout() == _DEFAULT_IDLE_TIMEOUT_SECONDS
+
+    def test_explicit_value(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "42.5")
+        assert _resolve_idle_timeout() == 42.5
+
+    def test_zero_disables_watchdog(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "0")
+        assert _resolve_idle_timeout() == 0.0
+
+    def test_negative_clamped_to_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "-5")
+        assert _resolve_idle_timeout() == 0.0
+
+    def test_invalid_value_falls_back_to_default(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging as _logging
+
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "not-a-number")
+        with caplog.at_level(_logging.WARNING, logger="bmad_assist.providers.opencode"):
+            result = _resolve_idle_timeout()
+        assert result == _DEFAULT_IDLE_TIMEOUT_SECONDS
+        assert "Invalid BMAD_PROVIDER_IDLE_TIMEOUT" in caplog.text
+
+
+class TestOpenCodeIdleWatchdog:
+    """Idle watchdog kills the subprocess on prolonged silence."""
+
+    @pytest.fixture
+    def provider(self) -> OpenCodeProvider:
+        return OpenCodeProvider()
+
+    def test_idle_timeout_fires_when_subprocess_silent(
+        self, provider: OpenCodeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Long timeout + silent subprocess → idle-timeout error, not hard."""
+        # Configure idle watchdog to fire almost immediately (0.05s) and
+        # set a long hard timeout so the idle branch wins the race.
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "0.05")
+
+        # Mock perf_counter so the wait loop doesn't need real seconds
+        # to reach the hard limit — we only care that idle fires first.
+        call_count = [0]
+
+        def mock_perf_counter() -> float:
+            # Start at 0, advance by 0.01s per call → stays below the
+            # large hard timeout (100s) but above the idle threshold
+            # once the test sleeps briefly in between.
+            call_count[0] += 1
+            return call_count[0] * 0.01
+
+        with (
+            patch("bmad_assist.providers.opencode.Popen") as mock_popen,
+            patch(
+                "bmad_assist.providers.opencode.time.perf_counter",
+                side_effect=mock_perf_counter,
+            ),
+        ):
+            mock_popen.return_value = create_opencode_mock_process(
+                never_finish=True
+            )
+            # Hard timeout much larger than idle → idle must win.
+            with pytest.raises(ProviderTimeoutError) as exc_info:
+                # Sleep inside the mock wait call so real time advances
+                # past the 0.05s idle threshold before the loop first
+                # checks idle_for().
+                import bmad_assist.providers.opencode as _oc
+
+                original_wait = mock_popen.return_value.wait
+                def wait_with_sleep(timeout: float | None = None) -> int:
+                    _time.sleep(0.06)  # push real monotonic past idle limit
+                    return original_wait(timeout=timeout)
+                mock_popen.return_value.wait = wait_with_sleep
+                provider.invoke("Hello", timeout=100)
+
+            # Error message must identify this as idle timeout, not hard.
+            msg = str(exc_info.value)
+            assert "idle-timeout" in msg.lower() or "no output" in msg.lower()
+
+    def test_watchdog_disabled_via_env_uses_hard_timeout_only(
+        self, provider: OpenCodeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """BMAD_PROVIDER_IDLE_TIMEOUT=0 → legacy single-shot wait path."""
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "0")
+
+        with patch("bmad_assist.providers.opencode.Popen") as mock_popen:
+            mock_popen.return_value = create_opencode_mock_process(
+                never_finish=True
+            )
+            with pytest.raises(ProviderTimeoutError) as exc_info:
+                provider.invoke("Hello", timeout=5)
+
+        msg = str(exc_info.value)
+        # Hard timeout message mentions "timeout after Xs", NOT idle.
+        assert "idle-timeout" not in msg.lower()
+        assert "no output" not in msg.lower()
+        assert "timeout after" in msg.lower()
+
+    def test_short_timeout_skips_polling_loop(
+        self, provider: OpenCodeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """timeout <= idle_timeout → legacy single-shot path, no polling overhead.
+
+        This regression guard ensures the existing 50 opencode tests
+        (which all use timeout < 10s) don't get slowed down by the
+        polling loop. The heuristic ``effective_timeout > idle_timeout``
+        keeps them on the single-wait path.
+        """
+        # Leave default idle_timeout (300s) in place, use a short timeout.
+        monkeypatch.delenv("BMAD_PROVIDER_IDLE_TIMEOUT", raising=False)
+
+        with patch("bmad_assist.providers.opencode.Popen") as mock_popen:
+            mock_popen.return_value = create_opencode_mock_process(
+                never_finish=True
+            )
+            start = _time.perf_counter()
+            with pytest.raises(ProviderTimeoutError):
+                provider.invoke("Hello", timeout=5)
+            elapsed = _time.perf_counter() - start
+
+        # Must finish quickly (single-shot path). If the polling loop
+        # kicked in, the test would either hang or take >= poll interval
+        # (5s). Assert < 2s as a generous safety margin.
+        assert elapsed < 2.0
+
+    def test_streaming_output_resets_idle(
+        self, provider: OpenCodeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A process that produces output throughout doesn't trigger idle.
+
+        Regression guard: ensure the idle watchdog doesn't misfire on
+        normal long-running calls that stream output continuously.
+        """
+        # Normal successful run shouldn't need idle handling at all.
+        monkeypatch.setenv("BMAD_PROVIDER_IDLE_TIMEOUT", "0.5")
+
+        with patch("bmad_assist.providers.opencode.Popen") as mock_popen:
+            mock_popen.return_value = create_opencode_mock_process(
+                response_text="Hello world from opencode",
+                returncode=0,
+            )
+            # Short timeout → legacy single-shot path, but the mock
+            # returns successfully so no timeout should fire anyway.
+            result = provider.invoke("Test", timeout=5)
+
+        assert result.exit_code == 0
+        assert "Hello world" in result.stdout

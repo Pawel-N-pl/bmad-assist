@@ -117,7 +117,7 @@ def emit_story_status(
     run_id: str,
     sequence_id: int,
     epic_num: EpicId,
-    story_num: int,
+    story_num: int | str,
     story_id: str,
     status: Literal["backlog", "ready-for-dev", "in-progress", "review", "done"],
     previous_status: (
@@ -160,7 +160,7 @@ def emit_story_transition(
     sequence_id: int,
     action: Literal["started", "completed"],
     epic_num: EpicId,
-    story_num: int,
+    story_num: int | str,
     story_id: str,
     story_title: str,
 ) -> None:

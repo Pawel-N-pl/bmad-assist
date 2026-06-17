@@ -49,11 +49,12 @@ from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.config import Config, get_phase_retries, get_phase_timeout
 from bmad_assist.core.config.loaders import parse_parallel_delay
+from bmad_assist.core.config.models.features import ToolGuardConfig
 from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
     get_phase_provider_config,
 )
-from bmad_assist.core.exceptions import BmadAssistError
+from bmad_assist.core.exceptions import BmadAssistError, ProviderError
 from bmad_assist.core.io import get_original_cwd, save_prompt
 from bmad_assist.core.retry import invoke_with_timeout_retry
 
@@ -293,6 +294,7 @@ async def _invoke_validator(
     display_model: str | None = None,
     thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    tool_guard_config: ToolGuardConfig | None = None,
 ) -> tuple[str, ValidationOutput | None, DeterministicMetrics | None, str | None]:
     """Invoke a single validator using asyncio.to_thread.
 
@@ -335,7 +337,19 @@ async def _invoke_validator(
         # Per-provider guard for multi-LLM independence
         from bmad_assist.providers.tool_guard import ToolCallGuard
 
-        guard = ToolCallGuard()
+        if tool_guard_config is not None:
+            guard = ToolCallGuard(
+                # Honor per-phase max_total_calls override (e.g. raised cap
+                # for heavy phases configured via
+                # tool_guard.max_total_calls_per_phase in bmad-assist.yaml).
+                max_total_calls=tool_guard_config.get_max_total_calls(
+                    "validate_story"
+                ),
+                max_interactions_per_file=tool_guard_config.max_interactions_per_file,
+                max_calls_per_minute=tool_guard_config.max_calls_per_minute,
+            )
+        else:
+            guard = ToolCallGuard()
 
         # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
         fallback_invoke_fn = None
@@ -468,7 +482,21 @@ async def _invoke_validator(
         logger.warning(error_msg)
         return provider_id, None, None, error_msg
 
+    except ProviderError as e:
+        # Expected operational failure from the provider layer (auth
+        # error, rate limit, non-zero exit, timeout, etc.). The error
+        # message already carries the diagnostic from stderr, and the
+        # Python stack trace through asyncio/retry/provider adds no
+        # information the operator can act on. Log cleanly without
+        # exc_info so multi-LLM parallel runs don't drown the log in
+        # duplicate tracebacks on a provider-wide outage.
+        error_msg = f"Validator {provider_id} failed: {e}"
+        logger.warning(error_msg)
+        return provider_id, None, None, error_msg
+
     except Exception as e:
+        # Unexpected exception (TypeError, AttributeError, etc.) —
+        # likely indicates a bmad-assist bug. Keep the full traceback.
         error_msg = f"Validator {provider_id} failed: {e}"
         logger.warning(error_msg, exc_info=True)
         return provider_id, None, None, error_msg
@@ -565,6 +593,20 @@ async def run_validation_phase(
     # Step 2: Build list of validators (multi + master)
     timeout = get_phase_timeout(config, "validate_story")
     timeout_retries = get_phase_retries(config, "validate_story")
+
+    # Scale timeout proportionally to prompt size — large prompts
+    # need more time for LLM processing and tool interactions
+    reference_prompt_chars = 100_000
+    if len(prompt) > reference_prompt_chars:
+        base_timeout = timeout
+        timeout = int(timeout * (len(prompt) / reference_prompt_chars))
+        logger.debug(
+            "Scaled validation timeout: base=%d, prompt_chars=%d, effective=%d",
+            base_timeout,
+            len(prompt),
+            timeout,
+        )
+
     # AC7: Check if benchmarking is enabled
     benchmarking_enabled = should_collect_benchmarking(config)
     if benchmarking_enabled:
@@ -616,6 +658,7 @@ async def run_validation_phase(
             display_model=multi_config.display_model,
             thinking=multi_config.thinking,
             reasoning_effort=multi_config.reasoning_effort,
+            tool_guard_config=config.tool_guard,
         )
         task = asyncio.create_task(delayed_invoke(delay, coro))
         tasks.append(task)
@@ -646,6 +689,7 @@ async def run_validation_phase(
             color_index=master_color_index,
             cwd=project_path,
             display_model=config.providers.master.display_model,
+            tool_guard_config=config.tool_guard,
         )
         master_task = asyncio.create_task(delayed_invoke(master_delay, master_coro))
         tasks.append(master_task)

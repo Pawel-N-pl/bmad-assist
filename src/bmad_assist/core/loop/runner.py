@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -59,7 +60,13 @@ from bmad_assist.core.loop.helpers import (
     _get_story_title,
     _print_phase_banner,
 )
-from bmad_assist.core.loop.interactive import checkpoint_and_prompt, is_skip_story_prompts
+from bmad_assist.core.loop.interactive import (
+    checkpoint_and_prompt,
+    get_backfill_frontier,
+    is_backfill_enabled,
+    is_skip_story_prompts,
+    set_backfill_frontier,
+)
 from bmad_assist.core.loop.locking import _running_lock
 from bmad_assist.core.loop.notifications import _dispatch_event
 from bmad_assist.core.loop.run_tracking import (
@@ -587,6 +594,112 @@ def _get_stop_exit_reason(cancel_ctx: CancellationContext | None) -> LoopExitRea
     return _get_interrupt_exit_reason()
 
 
+def _check_backfill(
+    state: State,
+    just_completed_story: str,
+    epic_list: list[EpicId],
+    epic_stories_loader: Callable[[EpicId], list[str]],
+    project_path: Path,
+    state_path: Path,
+) -> State | None:
+    """Check for backfill stories and return updated state if found.
+
+    Called after story completion when --backfill is enabled. Detects
+    gap stories (missed/skipped) that come before the forward frontier
+    and redirects the runner to the first one.
+
+    The forward frontier is set once (the story that was current when
+    backfill first activates) and remains fixed throughout the backfill
+    pass. This prevents the frontier from shifting as each backfill
+    story completes.
+
+    During backfill:
+    - No epic teardown/retrospective is triggered
+    - No epic-boundary prompts are shown
+    - Epic switching happens silently (on current git branch)
+
+    Args:
+        state: Current state after story completion.
+        just_completed_story: The story that was just completed.
+        epic_list: All epic IDs.
+        epic_stories_loader: Loader for epic story lists.
+        project_path: Project root path.
+        state_path: Path to state file.
+
+    Returns:
+        New State pointing to the first backfill story, or None if
+        no gaps found (normal advancement should proceed).
+
+    """
+    from bmad_assist.bmad.state_reader import _load_sprint_status
+    from bmad_assist.core.loop.backfill import detect_backfill_stories
+    from bmad_assist.core.paths import get_paths
+
+    # Set frontier on first backfill activation — this is the fixed
+    # reference point for the entire backfill pass
+    frontier = get_backfill_frontier()
+    if frontier is None:
+        frontier = just_completed_story
+        set_backfill_frontier(frontier)
+        logger.info("Backfill: frontier set to %s", frontier)
+
+    # Load sprint statuses for deferred detection
+    try:
+        paths = get_paths()
+        bmad_path = paths.project_knowledge
+    except RuntimeError:
+        bmad_path = project_path / "_bmad-output"
+
+    sprint_statuses = _load_sprint_status(bmad_path) or {}
+
+    # Always use the fixed frontier, not the just-completed story
+    gaps = detect_backfill_stories(
+        completed_stories=list(state.completed_stories),
+        current_story=frontier,
+        epic_list=epic_list,
+        epic_stories_loader=epic_stories_loader,
+        sprint_statuses=sprint_statuses,
+    )
+
+    if not gaps:
+        # Backfill complete — clear frontier, resume normal execution
+        set_backfill_frontier(None)
+        logger.info("Backfill complete: all gap stories implemented, resuming forward execution")
+        return None
+
+    # Redirect to first gap story
+    next_story = gaps[0]
+    next_epic_part = next_story.split(".")[0]
+    try:
+        next_epic: EpicId = int(next_epic_part)
+    except ValueError:
+        next_epic = next_epic_part
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    backfill_state = state.model_copy(
+        update={
+            "current_epic": next_epic,
+            "current_story": next_story,
+            "current_phase": Phase.CREATE_STORY,
+            "code_review_rework_count": 0,
+            "epic_setup_complete": True,  # Skip setup for backfill epics
+            "updated_at": now,
+        }
+    )
+    save_state(backfill_state, state_path)
+
+    logger.info(
+        "Backfill: %d gap stories remaining, next: %s (epic %s). "
+        "Remaining: %s",
+        len(gaps),
+        next_story,
+        next_epic,
+        ", ".join(gaps[1:5]) + ("..." if len(gaps) > 5 else ""),
+    )
+
+    return backfill_state
+
+
 def _run_loop_body(
     config: Config,
     project_path: Path,
@@ -748,7 +861,9 @@ def _run_loop_body(
         # Story 22.9: Emit dashboard story_transition and workflow_status events
         sequence_id += 1
         epic_num = int(state.current_epic) if state.current_epic else 1
-        story_num = int(first_story.split(".")[-1])
+        _story_part = first_story.split(".")[-1]
+        _m = re.match(r"(\d+)", _story_part)
+        story_num = int(_m.group(1)) if _m else 1
         story_title = (
             first_story.split(".")[-1].replace("-", " ") if "." in first_story else first_story
         )
@@ -958,6 +1073,34 @@ def _run_loop_body(
                     }
                 )
                 save_state(state, state_path)
+
+        # Safety check: if current phase is an epic_setup phase, the state was
+        # corrupted (e.g., killed during TEA setup) — main loop can't advance
+        # from a setup phase, so reset to CREATE_STORY.
+        #
+        # NOTE: teardown phases (RETROSPECTIVE, TRACE, etc.) are legitimate
+        # resume points after the last story of an epic completes. The main
+        # loop dispatches them via handle_story/epic_completion when it sees
+        # them, so we MUST NOT reset them — doing so would skip teardown
+        # entirely and mis-restart the just-finished epic from CREATE_STORY.
+        epic_setup_phase_set = (
+            {Phase(p) for p in loop_config.epic_setup}
+            if loop_config.epic_setup
+            else set()
+        )
+        if state.current_phase and state.current_phase in epic_setup_phase_set:
+            logger.warning(
+                "State has setup phase %s (likely interrupted during epic setup). "
+                "Resetting to CREATE_STORY.",
+                state.current_phase.name,
+            )
+            state = state.model_copy(
+                update={
+                    "current_phase": Phase(loop_config.story[0]),
+                    "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                }
+            )
+            save_state(state, state_path)
 
         # Main loop - runs until project complete or guardian halt
         while True:
@@ -1442,6 +1585,59 @@ def _run_loop_body(
                     )
 
                 new_state, is_epic_complete = handle_story_completion(state, epic_stories, state_path)
+
+                # Backfill check: before normal advancement or epic teardown,
+                # see if there are missed stories before the forward frontier.
+                # This runs for BOTH epic-complete and non-epic-complete cases,
+                # and suppresses epic teardown/retrospective during backfill.
+                if is_backfill_enabled() and state.current_story:
+                    # Remember frontier BEFORE check (it clears on completion)
+                    frontier_before = get_backfill_frontier()
+                    backfill_next = _check_backfill(
+                        new_state, state.current_story, epic_list,
+                        epic_stories_loader, project_path, state_path,
+                    )
+                    if backfill_next is not None:
+                        if is_epic_complete:
+                            logger.info(
+                                "Backfill: skipping epic %s teardown/retrospective "
+                                "(backfill stories pending)",
+                                state.current_epic,
+                            )
+                        state = backfill_next
+                        start_story_timing(state)
+                        _invoke_sprint_sync(state, project_path)
+                        logger.info(
+                            "Backfill: advancing to story %s (epic %s)",
+                            state.current_story,
+                            state.current_epic,
+                        )
+                        _dispatch_event(
+                            "story_started",
+                            project_path,
+                            state,
+                            phase=state.current_phase.name if state.current_phase else "CREATE_STORY",
+                            story_title=_get_story_title(project_path, state.current_story or ""),
+                        )
+                        continue  # Execute backfill story
+
+                    # Backfill just completed — if this epic was a backfilled
+                    # epic (not the forward epic), skip its teardown too
+                    if is_epic_complete and frontier_before is not None:
+                        frontier_epic = frontier_before.split(".")[0]
+                        current_epic_str = str(state.current_epic)
+                        if current_epic_str != frontier_epic:
+                            logger.info(
+                                "Backfill complete: skipping epic %s teardown "
+                                "(backfilled epic, forward epic is %s)",
+                                state.current_epic,
+                                frontier_epic,
+                            )
+                            # Advance to forward position (next story after frontier)
+                            state = new_state
+                            start_story_timing(state)
+                            _invoke_sprint_sync(state, project_path)
+                            continue
 
                 if is_epic_complete:
                     # Run all epic teardown phases (retrospective, qa_plan_*, etc.)

@@ -14,6 +14,7 @@ This handler orchestrates:
 """
 
 import logging
+import re
 from typing import Any
 
 from bmad_assist.core.loop.handlers.base import BaseHandler
@@ -87,12 +88,15 @@ class ValidateStoryHandler(BaseHandler):
             if epic_num is None or story_num_str is None:
                 return PhaseResult.fail("Cannot validate: missing epic_num or story_num in state")
 
-            story_num = int(story_num_str)
+            story_num: int | str = story_num_str
+            _m = re.match(r"(\d+)$", story_num_str)
+            if _m:
+                story_num = int(_m.group(1))
 
             logger.info(
                 "Starting validation phase for story %s.%s",
                 epic_num,
-                story_num,
+                story_num_str,
             )
 
             # Pre-compile workflow patches BEFORE entering the async event loop.

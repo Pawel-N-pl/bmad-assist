@@ -131,7 +131,7 @@ def _parse_role_id(
 
 def _create_collector_context(
     story_epic: EpicId,
-    story_num: int,
+    story_num: int | str,
     timestamp: datetime,
 ) -> CollectorContext:
     """Create CollectorContext for deterministic metrics.

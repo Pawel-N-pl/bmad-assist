@@ -204,8 +204,8 @@ def _find_story_key(
     if not story_id:
         return None
 
-    # Convert dot to dash: "20.9" → "20-9"
-    prefix = story_id.replace(".", "-")
+    # Convert dot to dash: "20.9" → "20-9", "10.3a-ii" → "10-3a-ii"
+    prefix = story_id.replace(".", "-").lower()
 
     # Fast path: use prefix map if available
     if prefix_map is not None:
@@ -260,12 +260,15 @@ def _build_story_prefix_map(
         Dict mapping normalized prefix (e.g., "20-9") to full key (e.g., "20-9-sync").
 
     """
+    import re
+
     prefix_map: dict[str, str] = {}
     for key in entries:
-        # Extract prefix: "20-9-sync" → "20-9", "testarch-1-config" → "testarch-1"
-        parts = key.split("-", 2)
-        if len(parts) >= 2:
-            prefix = f"{parts[0]}-{parts[1]}"
+        # Extract prefix: "20-9-sync" → "20-9", "10-3a-ii-implement-..." → "10-3a-ii"
+        # Sub-story suffixes: single letter + optional roman numerals (ii, iii, iv)
+        m = re.match(r"^([a-z0-9]+-\d+(?:[a-z](?:-[ivx]{2,})*)?)", key, re.IGNORECASE)
+        if m:
+            prefix = m.group(1).lower()
             # First match wins (handles duplicates)
             if prefix not in prefix_map:
                 prefix_map[prefix] = key

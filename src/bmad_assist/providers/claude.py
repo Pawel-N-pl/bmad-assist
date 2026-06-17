@@ -713,12 +713,23 @@ class ClaudeSubprocessProvider(BaseProvider):
                     duration_ms = int((time.perf_counter() - start_time) * 1000)
                     truncated = _truncate_prompt(prompt)
 
+                    # Log display_model (user-visible) when provided, fall back
+                    # to effective_model. When they differ (e.g. display_model=
+                    # "glm-5.1" via settings file, effective_model="opus"),
+                    # include both so logs aren't misleading.
+                    shown_model = display_model or effective_model
+                    model_label = (
+                        f"{shown_model} (sdk_model={effective_model})"
+                        if display_model and display_model != effective_model
+                        else shown_model
+                    )
+
                     partial_result = ProviderResult(
                         stdout="".join(response_text_parts),
                         stderr="".join(stderr_chunks),
                         exit_code=-1,
                         duration_ms=duration_ms,
-                        model=effective_model,
+                        model=shown_model,
                         command=tuple(command),
                     )
 
@@ -726,7 +737,7 @@ class ClaudeSubprocessProvider(BaseProvider):
                         "Provider timeout: provider=%s, model=%s, timeout=%ds, "
                         "duration_ms=%d, prompt=%s",
                         self.provider_name,
-                        effective_model,
+                        model_label,
                         effective_timeout,
                         duration_ms,
                         truncated,
@@ -740,7 +751,8 @@ class ClaudeSubprocessProvider(BaseProvider):
                         self._current_process = None
 
                     raise ProviderTimeoutError(
-                        f"Claude CLI timeout after {effective_timeout}s: {truncated}",
+                        f"Claude CLI timeout after {effective_timeout}s "
+                        f"(model={model_label}, prompt_chars={len(prompt)})",
                         partial_result=partial_result,
                     )
 
@@ -799,11 +811,22 @@ class ClaudeSubprocessProvider(BaseProvider):
                 stderr_content[:STDERR_TRUNCATE_LENGTH] if stderr_content else "(empty)"
             )
 
+            # Log display_model (user-visible) with effective_model when they
+            # differ so operators aren't misled by e.g. "model=opus" when the
+            # user actually invoked via display_model="glm-5.1" pointing at
+            # a non-Anthropic endpoint via settings file.
+            shown_model = display_model or effective_model
+            model_label = (
+                f"{shown_model} (sdk_model={effective_model})"
+                if display_model and display_model != effective_model
+                else shown_model
+            )
+
             logger.error(
                 "Claude CLI failed: exit_code=%d, status=%s, model=%s, stderr=%s",
                 final_returncode,
                 exit_status.name,
-                effective_model,
+                model_label,
                 stderr_truncated,
             )
 

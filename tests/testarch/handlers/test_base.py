@@ -45,14 +45,21 @@ def mock_config():
     config.testarch.knowledge = KnowledgeConfig(
         playwright_utils=True,
     )
-    
+
     # Configure providers
     config.providers = MagicMock()
     config.providers.master = MagicMock()
     config.providers.master.provider = "mock-provider"
     config.providers.master.model = "mock-model"
+    config.providers.master.display_model = "mock-model"
+    # No helper by default (testarch fallback resolver only kicks in
+    # when helper is configured and differs from master).
+    config.providers.helper = None
     config.timeout = 30
-    
+    # timeouts=None → legacy "no retry" path. Individual tests override
+    # this to exercise the retry wrapper.
+    config.timeouts = None
+
     return config
 
 
@@ -631,3 +638,217 @@ class TestExecuteWithModeCheck:
         assert result.success is True
         assert len(workflow_called) == 1
         assert result.outputs["ran"] is True
+
+# =============================================================================
+# Testarch retry + fallback (Task 14)
+# =============================================================================
+#
+# _invoke_workflow used to call provider.invoke() directly, bypassing
+# invoke_with_timeout_retry. That meant a single timeout on e.g.
+# opencode/glm-5.1 killed the phase with no retry and no fallback.
+# These tests assert the new behavior: retry N times on timeout, then
+# fall back to a secondary provider if one is resolved.
+
+
+from bmad_assist.core.exceptions import ProviderTimeoutError as _ProviderTimeoutError
+
+
+def _ok_result(stdout: str = "OK", model: str = "mock-model") -> ProviderResult:
+    return ProviderResult(
+        stdout=stdout,
+        stderr="",
+        exit_code=0,
+        duration_ms=50,
+        model=model,
+        command=("mock",),
+    )
+
+
+class TestInvokeWorkflowRetryWrapper:
+    """_invoke_workflow routes through invoke_with_timeout_retry."""
+
+    def test_no_retries_configured_is_single_attempt(
+        self, handler, mock_config
+    ) -> None:
+        """config.timeouts=None → legacy single-attempt behavior."""
+        mock_provider = MagicMock()
+        mock_provider.provider_name = "mock-provider"
+        mock_provider.invoke.return_value = _ok_result()
+        mock_compiled = MagicMock()
+        mock_compiled.context = "<compiled/>"
+
+        with patch(
+            "bmad_assist.providers.get_provider",
+            return_value=mock_provider,
+        ):
+            result = handler._invoke_workflow(mock_compiled)
+
+        assert isinstance(result, ProviderResult)
+        assert mock_provider.invoke.call_count == 1
+
+    def test_retries_on_timeout_then_succeeds(
+        self, handler, mock_config
+    ) -> None:
+        """With retries=2, a timeout + success = 2 total attempts."""
+        mock_config.timeouts = MagicMock()
+        mock_config.timeouts.get_retries.return_value = 2
+
+        mock_provider = MagicMock()
+        mock_provider.provider_name = "mock-provider"
+        # First call raises, second succeeds
+        mock_provider.invoke.side_effect = [
+            _ProviderTimeoutError("slow"),
+            _ok_result(),
+        ]
+        mock_compiled = MagicMock()
+        mock_compiled.context = "<compiled/>"
+
+        with patch(
+            "bmad_assist.providers.get_provider",
+            return_value=mock_provider,
+        ):
+            result = handler._invoke_workflow(mock_compiled)
+
+        assert isinstance(result, ProviderResult)
+        assert mock_provider.invoke.call_count == 2
+
+    def test_retries_exhausted_without_fallback_returns_fail(
+        self, handler, mock_config
+    ) -> None:
+        """Retries exhausted + no fallback → PhaseResult.fail with timeout message."""
+        mock_config.timeouts = MagicMock()
+        mock_config.timeouts.get_retries.return_value = 1
+
+        mock_provider = MagicMock()
+        mock_provider.provider_name = "mock-provider"
+        mock_provider.invoke.side_effect = _ProviderTimeoutError("stuck")
+        mock_compiled = MagicMock()
+        mock_compiled.context = "<compiled/>"
+
+        with patch(
+            "bmad_assist.providers.get_provider",
+            return_value=mock_provider,
+        ):
+            result = handler._invoke_workflow(mock_compiled)
+
+        assert isinstance(result, PhaseResult)
+        assert result.success is False
+        # Error message surfaces the phase name + timeout context
+        assert "test_phase" in (result.error or "") or "timeout" in (result.error or "").lower()
+        # Primary tried retries+1 times (1 retry = 2 attempts)
+        assert mock_provider.invoke.call_count == 2
+
+
+class TestInvokeWorkflowFallbackResolution:
+    """_resolve_testarch_fallback picks the right fallback for each primary."""
+
+    def test_claude_primary_falls_back_to_subprocess(
+        self, handler, mock_config
+    ) -> None:
+        """primary='claude' → ClaudeSubprocessProvider fallback (legacy)."""
+        mock_config.providers.master.provider = "claude"
+        fn, model, display = handler._resolve_testarch_fallback("claude")
+        assert fn is not None
+        # Claude fallback reuses the primary model (subprocess path).
+        assert model is None
+        assert display is None
+        # The returned callable is a ClaudeSubprocessProvider.invoke bound method.
+        assert "ClaudeSubprocess" in type(fn.__self__).__name__  # type: ignore[attr-defined]
+
+    def test_helper_fallback_when_configured_and_different(
+        self, handler, mock_config
+    ) -> None:
+        """Non-claude primary + helper configured → helper as fallback."""
+        mock_config.providers.master.provider = "opencode"
+        mock_config.providers.helper = MagicMock()
+        mock_config.providers.helper.provider = "claude"
+        mock_config.providers.helper.model = "haiku"
+        mock_config.providers.helper.display_model = "haiku"
+
+        helper_provider = MagicMock()
+        helper_provider.invoke = MagicMock()
+
+        with patch(
+            "bmad_assist.providers.get_provider",
+            return_value=helper_provider,
+        ):
+            fn, model, display = handler._resolve_testarch_fallback("opencode")
+
+        assert fn is helper_provider.invoke
+        assert model == "haiku"
+        assert display == "haiku"
+
+    def test_no_fallback_when_helper_provider_matches_primary(
+        self, handler, mock_config
+    ) -> None:
+        """If helper uses the same provider family as primary → no fallback."""
+        mock_config.providers.master.provider = "opencode"
+        mock_config.providers.helper = MagicMock()
+        mock_config.providers.helper.provider = "opencode"
+        mock_config.providers.helper.model = "something-else"
+
+        fn, model, display = handler._resolve_testarch_fallback("opencode")
+
+        assert fn is None
+        assert model is None
+        assert display is None
+
+    def test_no_fallback_when_helper_unset(self, handler, mock_config) -> None:
+        """Helper is None → no fallback."""
+        mock_config.providers.master.provider = "opencode"
+        mock_config.providers.helper = None
+        fn, model, display = handler._resolve_testarch_fallback("opencode")
+        assert (fn, model, display) == (None, None, None)
+
+
+class TestInvokeWorkflowHelperFallbackEndToEnd:
+    """Primary timeout exhausted → helper fallback actually invoked."""
+
+    def test_primary_timeout_triggers_helper_fallback(
+        self, handler, mock_config
+    ) -> None:
+        """When primary exhausts retries, helper is invoked with its own model."""
+        mock_config.timeouts = MagicMock()
+        mock_config.timeouts.get_retries.return_value = 1
+        # Set up helper
+        mock_config.providers.master.provider = "opencode"
+        mock_config.providers.master.model = "glm-5.1"
+        mock_config.providers.master.display_model = "glm-5.1"
+        mock_config.providers.helper = MagicMock()
+        mock_config.providers.helper.provider = "claude"
+        mock_config.providers.helper.model = "haiku"
+        mock_config.providers.helper.display_model = "haiku"
+
+        primary = MagicMock()
+        primary.provider_name = "opencode"
+        primary.invoke.side_effect = _ProviderTimeoutError("stuck")
+
+        helper = MagicMock()
+        helper.invoke.return_value = _ok_result(stdout="from helper", model="haiku")
+
+        def _get_provider(name: str):
+            if name == "opencode":
+                return primary
+            if name == "claude":
+                return helper
+            raise AssertionError(f"unexpected provider {name}")
+
+        mock_compiled = MagicMock()
+        mock_compiled.context = "<compiled/>"
+
+        with patch(
+            "bmad_assist.providers.get_provider",
+            side_effect=_get_provider,
+        ):
+            result = handler._invoke_workflow(mock_compiled)
+
+        # Primary was tried (retries+1 = 2 attempts), fallback took over.
+        assert primary.invoke.call_count == 2
+        assert helper.invoke.call_count == 1
+        # Helper was called with its own model, not the primary model.
+        helper_call_kwargs = helper.invoke.call_args.kwargs
+        assert helper_call_kwargs["model"] == "haiku"
+        assert helper_call_kwargs["display_model"] == "haiku"
+        # Result came from helper
+        assert isinstance(result, ProviderResult)
+        assert result.stdout == "from helper"

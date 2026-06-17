@@ -41,6 +41,25 @@ from bmad_assist.validation.reports import extract_synthesis_report
 
 logger = logging.getLogger(__name__)
 
+# Reinforcement note appended to the prompt on retry when the first
+# attempt produced markers with empty content between them (observed
+# failure mode: model emits the synthesis report OUTSIDE the markers
+# as preamble/planning text, then emits empty START/END markers).
+_SYNTHESIS_MARKER_REINFORCEMENT = """
+
+---
+
+IMPORTANT — the previous attempt produced an EMPTY synthesis report
+(markers were present but the content between them was empty).
+
+Your final output MUST contain the synthesis report INSIDE the
+``<!-- CODE_REVIEW_SYNTHESIS_START -->`` and
+``<!-- CODE_REVIEW_SYNTHESIS_END -->`` markers. Do not emit planning
+text, implementation instructions, or preamble outside these markers.
+The complete synthesis report content must appear between START and
+END — nothing else matters.
+"""
+
 
 class CodeReviewSynthesisHandler(BaseHandler):
     """Handler for CODE_REVIEW_SYNTHESIS phase.
@@ -655,15 +674,73 @@ class CodeReviewSynthesisHandler(BaseHandler):
             # Record start time for benchmarking
             start_time = datetime.now(UTC)
 
-            # Invoke Master LLM with restricted tools (file manipulation only)
-            result = self.invoke_provider(
-                prompt, allowed_tools=["Read", "Edit", "Write", "Bash"]
-            )
+            # Invoke Master LLM with retry-on-short-output. Observed
+            # failure mode: model emits a long preamble ("Let me verify..."
+            # / "**Fix 1:** Implement...") OUTSIDE the START/END markers,
+            # then emits markers with empty or minimal content between
+            # them. First attempt uses the plain compiled prompt; on a
+            # short-output result the retry appends a reinforcement note
+            # explicitly telling the model to put the report INSIDE the
+            # markers. Single retry — if the second attempt also fails,
+            # we fail the phase with detailed marker-position diagnostics
+            # rather than save garbage.
+            min_synthesis_chars = 200
+            max_attempts = 2
+            result = None
+            extracted_synthesis = ""
+            end_time = start_time
 
-            # Record end time for benchmarking
-            end_time = datetime.now(UTC)
+            for attempt in range(1, max_attempts + 1):
+                attempt_prompt = prompt
+                if attempt > 1:
+                    attempt_prompt = prompt + _SYNTHESIS_MARKER_REINFORCEMENT
 
-            # Check for errors
+                result = self.invoke_provider(
+                    attempt_prompt,
+                    allowed_tools=["Read", "Edit", "Write", "Bash"],
+                )
+                end_time = datetime.now(UTC)
+
+                # Provider-level failure (non-zero exit, crash, etc.) —
+                # don't retry, fall through to the error branch.
+                if result.exit_code != 0:
+                    break
+
+                # Story 22.4 AC5: Check for Edit tool failures (best-effort logging)
+                check_for_edit_failures(result.stdout, target_hint="source files")
+
+                # Extract synthesis report using priority-based extraction
+                # 1. Markers, 2. Summary header, 3. Full content
+                extracted_synthesis = extract_synthesis_report(
+                    result.stdout,
+                    synthesis_type="code_review",
+                    termination_reason=getattr(result, "termination_reason", None),
+                )
+
+                if len(extracted_synthesis.strip()) >= min_synthesis_chars:
+                    break  # usable synthesis — proceed to save
+
+                # Short output; log and (if any attempts remain) retry.
+                if attempt < max_attempts:
+                    logger.warning(
+                        "Synthesis attempt %d/%d produced only %d chars "
+                        "(raw stdout %d chars). Markers likely bracket "
+                        "empty content. Retrying with reinforcement note.",
+                        attempt,
+                        max_attempts,
+                        len(extracted_synthesis.strip()),
+                        len(result.stdout),
+                    )
+
+            # Check for errors (after retry loop)
+            if result is None:
+                # Defensive — should be unreachable (loop always runs ≥1
+                # iteration and assigns result).
+                return PhaseResult.fail(
+                    "Code review synthesis failed: provider invocation "
+                    "never completed."
+                )
+
             if result.exit_code != 0:
                 error_msg = result.stderr or f"Master LLM exited with code {result.exit_code}"
                 logger.warning(
@@ -679,33 +756,55 @@ class CodeReviewSynthesisHandler(BaseHandler):
                     len(result.stdout),
                 )
 
-                # Story 22.4 AC5: Check for Edit tool failures (best-effort logging)
-                check_for_edit_failures(result.stdout, target_hint="source files")
-
-                # Extract synthesis report using priority-based extraction
-                # 1. Markers, 2. Summary header, 3. Full content
-                extracted_synthesis = extract_synthesis_report(
-                    result.stdout, synthesis_type="code_review"
-                )
-
                 # Guard against silent provider failure: if provider returns
-                # exit_code=0 but empty/minimal output, synthesis is useless.
-                min_synthesis_chars = 200
+                # exit_code=0 but empty/minimal output (even after retry),
+                # synthesis is useless. Log detailed diagnostics so the
+                # operator can see WHERE the markers were in the raw output
+                # and decide whether to switch provider / adjust prompt.
                 if len(extracted_synthesis.strip()) < min_synthesis_chars:
+                    start_marker = "<!-- CODE_REVIEW_SYNTHESIS_START -->"
+                    end_marker = "<!-- CODE_REVIEW_SYNTHESIS_END -->"
+                    raw_stdout = result.stdout or ""
+                    start_pos = raw_stdout.find(start_marker)
+                    end_pos = raw_stdout.find(end_marker)
+                    if start_pos != -1 and end_pos != -1:
+                        marker_gap = end_pos - start_pos - len(start_marker)
+                        marker_diag = (
+                            f"START@{start_pos}, END@{end_pos}, "
+                            f"content between={marker_gap} chars"
+                        )
+                    else:
+                        marker_diag = (
+                            f"START@{'found' if start_pos != -1 else 'missing'}, "
+                            f"END@{'found' if end_pos != -1 else 'missing'}"
+                        )
+                    head_preview = (
+                        raw_stdout[:400] if raw_stdout else "(empty)"
+                    )
+                    tail_preview = (
+                        raw_stdout[-400:] if len(raw_stdout) > 800 else ""
+                    )
                     logger.error(
-                        "Code review synthesis output too short (%d chars, min %d). "
-                        "Provider returned exit_code=0 but produced no meaningful synthesis. "
-                        "Raw stdout (%d chars): %.500s",
+                        "Code review synthesis output too short "
+                        "(%d chars, min %d) after %d attempts. "
+                        "Markers: %s. Raw stdout (%d chars). "
+                        "Head: %.400s ... Tail: %.400s",
                         len(extracted_synthesis.strip()),
                         min_synthesis_chars,
-                        len(result.stdout),
-                        result.stdout[:500] if result.stdout else "(empty)",
+                        max_attempts,
+                        marker_diag,
+                        len(raw_stdout),
+                        head_preview,
+                        tail_preview,
                     )
                     return PhaseResult.fail(
-                        f"Code review synthesis failed: provider returned empty/minimal output "
+                        f"Code review synthesis failed: provider returned "
+                        f"empty/minimal output after {max_attempts} attempts "
                         f"({len(extracted_synthesis.strip())} chars, "
-                        f"duration={result.duration_ms}ms). "
-                        f"Check provider config and model availability."
+                        f"duration={result.duration_ms}ms, "
+                        f"markers: {marker_diag}). "
+                        f"Model likely emitted content outside the START/END "
+                        f"markers. Check provider config and model capability."
                     )
 
                 # Save synthesis report to code-reviews directory

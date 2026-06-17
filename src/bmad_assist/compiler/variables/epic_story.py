@@ -26,7 +26,7 @@ __all__ = [
 
 def _compute_story_variables(
     epic_num: int,
-    story_num: int,
+    story_num: int | str,
     sprint_status_path: Path | None,
     epics_path: Path | None = None,
     story_title_override: str | None = None,
@@ -89,7 +89,7 @@ def _compute_story_variables(
 def _extract_story_title_from_epics(
     epics_path: Path,
     epic_num: int,
-    story_num: int,
+    story_num: int | str,
 ) -> str | None:
     r"""Extract story title from epics markdown file.
 

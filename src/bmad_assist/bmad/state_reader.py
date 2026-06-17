@@ -179,39 +179,75 @@ def _load_epics_from(bmad_path: Path) -> list[EpicDocument]:
         return epics
 
 
-def _story_sort_key(story: EpicStory) -> tuple[int, int | str, int]:
+def _natural_story_sort_key(story_part: str) -> tuple[int, str, list[str]]:
+    """Generate a natural sort key for story number part.
+
+    Handles pure numeric (3), letter-suffixed (3a, 4b), and
+    hyphenated sub-stories (3a-ii, 3a-iii).
+
+    Sort order: 3 < 3a < 3a-ii < 3a-iii < 3b < 3c < 4
+
+    Args:
+        story_part: Story number part after the dot (e.g., "3", "3a", "3a-ii").
+
+    Returns:
+        Tuple of (base_num, suffix, sub_parts) for natural ordering.
+
+    """
+    import re as _re
+
+    # Split into numeric prefix and optional alpha suffix
+    m = _re.match(r"^(\d+)(.*)", story_part)
+    if not m:
+        return (0, story_part, [])
+
+    base_num = int(m.group(1))
+    remainder = m.group(2)  # e.g., "", "a", "a-ii", "b"
+
+    # Split remainder on hyphens for sub-ordering
+    if remainder:
+        # "a-ii" -> suffix="a", sub_parts=["ii"]
+        # "a" -> suffix="a", sub_parts=[]
+        sub_parts = remainder.split("-")
+        suffix = sub_parts[0]  # "a", "b", etc.
+        sub_parts = sub_parts[1:]  # ["ii"], ["iii"], []
+    else:
+        suffix = ""  # Pure numeric sorts before any letter suffix
+        sub_parts = []
+
+    return (base_num, suffix, sub_parts)
+
+
+def _story_sort_key(story: EpicStory) -> tuple[int, int | str, tuple[int, str, list[str]]]:
     """Generate sort key for story ordering.
 
     Numeric epic IDs sort before string IDs.
+    Supports sub-stories like 3a, 3a-ii, 4b.
 
     Args:
         story: The EpicStory to generate a sort key for.
 
     Returns:
-        Tuple of (type_order, epic_id, story_num) for sorting.
+        Tuple of (type_order, epic_id, story_sort_key) for sorting.
         type_order: 0 for numeric epics, 1 for string epics.
-        Returns (0, 0, 0) for malformed story numbers.
+        Returns (0, 0, (0, "", [])) for malformed story numbers.
 
     """
     parts = story.number.split(".")
     if len(parts) != 2:
         logger.warning("Invalid story number format (expected X.Y): %s", story.number)
-        return (0, 0, 0)
+        return (0, 0, (0, "", []))
 
-    try:
-        story_num = int(parts[1])
-    except ValueError as e:
-        logger.warning("Non-numeric story number in %s: %s", story.number, e)
-        return (0, 0, 0)
+    story_key = _natural_story_sort_key(parts[1])
 
     epic_part = parts[0]
     try:
         # Numeric epic ID - sort first (type_order=0)
         epic_num = int(epic_part)
-        return (0, epic_num, story_num)
+        return (0, epic_num, story_key)
     except ValueError:
         # String epic ID - sort after numeric (type_order=1)
-        return (1, epic_part, story_num)
+        return (1, epic_part, story_key)
 
 
 def _flatten_stories(epics: list[EpicDocument]) -> list[EpicStory]:
@@ -306,6 +342,8 @@ def _parse_sprint_status_key(key: str) -> str | None:
 
     Sprint-status keys follow format:
     - Numeric: "X-Y-slug" (e.g., "2-1-markdown-parser") -> "2.1"
+    - Sub-story: "X-Ya-slug" (e.g., "10-3a-implement-...") -> "10.3a"
+    - Hyphenated sub: "X-Ya-ii-slug" (e.g., "10-3a-ii-implement-...") -> "10.3a-ii"
     - Module: "module-Y-slug" (e.g., "testarch-1-config") -> "testarch.1"
 
     Args:
@@ -315,21 +353,21 @@ def _parse_sprint_status_key(key: str) -> str | None:
         Story number in "X.Y" format, or None if key is not a story key.
 
     """
+    import re as _re
+
     # Skip epic keys (epic-N, module-X) and retrospective keys
     if key.startswith("epic-") or key.startswith("module-") or "retrospective" in key.lower():
         return None
 
-    parts = key.split("-")
-    if len(parts) >= 2:
-        # Try parsing story_num (second part must be numeric)
-        try:
-            story_num = int(parts[1])
-        except ValueError:
-            return None
-
-        # Epic part can be numeric or string (module name)
-        epic_part = parts[0]
-        return f"{epic_part}.{story_num}"
+    # Match: {epic}-{story_num}{optional_letter}{optional_roman_suffixes}-{slug}
+    # Examples: 10-3a-ii-implement-... -> epic=10, story=3a-ii
+    #           2-1-markdown-... -> epic=2, story=1
+    #           testarch-1-config -> epic=testarch, story=1
+    m = _re.match(r"^([^-]+)-(\d+(?:[a-z](?:-[ivx]{2,})*)?)-", key)
+    if m:
+        epic_part = m.group(1)
+        story_part = m.group(2)
+        return f"{epic_part}.{story_part}"
 
     return None
 
@@ -409,19 +447,16 @@ def _load_sprint_status_stories(bmad_path: Path) -> list[EpicStory] | None:
                 if key.startswith("epic-") or key.endswith("-retrospective"):
                     continue
 
-                # Parse story key (e.g., "1-2-project-name" or "22-3-title")
-                # Format: epic-story-title (all hyphens)
-                parts = key.split("-", 2)  # ["1", "2", "project-name"] or max 3 parts
+                # Parse story key using shared parser
+                story_number = _parse_sprint_status_key(key)
+                if story_number is None:
+                    continue
 
-                if len(parts) < 3:
-                    continue  # Invalid format, skip
+                # Extract title from the slug portion after the story number
+                import re as _re
 
-                epic_part = parts[0]
-                story_part = parts[1]
-                title_part = parts[2] if len(parts) > 2 else key
-
-                story_number = f"{epic_part}.{story_part}"
-                title = title_part.replace("-", " ")  # Convert hyphens to spaces for title
+                m = _re.match(r"^[^-]+-\d+(?:[a-z](?:-[ivx]{2,})*)?-(.+)$", key)
+                title = m.group(1).replace("-", " ") if m else key
 
                 if not isinstance(status, str):
                     continue

@@ -90,6 +90,7 @@ def extract_validation_report(raw_output: str) -> str:
 def extract_synthesis_report(
     raw_output: str,
     synthesis_type: str = "validation",
+    termination_reason: str | None = None,
 ) -> str:
     r"""Extract synthesis report content from LLM output.
 
@@ -127,6 +128,7 @@ def extract_synthesis_report(
         raw_output,
         markers,
         stop_at_markers=[_METRICS_START_MARKER],
+        termination_reason=termination_reason,
     )
 
 
@@ -691,7 +693,7 @@ def save_synthesis_report(
     session_id: str,
     validators_used: list[str],
     epic: EpicId,
-    story: int,
+    story: int | str,
     duration_ms: int,
     validations_dir: Path,
     run_timestamp: datetime | None = None,

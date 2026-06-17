@@ -359,6 +359,19 @@ _SECTION_HEADER_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+# Numbered finding heading pattern:
+#   ### CRITICAL-1: Missing active_instance_index() in CoreConnection Trait
+#   ### IMPORTANT-3: ConnectionManager file placement
+#   ### MINOR-2: View mode label hardcoded
+# Adversarial validation reports often group findings under a section
+# heading like "## 3. Critical Issues" but list each finding as its own
+# numbered subheading rather than bullet points. Each match is one
+# finding; the description is everything after the colon.
+_NUMBERED_FINDING_HEADING_PATTERN = re.compile(
+    rf"^#{{2,5}}\s+({_ALL_SEVERITY_LABELS})-\d+\s*:?\s*(.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
 # Pattern for CLEAN PASS count
 # | 🟢 CLEAN PASS | 5 |
 _CLEAN_PASS_TABLE_PATTERN = re.compile(r"\|\s*🟢\s*CLEAN PASS\s*\|\s*(\d+)\s*\|", re.IGNORECASE)
@@ -369,11 +382,56 @@ _CLEAN_PASS_TEXT_PATTERN = re.compile(
 )
 
 # Pattern for total Evidence Score
-# | **Evidence Score** | **3.5** | or Evidence Score: 3.5
+# Matches:
+#   Evidence Score: 3.5
+#   **Evidence Score:** 3.5
+#   | **Evidence Score** | **3.5** |
+# The `\*{0,2}` parts allow optional bold wrapping in any of the common
+# positions reviewers actually emit. Parser uses .search() and picks the
+# first non-None group.
+#
+# The trailing `(?![\d/%])` negative lookahead is critical: it prevents
+# the regex from greedily backtracking and matching a partial digit out
+# of fraction notation like ``Evidence Score: 43/55`` (where the regex
+# would otherwise match `4` and produce parsed_score=4.0). Fractions are
+# handled separately by _SCORE_FRACTION_PATTERN below.
 _EVIDENCE_SCORE_PATTERN = re.compile(
-    r"(?:Evidence Score:?\s*\*?\*?(-?\d+(?:\.\d+)?)\*?\*?"
-    r"|\|\s*\*?\*?Evidence Score\*?\*?\s*\|\s*\*?\*?(-?\d+(?:\.\d+)?)\*?\*?\s*\|)",
+    r"(?:"
+    # Inline form: optionally wrapped in **, with optional ** after the
+    # colon (e.g. **Evidence Score:** 3.5).
+    r"\*{0,2}Evidence Score\*{0,2}\s*:?\s*\*{0,2}\s*(-?\d+(?:\.\d+)?)\*{0,2}(?![\d/%])"
+    r"|"
+    # Table form: | **Evidence Score** | **3.5** |
+    r"\|\s*\*{0,2}Evidence Score\*{0,2}\s*\|\s*\*{0,2}(-?\d+(?:\.\d+)?)\*{0,2}\s*\|"
+    r")",
     re.IGNORECASE,
+)
+
+# Pattern for score-card "Total" or "Evidence Score" lines that report a
+# fraction (achieved/maximum) rather than a single Evidence Score number.
+# Real-world reports the parser was failing on:
+#
+#   **Total: 58/100**
+#   | **Total** | **43/55** | **55** | |
+#   **Evidence Score:** 43/55 → **78%**
+#
+# Capture groups: 1=achieved, 2=maximum.
+_SCORE_FRACTION_PATTERN = re.compile(
+    r"\*{0,2}(?:Total|Evidence Score)\*{0,2}\s*[:|]?\s*\*{0,2}\s*"
+    r"(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)\s*\*{0,2}",
+    re.IGNORECASE,
+)
+
+# Sanity guard for _SCORE_FRACTION_PATTERN: only treat a fraction as an
+# Evidence Score when there's a recognizable Evidence Score / Score Card
+# heading in the report. Avoids misinterpreting unrelated "Total: X/Y"
+# lines (e.g. test pass rates) as the report's verdict.
+#
+# Accepts an optional numeric prefix like "11." so reports that use
+# numbered sections (e.g. "## 11. Evidence Score") still match.
+_EVIDENCE_SCORE_HEADING_PATTERN = re.compile(
+    r"^#{2,5}\s*(?:\d+(?:\.\d+)*\.?\s*)?Evidence\s+Score(?:\s+Card)?\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -470,6 +528,34 @@ def parse_evidence_findings(
             except (ValueError, KeyError) as e:
                 parse_warnings.append(f"Failed to parse bullet finding: {e}")
 
+    # Try numbered finding headings (### CRITICAL-1: description).
+    # Run BEFORE the section-header fallback because numbered headings are
+    # more specific — the broader section-header pattern would otherwise
+    # match the section title alone (e.g. "## 3. Critical Issues") and
+    # then look for bullets that don't exist, producing zero findings.
+    if not findings:
+        numbered_matches = _NUMBERED_FINDING_HEADING_PATTERN.findall(content)
+        for severity_str, description in numbered_matches:
+            try:
+                severity = _resolve_severity(severity_str)
+                # Use the canonical bmad weight for this severity
+                # (CRITICAL=3, IMPORTANT=1, MINOR=0.3) — validators using
+                # this format don't put a per-finding score on the heading.
+                score = SEVERITY_SCORES[severity.value]
+                findings.append(
+                    EvidenceFinding(
+                        severity=severity,
+                        score=score,
+                        description=description.strip(),
+                        source="",
+                        validator_id=validator_id,
+                    )
+                )
+            except (ValueError, KeyError) as e:
+                parse_warnings.append(
+                    f"Failed to parse numbered finding heading: {e}"
+                )
+
     # Try section-header fallback if no findings yet
     if not findings:
         header_matches = list(_SECTION_HEADER_PATTERN.finditer(content))
@@ -513,11 +599,58 @@ def parse_evidence_findings(
     if score_match:
         parsed_score = float(score_match.group(1) or score_match.group(2))
 
+    # Score-card fraction fallback: when the report uses a "Total: N/M" or
+    # "Evidence Score: N/M" line under an "## Evidence Score [Card]" heading,
+    # convert the missed-percentage to a bmad Evidence Score on the 0..10
+    # scale so the existing verdict thresholds (>=6 REJECT, 4-6 REWORK, <=3
+    # PASS) line up with what the reviewer actually said.
+    #
+    # Examples:
+    #   58/100 → 42% missed → score ≈ 4.2 → MAJOR_REWORK
+    #   43/55  → ~22% missed → score ≈ 2.2 → PASS
+    #
+    # Only fires when no other strategy yielded findings or a parsed score,
+    # AND when the report has a recognizable Evidence Score heading (see
+    # _EVIDENCE_SCORE_HEADING_PATTERN) — protects against false positives.
+    if (
+        not findings
+        and clean_passes == 0
+        and parsed_score is None
+        and _EVIDENCE_SCORE_HEADING_PATTERN.search(content)
+    ):
+        frac_match = _SCORE_FRACTION_PATTERN.search(content)
+        if frac_match:
+            try:
+                achieved = float(frac_match.group(1))
+                maximum = float(frac_match.group(2))
+                if maximum > 0 and achieved <= maximum:
+                    missed_ratio = (maximum - achieved) / maximum
+                    parsed_score = round(missed_ratio * 10.0, 1)
+                    parse_warnings.append(
+                        f"Evidence Score derived from score-card fraction "
+                        f"{achieved:g}/{maximum:g} → {parsed_score}"
+                    )
+                    logger.info(
+                        "Evidence Score from %s score-card: %g/%g → %.1f",
+                        validator_id,
+                        achieved,
+                        maximum,
+                        parsed_score,
+                    )
+            except (ValueError, ZeroDivisionError) as e:
+                parse_warnings.append(
+                    f"Failed to parse score-card fraction: {e}"
+                )
+
     # If no findings and no clean passes and no score, return None
     if not findings and clean_passes == 0 and parsed_score is None:
+        # Log snippet of content for format diagnosis
+        snippet = content[:300].replace("\n", " ").strip() if content else "(empty)"
         logger.warning(
-            "Failed to parse Evidence Score from %s: no findings, clean passes, or score found",
+            "Failed to parse Evidence Score from %s: no findings, clean passes, "
+            "or score found. Content preview: %.300s",
             validator_id,
+            snippet,
         )
         return None
 

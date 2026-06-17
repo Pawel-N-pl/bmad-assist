@@ -1279,3 +1279,154 @@ class TestStory22_8SessionIdInValidationReports:
             assert found_session_id, (
                 f"Expected session_id={result.session_id} in validation report frontmatter"
             )
+
+
+# ============================================================================
+# Provider-error log cleanliness (Task 16)
+# ============================================================================
+#
+# _invoke_validator used to log full tracebacks on ANY exception, including
+# expected provider-layer failures like auth errors or quota exhaustion.
+# The fix splits the handler so ProviderError → clean message, other
+# exceptions → keep the traceback (those indicate actual bugs).
+
+
+import logging as _task16_logging  # noqa: E402
+
+from bmad_assist.core.exceptions import (  # noqa: E402
+    ProviderError,
+    ProviderExitCodeError,
+    ProviderTimeoutError,
+)
+from bmad_assist.providers.base import ExitStatus  # noqa: E402
+from bmad_assist.validation.orchestrator import _invoke_validator  # noqa: E402
+
+
+class TestInvokeValidatorErrorLogging:
+    """_invoke_validator logs provider errors cleanly, other errors with traceback."""
+
+    @pytest.fixture
+    def mock_provider(self) -> MagicMock:
+        provider = MagicMock()
+        provider.provider_name = "mock-provider"
+        return provider
+
+    async def _invoke(self, provider: MagicMock) -> tuple:
+        return await _invoke_validator(
+            provider=provider,
+            prompt="<compiled/>",
+            timeout=60,
+            provider_id="mock-validator",
+            model="mock-model",
+            timeout_retries=None,
+            display_model="mock-display",
+        )
+
+    @pytest.mark.asyncio
+    async def test_provider_exit_code_error_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Auth errors (ProviderExitCodeError) log clean single-line warning."""
+        mock_provider.invoke.side_effect = ProviderExitCodeError(
+            "Cursor Agent CLI failed with exit code 1: "
+            "Error: Authentication required. Please run 'agent login' first.",
+            exit_code=1,
+            exit_status=ExitStatus.ERROR,
+            stderr="Authentication required",
+            stdout="",
+            command=("cursor-agent",),
+        )
+
+        with caplog.at_level(
+            _task16_logging.WARNING, logger="bmad_assist.validation.orchestrator"
+        ):
+            provider_id, output, metrics, error_msg = await self._invoke(mock_provider)
+
+        assert provider_id == "mock-validator"
+        assert output is None
+        assert metrics is None
+        assert error_msg is not None
+        assert "Authentication required" in error_msg
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "mock-validator failed" in r.getMessage()
+        ]
+        assert warnings, "expected 'Validator X failed' warning"
+        assert all(
+            r.exc_info is None for r in warnings
+        ), "ProviderError should log WITHOUT traceback"
+
+    @pytest.mark.asyncio
+    async def test_provider_timeout_error_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_provider.invoke.side_effect = ProviderTimeoutError(
+            "OpenCode CLI timeout after 1800s: ..."
+        )
+
+        with caplog.at_level(
+            _task16_logging.WARNING, logger="bmad_assist.validation.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert warnings
+        assert all(r.exc_info is None for r in warnings)
+
+    @pytest.mark.asyncio
+    async def test_provider_error_base_class_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_provider.invoke.side_effect = ProviderError("Network disconnected")
+
+        with caplog.at_level(
+            _task16_logging.WARNING, logger="bmad_assist.validation.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        assert "Network disconnected" in error_msg
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert warnings
+        assert all(r.exc_info is None for r in warnings)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_keeps_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-Provider exceptions (bugs) must still log with traceback."""
+        mock_provider.invoke.side_effect = RuntimeError("surprise bug")
+
+        with caplog.at_level(
+            _task16_logging.WARNING, logger="bmad_assist.validation.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert warnings
+        assert any(
+            r.exc_info is not None for r in warnings
+        ), "RuntimeError should log WITH traceback"

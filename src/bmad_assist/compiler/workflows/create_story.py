@@ -466,7 +466,7 @@ class CreateStoryCompiler:
             logger.debug("Found single epic file: %s", epic_file)
             return [epic_file]
 
-        logger.warning("No epic files found for epic %s", epic_num)
+        logger.debug("No epic files found for epic %s (epics may be loaded from sharded loader)", epic_num)
         return []
 
     def _find_single_epic_file(self, context: CompilerContext, epic_num: Any) -> Path | None:

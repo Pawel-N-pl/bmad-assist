@@ -24,6 +24,7 @@ def invoke_with_timeout_retry(
     phase_name: str,
     fallback_invoke_fn: Callable[..., T] | None = None,
     fallback_timeout_retries: int | None = None,
+    fallback_timeout: int | None = None,
     **kwargs: Any,
 ) -> T:
     """Invoke provider function with timeout retry logic.
@@ -42,6 +43,9 @@ def invoke_with_timeout_retry(
         fallback_invoke_fn: Optional fallback callable (e.g., subprocess provider).
             If primary fails after retries, fallback is invoked with reset retry count.
         fallback_timeout_retries: Retry count for fallback (defaults to timeout_retries).
+        fallback_timeout: Explicit timeout for fallback provider (seconds).
+            None = use 1.5x the primary timeout (auto-scaling).
+            Useful when fallback provider needs more time than primary.
         **kwargs: Arguments to pass to invoke_fn and fallback_invoke_fn.
 
     Returns:
@@ -91,12 +95,17 @@ def invoke_with_timeout_retry(
                         phase_name,
                         timeout_attempt,
                     )
+                    effective_fb_timeout = fallback_timeout
+                    if effective_fb_timeout is None:
+                        original_timeout = kwargs.get("timeout", 3600)
+                        effective_fb_timeout = int(original_timeout * 1.5)
+                    fb_kwargs = {**kwargs, "timeout": effective_fb_timeout}
                     return invoke_with_timeout_retry(
                         fallback_invoke_fn,
                         timeout_retries=fallback_timeout_retries if fallback_timeout_retries is not None else timeout_retries,
                         phase_name=f"{phase_name}(fallback)",
                         fallback_invoke_fn=None,  # No second fallback
-                        **kwargs,
+                        **fb_kwargs,
                     )
 
                 # No fallback - raise error

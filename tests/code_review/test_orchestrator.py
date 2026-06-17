@@ -368,3 +368,160 @@ class TestRunCodeReviewPhaseInsufficientReviewers:
                 )
 
             assert exc_info.value.count < exc_info.value.minimum
+
+
+# ============================================================================
+# Provider-error log cleanliness (Task 16)
+# ============================================================================
+#
+# _invoke_reviewer used to log full tracebacks on ANY exception, including
+# expected provider-layer failures like auth errors or quota exhaustion.
+# On a multi-LLM run, that meant ~50 lines of stack trace per reviewer
+# failure — useless noise that drowned real diagnostics. The fix splits
+# the handler so ProviderError → clean message, other exceptions → keep
+# the traceback (since those indicate actual bugs).
+
+
+import logging
+
+from bmad_assist.code_review.orchestrator import _invoke_reviewer
+from bmad_assist.core.exceptions import (
+    ProviderError,
+    ProviderExitCodeError,
+    ProviderTimeoutError,
+)
+from bmad_assist.providers.base import ExitStatus
+
+
+class TestInvokeReviewerErrorLogging:
+    """_invoke_reviewer logs provider errors cleanly, other errors with traceback."""
+
+    @pytest.fixture
+    def mock_provider(self) -> MagicMock:
+        provider = MagicMock()
+        provider.provider_name = "mock-provider"
+        return provider
+
+    async def _invoke(self, provider: MagicMock) -> tuple:
+        return await _invoke_reviewer(
+            provider=provider,
+            prompt="<compiled/>",
+            timeout=60,
+            reviewer_id="mock-reviewer",
+            model="mock-model",
+            timeout_retries=None,
+            display_model="mock-display",
+        )
+
+    @pytest.mark.asyncio
+    async def test_provider_exit_code_error_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Auth errors (ProviderExitCodeError) log clean single-line warning."""
+        mock_provider.invoke.side_effect = ProviderExitCodeError(
+            "Cursor Agent CLI failed with exit code 1: "
+            "Error: Authentication required. Please run 'agent login' first.",
+            exit_code=1,
+            exit_status=ExitStatus.ERROR,
+            stderr="Authentication required",
+            stdout="",
+            command=("cursor-agent",),
+        )
+
+        with caplog.at_level(
+            logging.WARNING, logger="bmad_assist.code_review.orchestrator"
+        ):
+            reviewer_id, output, metrics, error_msg = await self._invoke(mock_provider)
+
+        assert reviewer_id == "mock-reviewer"
+        assert output is None
+        assert metrics is None
+        assert error_msg is not None
+        assert "Authentication required" in error_msg
+        # No traceback dumped — caplog records have exc_info=None
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert warnings, "expected at least one warning log"
+        provider_warnings = [
+            r for r in warnings if "mock-reviewer failed" in r.getMessage()
+        ]
+        assert provider_warnings, "expected the 'Reviewer X failed' warning"
+        assert all(
+            r.exc_info is None for r in provider_warnings
+        ), "ProviderError should log WITHOUT traceback"
+
+    @pytest.mark.asyncio
+    async def test_provider_timeout_error_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """ProviderTimeoutError also gets clean logging (no exc_info)."""
+        mock_provider.invoke.side_effect = ProviderTimeoutError(
+            "OpenCode CLI timeout after 1800s: ..."
+        )
+
+        with caplog.at_level(
+            logging.WARNING, logger="bmad_assist.code_review.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        provider_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert provider_warnings
+        assert all(r.exc_info is None for r in provider_warnings)
+
+    @pytest.mark.asyncio
+    async def test_provider_error_base_class_logged_without_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Any ProviderError subclass — the handler catches the base class."""
+        mock_provider.invoke.side_effect = ProviderError("Network disconnected")
+
+        with caplog.at_level(
+            logging.WARNING, logger="bmad_assist.code_review.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        assert "Network disconnected" in error_msg
+        provider_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert provider_warnings
+        assert all(r.exc_info is None for r in provider_warnings)
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_keeps_traceback(
+        self,
+        mock_provider: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-Provider exceptions (bugs) must still log with traceback."""
+        mock_provider.invoke.side_effect = RuntimeError("surprise bug")
+
+        with caplog.at_level(
+            logging.WARNING, logger="bmad_assist.code_review.orchestrator"
+        ):
+            _, _, _, error_msg = await self._invoke(mock_provider)
+
+        assert error_msg is not None
+        provider_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "failed" in r.getMessage()
+        ]
+        assert provider_warnings
+        # Unexpected exceptions retain exc_info for debuggability.
+        assert any(
+            r.exc_info is not None for r in provider_warnings
+        ), "RuntimeError should log WITH traceback"

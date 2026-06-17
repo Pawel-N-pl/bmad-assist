@@ -47,11 +47,12 @@ from bmad_assist.compiler import compile_workflow
 from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.config import Config, get_phase_retries, get_phase_timeout
 from bmad_assist.core.config.loaders import parse_parallel_delay
+from bmad_assist.core.config.models.features import ToolGuardConfig
 from bmad_assist.core.config.models.providers import (
     MultiProviderConfig,
     get_phase_provider_config,
 )
-from bmad_assist.core.exceptions import BmadAssistError, CompilerError
+from bmad_assist.core.exceptions import BmadAssistError, CompilerError, ProviderError
 from bmad_assist.core.extraction import CODE_REVIEW_MARKERS, extract_report
 from bmad_assist.core.io import get_original_cwd, save_prompt
 from bmad_assist.core.loop.dashboard_events import (
@@ -299,6 +300,7 @@ async def _invoke_reviewer(
     provider_name: str | None = None,
     thinking: bool | None = None,
     reasoning_effort: str | None = None,
+    tool_guard_config: ToolGuardConfig | None = None,
 ) -> tuple[str, ValidationOutput | None, DeterministicMetrics | None, str | None]:
     """Invoke a single reviewer using asyncio.to_thread.
 
@@ -335,7 +337,19 @@ async def _invoke_reviewer(
         # Per-provider guard for multi-LLM independence
         from bmad_assist.providers.tool_guard import ToolCallGuard
 
-        guard = ToolCallGuard()
+        if tool_guard_config is not None:
+            guard = ToolCallGuard(
+                # Honor per-phase max_total_calls override (e.g. raised cap
+                # for heavy phases configured via
+                # tool_guard.max_total_calls_per_phase in bmad-assist.yaml).
+                max_total_calls=tool_guard_config.get_max_total_calls(
+                    "code_review"
+                ),
+                max_interactions_per_file=tool_guard_config.max_interactions_per_file,
+                max_calls_per_minute=tool_guard_config.max_calls_per_minute,
+            )
+        else:
+            guard = ToolCallGuard()
 
         # Setup fallback for claude-sdk provider (SDK init timeout -> subprocess)
         fallback_invoke_fn = None
@@ -466,7 +480,21 @@ async def _invoke_reviewer(
         logger.warning(error_msg)
         return reviewer_id, None, None, error_msg
 
+    except ProviderError as e:
+        # Expected operational failure from the provider layer (auth
+        # error, rate limit, non-zero exit, timeout, etc.). The error
+        # message already carries the diagnostic from stderr, and the
+        # Python stack trace through asyncio/retry/provider adds no
+        # information the operator can act on. Log cleanly without
+        # exc_info so multi-LLM parallel runs don't drown the log in
+        # duplicate tracebacks on a provider-wide outage.
+        error_msg = f"Reviewer {reviewer_id} failed: {e}"
+        logger.warning(error_msg)
+        return reviewer_id, None, None, error_msg
+
     except Exception as e:
+        # Unexpected exception (TypeError, AttributeError, etc.) —
+        # likely indicates a bmad-assist bug. Keep the full traceback.
         error_msg = f"Reviewer {reviewer_id} failed: {e}"
         logger.warning(error_msg, exc_info=True)
         return reviewer_id, None, None, error_msg
@@ -776,6 +804,7 @@ async def run_code_review_phase(
             provider_name=multi_config.provider,
             thinking=multi_config.thinking,
             reasoning_effort=multi_config.reasoning_effort,
+            tool_guard_config=config.tool_guard,
         )
         task = asyncio.create_task(delayed_invoke(delay, coro))
         tasks.append(task)
@@ -806,6 +835,7 @@ async def run_code_review_phase(
             cwd=project_path,
             display_model=config.providers.master.display_model,
             provider_name=config.providers.master.provider,
+            tool_guard_config=config.tool_guard,
         )
         master_task = asyncio.create_task(delayed_invoke(master_delay, master_coro))
         tasks.append(master_task)

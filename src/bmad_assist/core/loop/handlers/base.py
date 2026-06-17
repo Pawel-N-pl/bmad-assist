@@ -99,6 +99,311 @@ def check_for_edit_failures(stdout: str, target_hint: str | None = None) -> None
             # Continue checking for other patterns - don't break, log all failures
 
 
+# Regex to match <file ...>...</file> blocks within <context> section.
+# Files are ordered by priority (highest-scored first) so we remove from the end.
+_FILE_BLOCK_RE = re.compile(
+    r'<file\s+id="[^"]*"\s+path="([^"]*)"[^>]*>.*?</file>',
+    re.DOTALL,
+)
+
+# Markdown extensions eligible for compression instead of full drop.
+# Source code files (.py/.rs/.ts/etc.) are intentionally excluded — LLM
+# summarization of code can silently lose type signatures and exact API
+# shapes, which is unacceptable for dev_story / code_review phases. They
+# stay on the drop path and rely on the elevated ToolCallGuard cap so the
+# model can read exact bytes via tools when needed.
+_MARKDOWN_EXTENSIONS: tuple[str, ...] = (".md", ".markdown", ".mdx")
+
+# Files smaller than this aren't worth compressing — LLM call latency
+# dwarfs the byte savings.
+_MIN_COMPRESSIBLE_TOKENS = 500
+
+# Compress to ~50% of original (matches strategic-context defaults).
+_COMPRESSION_TARGET_RATIO = 0.5
+
+# Floor on compression target so we don't ask the LLM for an unrealistic
+# size on borderline-eligible files.
+_MIN_COMPRESSION_TARGET_TOKENS = 200
+
+# CDATA wrapper format used by compiler.output._wrap_cdata. Kept here
+# verbatim so the unwrap helper stays a pure inverse — if _wrap_cdata
+# changes shape, both sides need updating together.
+_CDATA_OPEN = "<![CDATA[\n\n"
+_CDATA_CLOSE = "\n\n]]>"
+_CDATA_SPLIT_REJOIN = "\n\n]]]]><![CDATA[\n\n"
+
+
+def _extract_file_block_content(block: str) -> str | None:
+    """Extract content from a CDATA-wrapped ``<file>`` block.
+
+    Inverts the wrapping done by ``compiler.output._wrap_cdata`` and the
+    ``<file>`` element. Returns None if the block doesn't match the
+    expected shape (caller treats this as "compression not applicable").
+
+    Handles split CDATA sections (when the original content contained
+    ``]]>``, _wrap_cdata splits into multiple sections and rejoins with
+    ``]]]]><![CDATA[``).
+
+    Args:
+        block: Full ``<file id=... path=...>...</file>`` block text.
+
+    Returns:
+        Original content string, or None if the block is malformed.
+
+    """
+    open_tag_end = block.find(">")
+    if open_tag_end == -1:
+        return None
+    close_tag_start = block.rfind("</file>")
+    if close_tag_start == -1 or close_tag_start <= open_tag_end:
+        return None
+
+    inner = block[open_tag_end + 1 : close_tag_start]
+    if not inner.startswith(_CDATA_OPEN) or not inner.endswith(_CDATA_CLOSE):
+        return None
+
+    content = inner[len(_CDATA_OPEN) : -len(_CDATA_CLOSE)]
+    # Reverse the _wrap_cdata splitting: rejoin split CDATA sections.
+    return content.replace(_CDATA_SPLIT_REJOIN, "]]>")
+
+
+def _build_file_block_with_content(original_block: str, new_content: str) -> str | None:
+    """Re-wrap a ``<file>`` block with new content, preserving attributes.
+
+    Lazy-imports ``_wrap_cdata`` to avoid a circular dep at module load.
+
+    Args:
+        original_block: The original full ``<file>`` block (used for the
+            opening tag with id/path/label attributes).
+        new_content: Replacement content to wrap in CDATA.
+
+    Returns:
+        The new full ``<file>`` block, or None if the original is malformed.
+
+    """
+    open_tag_end = original_block.find(">")
+    close_tag_start = original_block.rfind("</file>")
+    if open_tag_end == -1 or close_tag_start == -1 or close_tag_start <= open_tag_end:
+        return None
+
+    open_tag = original_block[: open_tag_end + 1]
+    from bmad_assist.compiler.output import _wrap_cdata
+
+    return open_tag + _wrap_cdata(new_content) + "</file>"
+
+
+def _sanitize_doc_type_from_path(path: str) -> str:
+    """Build a cache-friendly doc_type identifier from a file path.
+
+    The compression cache (``compiler/strategic_context.py``) keys by
+    ``doc_type`` — each doc_type stores at most one cached file, with
+    stale entries auto-pruned when the source content changes. Using a
+    per-path doc_type means each markdown file gets its own cache entry
+    that's invalidated automatically on content change.
+
+    Strategic doc cache uses bare prefixes like ``ux``, ``prd``. We use
+    ``srcmd-`` to namespace source-tree markdown caches and avoid any
+    collision with strategic doc cache files.
+
+    Args:
+        path: Repo-relative file path from the XML attribute.
+
+    Returns:
+        Sanitized doc_type identifier safe to use as a filename prefix.
+
+    """
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]+", "-", path).strip("-")
+    return f"srcmd-{sanitized}"
+
+
+def _try_compress_markdown_file_block(
+    prompt: str,
+    match: "re.Match[str]",
+    path: str,
+    project_root: Path,
+) -> str | None:
+    """Attempt to compress a markdown ``<file>`` block in place.
+
+    Calls the existing ``_compress_or_truncate`` helper (LLM-based
+    compression with disk caching, falling back to truncation). Annotates
+    the compressed content so the model knows it's a summary and can read
+    the full file via tools (the elevated ToolCallGuard cap covers it).
+
+    Args:
+        prompt: Current prompt text (will be spliced).
+        match: Regex match for the ``<file>`` block (positions are
+            relative to the ORIGINAL prompt — the caller must iterate
+            in reverse so positions stay valid as later blocks change).
+        path: Path attribute from the XML, used for cache key + logging.
+        project_root: Project root for the disk cache.
+
+    Returns:
+        The new prompt text on success, or None if compression should
+        be skipped (caller falls back to dropping the file).
+
+    """
+    block = match.group(0)
+    content = _extract_file_block_content(block)
+    if content is None:
+        logger.debug("Compression skipped for %s: could not extract CDATA", path)
+        return None
+
+    original_tokens = len(content) // 4
+    if original_tokens < _MIN_COMPRESSIBLE_TOKENS:
+        logger.debug(
+            "Compression skipped for %s: only %d tokens (< %d threshold)",
+            path,
+            original_tokens,
+            _MIN_COMPRESSIBLE_TOKENS,
+        )
+        return None
+
+    target_tokens = max(
+        int(original_tokens * _COMPRESSION_TARGET_RATIO),
+        _MIN_COMPRESSION_TARGET_TOKENS,
+    )
+
+    try:
+        from bmad_assist.compiler.strategic_context import _compress_or_truncate
+    except ImportError as e:  # pragma: no cover - defensive
+        logger.debug("Compression module unavailable: %s", e)
+        return None
+
+    doc_type = _sanitize_doc_type_from_path(path)
+    try:
+        compressed_content, compressed_tokens = _compress_or_truncate(
+            content, target_tokens, doc_type, project_root
+        )
+    except Exception as e:  # pragma: no cover - defensive, helper is fail-safe
+        logger.debug("Compression failed for %s: %s", path, e)
+        return None
+
+    # If compression didn't actually shrink the content (e.g. helper LLM
+    # echoed input, truncation floor hit), don't bother splicing — it
+    # adds annotation noise without saving budget. Drop instead.
+    if len(compressed_content) >= len(content):
+        logger.debug(
+            "Compression no-op for %s (%d → %d chars), falling through to drop",
+            path,
+            len(content),
+            len(compressed_content),
+        )
+        return None
+
+    annotated = (
+        f"[note: this file was compressed from ~{original_tokens} to "
+        f"~{compressed_tokens} tokens to fit prompt budget. Read the file "
+        f"directly via your file tools if you need exact content.]\n\n"
+        + compressed_content
+    )
+
+    new_block = _build_file_block_with_content(block, annotated)
+    if new_block is None:  # pragma: no cover - extraction succeeded so rebuild should too
+        return None
+
+    logger.info(
+        "Budget compress: shrank '%s' from %d to ~%d tokens",
+        path,
+        original_tokens,
+        len(annotated) // 4,
+    )
+
+    return prompt[: match.start()] + new_block + prompt[match.end() :]
+
+
+def _trim_source_context(
+    prompt: str,
+    current_tokens: int,
+    budget: int,
+    project_root: Path | None = None,
+) -> tuple[str, list[str], list[str]]:
+    """Trim or compress lowest-priority source files to fit the prompt budget.
+
+    Source files in the <context> section are ordered by score (highest first).
+    We process from the end (lowest priority) until estimated tokens are
+    within budget. Each file's fate depends on its type:
+
+    - **Markdown** (``.md``/``.markdown``/``.mdx``): tries LLM compression
+      via ``_compress_or_truncate`` first (with disk cache). If compression
+      shrinks the file, splice the compressed version in place. If the
+      file is too small, compression is skipped with a debug log.
+    - **Source code** (everything else): always dropped. LLM summarization
+      of code can lose type signatures and exact API shapes, which is
+      unacceptable for dev_story / code_review. The model gets the file
+      via tool calls instead (elevated ToolCallGuard cap covers this).
+
+    Reverse iteration: we modify text only at-or-after the current match's
+    position, so earlier (still-pending) match offsets remain valid.
+
+    Args:
+        prompt: Full compiled prompt XML string.
+        current_tokens: Current estimated token count (len/4).
+        budget: Target token budget.
+        project_root: Project root for the compression disk cache. When
+            None, compression is skipped entirely (markdown files fall
+            through to the drop path — used by tests that don't want to
+            depend on the compression machinery).
+
+    Returns:
+        Tuple of ``(trimmed_prompt, removed_paths, compressed_paths)``.
+
+        - ``removed_paths``: files fully dropped from the prompt.
+        - ``compressed_paths``: markdown files compressed in place.
+
+        Callers feed BOTH lists into the ToolCallGuard's elevated-cap set,
+        because compressed files are still lossy summaries — the model
+        may need to read exact bytes via tools.
+
+    """
+    # Find all file blocks
+    file_blocks = list(_FILE_BLOCK_RE.finditer(prompt))
+    if not file_blocks:
+        return prompt, [], []
+
+    trimmed = prompt
+    removed_paths: list[str] = []
+    compressed_paths: list[str] = []
+
+    for match in reversed(file_blocks):
+        if len(trimmed) // 4 <= budget:
+            break
+
+        path = match.group(1)
+
+        # Markdown: try compression first.
+        is_markdown = path.lower().endswith(_MARKDOWN_EXTENSIONS)
+        if is_markdown and project_root is not None:
+            new_trimmed = _try_compress_markdown_file_block(
+                trimmed, match, path, project_root
+            )
+            if new_trimmed is not None:
+                trimmed = new_trimmed
+                compressed_paths.append(path)
+                continue
+
+        # Drop the file block (and any surrounding newline).
+        start = match.start()
+        end = match.end()
+        if end < len(trimmed) and trimmed[end] == "\n":
+            end += 1
+        trimmed = trimmed[:start] + trimmed[end:]
+        removed_paths.append(path)
+        logger.info("Budget trim: removed source file '%s'", path)
+
+    if removed_paths or compressed_paths:
+        new_tokens = len(trimmed) // 4
+        logger.info(
+            "Trimmed %d / compressed %d source file(s): %d → %d estimated tokens (budget: %d)",
+            len(removed_paths),
+            len(compressed_paths),
+            current_tokens,
+            new_tokens,
+            budget,
+        )
+
+    return trimmed, removed_paths, compressed_paths
+
+
 @dataclass
 class HandlerConfig:
     """Configuration loaded from handler YAML file.
@@ -141,6 +446,41 @@ class BaseHandler(ABC):
         self.config = config
         self.project_path = project_path
         self._handler_config: HandlerConfig | None = None
+        # Files that were budget-trimmed out of the most recent compiled
+        # prompt. Reset on every compile_workflow_prompt call. invoke_provider
+        # uses this set to elevate the ToolCallGuard per-file cap so the
+        # model can read trimmed files via tools without hitting the base cap.
+        self._budget_trimmed_paths: set[str] = set()
+
+    def _record_budget_trimmed_paths(self, removed_paths: list[str]) -> None:
+        """Record paths trimmed from the prompt during budget enforcement.
+
+        Resolves each repo-relative path to a normalized realpath against
+        the project root so the lookup matches whatever path the model
+        passes to its file tools (which the guard normalizes the same way).
+
+        Args:
+            removed_paths: Paths from XML ``path="..."`` attributes as
+                captured by _trim_source_context.
+
+        """
+        import os
+
+        normalized: set[str] = set()
+        for raw in removed_paths:
+            try:
+                # Repo-relative or absolute — resolve against project root.
+                candidate = (self.project_path / raw).resolve(strict=False)
+                normalized.add(os.path.realpath(candidate))
+            except (OSError, ValueError) as exc:
+                logger.debug(
+                    "Could not normalize trimmed path %r: %s", raw, exc
+                )
+        self._budget_trimmed_paths = normalized
+
+    def _reset_budget_trimmed_paths(self) -> None:
+        """Clear trimmed-path tracking before a new compile."""
+        self._budget_trimmed_paths = set()
 
     @property
     @abstractmethod
@@ -322,6 +662,11 @@ class BaseHandler(ABC):
         # Convert phase_name to workflow name (e.g., create_story -> create-story)
         workflow_name = self.phase_name.replace("_", "-")
 
+        # Reset budget-trimmed path tracking — each compile starts fresh.
+        # invoke_provider() reads this set after compile to elevate the
+        # ToolCallGuard per-file cap for trimmed files.
+        self._reset_budget_trimmed_paths()
+
         # Check for debug links mode
         links_only = os.environ.get("BMAD_DEBUG_LINKS") == "1"
 
@@ -358,16 +703,27 @@ class BaseHandler(ABC):
                 config = get_config()
                 workflow_budget = config.compiler.source_context.budgets.get_budget(workflow_name)
                 # Prompt is typically ~2x the token estimate due to XML overhead
-                expected_prompt_tokens = compiled.token_estimate * 2
+                expected_prompt_tokens = len(prompt) // 4
 
                 if expected_prompt_tokens > workflow_budget:
                     logger.warning(
                         "Prompt may exceed budget for %s: estimated %d tokens "
-                        "(config budget: %d). Consider reducing source context.",
+                        "(config budget: %d). Trimming lowest-priority source files.",
                         workflow_name,
                         expected_prompt_tokens,
                         workflow_budget,
                     )
+                    prompt, removed_paths, compressed_paths = _trim_source_context(
+                        prompt,
+                        expected_prompt_tokens,
+                        workflow_budget,
+                        project_root=self.project_path,
+                    )
+                    # Track BOTH dropped and compressed paths for elevated
+                    # ToolCallGuard cap. Compressed files are lossy summaries,
+                    # so the model may still need to read exact bytes via
+                    # tools — both cases warrant the higher per-file cap.
+                    self._record_budget_trimmed_paths(removed_paths + compressed_paths)
             except Exception:
                 # Config not loaded (e.g., in tests) - skip budget warning
                 pass
@@ -710,10 +1066,22 @@ class BaseHandler(ABC):
         )
 
         tg = self.config.tool_guard
+        # Pass budget-trimmed files into the guard so they get the elevated
+        # per-file cap. Empty set = no elevation, behavior unchanged.
+        elevated_paths = set(self._budget_trimmed_paths)
+        # Resolve max_total_calls per-phase. dev_story legitimately needs
+        # many more tool calls than e.g. validation phases, so users can
+        # set ``tool_guard.max_total_calls_per_phase: {dev_story: 600}``
+        # in config to raise just the phase that needs it.
+        phase_max_total_calls = tg.get_max_total_calls(self.phase_name)
         guard = ToolCallGuard(
-            max_total_calls=tg.max_total_calls,
+            max_total_calls=phase_max_total_calls,
             max_interactions_per_file=tg.max_interactions_per_file,
             max_calls_per_minute=tg.max_calls_per_minute,
+            elevated_file_paths=elevated_paths,
+            max_interactions_per_file_elevated=(
+                tg.max_interactions_per_file_trimmed
+            ),
         )
 
         while True:

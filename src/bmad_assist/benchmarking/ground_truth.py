@@ -536,7 +536,7 @@ def _atomic_update_record(record_path: Path, record: LLMEvaluationRecord) -> Non
 
 def populate_ground_truth(
     epic_num: int,
-    story_num: int,
+    story_num: int | str,
     code_review_output: str,
     base_dir: Path,
 ) -> list[GroundTruthUpdate]:

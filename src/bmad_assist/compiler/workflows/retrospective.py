@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _WORKFLOW_RELATIVE_PATH = "_bmad/bmm/workflows/4-implementation/retrospective"
 
 # Pattern for story files
-_STORY_FILE_PATTERN = re.compile(r"^(\d+)-(\d+)-.+\.md$")
+_STORY_FILE_PATTERN = re.compile(r"^(\d+)-(\d+(?:[a-z](?:-[ivx]{2,})*)?)-.+\.md$")
 
 
 class RetrospectiveCompiler:

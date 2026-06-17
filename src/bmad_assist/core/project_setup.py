@@ -530,9 +530,14 @@ def copy_bundled_workflows(
                         result.copied.append(name)
                         console.print(f"  [green]Overwrote:[/green] {name}")
                 elif decision == OverwriteDecision.SKIP:
-                    # Skip all
+                    # Skip only workflows with actual file-level differences;
+                    # directories that differed structurally but had no content
+                    # changes go to unchanged.
                     for name, _, _ in differing_workflows:
-                        result.skipped.append(name)
+                        if name in workflow_files_map:
+                            result.skipped.append(name)
+                        else:
+                            result.unchanged.append(name)
                 elif decision == OverwriteDecision.INTERACTIVE:
                     # Interactive mode - prompt per file
                     apply_all: SingleOverwriteDecision | None = None

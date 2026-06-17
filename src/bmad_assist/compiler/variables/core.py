@@ -356,7 +356,7 @@ def resolve_variables(
 
         story_vars = _compute_story_variables(
             int(epic_num),
-            int(story_num),
+            story_num,
             sprint_status_path,
             epics_path,
             resolved.get("story_title"),

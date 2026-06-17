@@ -6,13 +6,38 @@ Addresses the 92% false positive rate in code reviews by:
 - Validating diff quality before passing to reviewers
 """
 
+import fnmatch
 import logging
 import re
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Default regex patterns that classify a file as "garbage" (cache/metadata
+# /generated content). validate_diff_quality() composes this list with any
+# user-supplied extra patterns from config (GitConfig.garbage_extra_patterns)
+# and applies user-supplied exclusion paths (GitConfig.garbage_exclude_paths)
+# as a whitelist override.
+DEFAULT_GARBAGE_PATTERNS: tuple[str, ...] = (
+    r"^\.bmad-assist/",
+    r"^_bmad-output/",
+    r"\.cache$",
+    r"\.meta\.ya?ml$",
+    r"\.tpl\.xml$",
+    r"__pycache__",
+    r"node_modules/",
+    r"\.pyc$",
+    r"\.egg-info/",
+    r"\.pytest_cache/",
+    r"\.mypy_cache/",
+    r"\.ruff_cache/",
+    r"\.bmad/cache/",
+    r"package-lock\.json$",
+    r"\.lock$",
+)
 
 # Default timeout for git commands
 _GIT_TIMEOUT = 30
@@ -505,6 +530,8 @@ def extract_files_from_diff(diff_content: str) -> list[str]:
 def validate_diff_quality(
     diff_content: str,
     max_garbage_ratio: float = 0.3,
+    extra_garbage_patterns: Iterable[str] | None = None,
+    exclude_paths: Iterable[str] | None = None,
 ) -> DiffValidationResult:
     """Validate that diff contains mostly source files, not garbage.
 
@@ -513,6 +540,14 @@ def validate_diff_quality(
     Args:
         diff_content: Raw git diff output.
         max_garbage_ratio: Maximum allowed ratio of garbage files (default 30%).
+        extra_garbage_patterns: Additional regex patterns to classify as
+            garbage, appended to the built-in DEFAULT_GARBAGE_PATTERNS list.
+            Use this to flag generated files the defaults don't cover.
+        exclude_paths: Repo-relative paths or fnmatch-style glob patterns
+            that should NEVER be classified as garbage, even if they match
+            a regex above. Acts as a whitelist override. Use this for
+            tracked files like ".opencode/package-lock.json" that
+            legitimately appear in your diffs.
 
     Returns:
         DiffValidationResult with validation details.
@@ -530,29 +565,34 @@ def validate_diff_quality(
             issues=[],
         )
 
-    # Classify files
-    garbage_patterns = [
-        r"^\.bmad-assist/",
-        r"^_bmad-output/",
-        r"\.cache$",
-        r"\.meta\.ya?ml$",
-        r"\.tpl\.xml$",
-        r"__pycache__",
-        r"node_modules/",
-        r"\.pyc$",
-        r"\.egg-info/",
-        r"\.pytest_cache/",
-        r"\.mypy_cache/",
-        r"\.ruff_cache/",
-        r"\.bmad/cache/",
-        r"package-lock\.json$",
-        r"\.lock$",
-    ]
+    # Compose effective garbage patterns: defaults + user-supplied extras.
+    garbage_patterns: list[str] = list(DEFAULT_GARBAGE_PATTERNS)
+    if extra_garbage_patterns:
+        garbage_patterns.extend(extra_garbage_patterns)
+
+    # Pre-compile the exclude list once. Each entry is treated as a glob
+    # against the repo-relative path; entries without glob metacharacters
+    # match by exact equality (and by suffix, so users can list
+    # "package-lock.json" without worrying about parent dirs).
+    exclude_list = list(exclude_paths) if exclude_paths else []
+
+    def _is_excluded(path: str) -> bool:
+        for pattern in exclude_list:
+            if any(ch in pattern for ch in "*?["):
+                if fnmatch.fnmatch(path, pattern):
+                    return True
+            elif path == pattern or path.endswith("/" + pattern):
+                return True
+        return False
 
     garbage_files: list[str] = []
     source_files: list[str] = []
 
     for f in files:
+        if _is_excluded(f):
+            # Whitelisted by user config — always treat as source.
+            source_files.append(f)
+            continue
         is_garbage = any(re.search(p, f) for p in garbage_patterns)
         if is_garbage:
             garbage_files.append(f)
@@ -591,6 +631,8 @@ def get_validated_diff(
     base: str | None = None,
     max_garbage_ratio: float = 0.3,
     raise_on_invalid: bool = False,
+    extra_garbage_patterns: Iterable[str] | None = None,
+    exclude_paths: Iterable[str] | None = None,
 ) -> tuple[str, DiffValidationResult]:
     """Capture diff with filtering and validation.
 
@@ -601,6 +643,10 @@ def get_validated_diff(
         base: Base commit for diff (auto-detects if None).
         max_garbage_ratio: Maximum garbage file ratio before warning/error.
         raise_on_invalid: If True, raise DiffQualityError on validation failure.
+        extra_garbage_patterns: Additional regex patterns to classify as
+            garbage. See validate_diff_quality() for details.
+        exclude_paths: Paths/globs to whitelist from garbage detection.
+            See validate_diff_quality() for details.
 
     Returns:
         Tuple of (filtered diff content, validation result).
@@ -613,7 +659,12 @@ def get_validated_diff(
     diff_content = capture_filtered_diff(project_root, base=base)
 
     # Validate quality
-    validation = validate_diff_quality(diff_content, max_garbage_ratio)
+    validation = validate_diff_quality(
+        diff_content,
+        max_garbage_ratio=max_garbage_ratio,
+        extra_garbage_patterns=extra_garbage_patterns,
+        exclude_paths=exclude_paths,
+    )
 
     if not validation.is_valid:
         logger.warning(

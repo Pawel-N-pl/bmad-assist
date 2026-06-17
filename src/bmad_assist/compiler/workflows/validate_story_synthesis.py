@@ -43,6 +43,7 @@ from bmad_assist.compiler.shared_utils import (
 )
 from bmad_assist.compiler.source_context import (
     SourceContextService,
+    cap_synthesis_source_files,
     extract_file_paths_from_story,
 )
 from bmad_assist.compiler.strategic_context import StrategicContextService
@@ -296,17 +297,32 @@ class ValidateStorySynthesisCompiler:
                     service = SourceContextService(context, "validate_story_synthesis")
                     source_files = service.collect_files(file_list_paths, None)
 
-                    # F4-IMPL: Limit source files for synthesis to prevent token explosion
+                    # F4-IMPL: Cap source files for synthesis via aggressive
+                    # LLM compression. Synthesis phases reason over reviewer
+                    # output and don't write code, so we compress EVERY file
+                    # above the size threshold (markdown and source code
+                    # alike) rather than hard-dropping the overflow. Each
+                    # compressed file carries an annotation telling the
+                    # synthesis agent to read the real file via tools if it
+                    # needs byte-exact detail for verifying a reviewer claim.
                     max_synthesis_files = 3
-                    if len(source_files) > max_synthesis_files:
-                        sorted_files = sorted(source_files.items(), key=lambda x: x[0])
-                        limited_files = dict(sorted_files[:max_synthesis_files])
-                        logger.warning(
-                            "Synthesis source files limited: %d → %d (token budget protection)",
-                            len(source_files),
+                    original_count = len(source_files)
+                    cap = cap_synthesis_source_files(
+                        source_files,
+                        max_files=max_synthesis_files,
+                        project_root=context.project_root,
+                    )
+                    source_files = cap.files
+                    if cap.compressed_paths or cap.dropped_paths:
+                        logger.info(
+                            "Synthesis source files capped: included=%d "
+                            "(compressed=%d) dropped=%d (input=%d, max=%d)",
+                            len(cap.included_paths),
+                            len(cap.compressed_paths),
+                            len(cap.dropped_paths),
+                            original_count,
                             max_synthesis_files,
                         )
-                        source_files = limited_files
 
                     files.update(source_files)
                     if source_files:

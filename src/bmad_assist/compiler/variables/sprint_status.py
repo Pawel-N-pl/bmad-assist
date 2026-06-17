@@ -79,7 +79,7 @@ def _resolve_sprint_status(
 def _extract_story_title(
     sprint_status_path: Path,
     epic_num: int,
-    story_num: int,
+    story_num: int | str,
 ) -> str | None:
     """Extract story title from sprint-status.yaml.
 

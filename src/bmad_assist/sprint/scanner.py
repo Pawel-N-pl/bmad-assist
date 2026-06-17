@@ -42,31 +42,31 @@ __all__ = [
 # ============================================================================
 
 # Story files: {epic}-{story}-{slug}.md
-# Examples: 20-1-entry-classification-system.md, testarch-1-config.md
+# Examples: 20-1-entry-classification-system.md, testarch-1-config.md, 10-3a-ii-command-registry.md
 STORY_FILENAME_PATTERN = re.compile(
-    r"^(?P<epic>[a-z0-9-]+)-(?P<story>\d+)-(?P<slug>[a-z0-9-]+)\.md$", re.IGNORECASE
+    r"^(?P<epic>[a-z0-9]+)-(?P<story>\d+(?:[a-z](?:-[ivx]{2,})*)?)-(?P<slug>[a-z0-9-]+)\.md$", re.IGNORECASE
 )
 
 # Code review synthesis: synthesis-{epic}-{story}[-timestamp].md
-# Examples: synthesis-20-4.md, synthesis-16-13-20260107_1112.md
+# Examples: synthesis-20-4.md, synthesis-16-13-20260107_1112.md, synthesis-10-3a-ii-20260410.md
 SYNTHESIS_PATTERN = re.compile(
-    r"^synthesis-(?P<epic>[a-z0-9-]+)-(?P<story>\d+)(?:-(?P<timestamp>[\dT_]+))?\.md$",
+    r"^synthesis-(?P<epic>[a-z0-9]+)-(?P<story>\d+(?:[a-z](?:-[ivx]{2,})*)?)(?:-(?P<timestamp>[\dT_]+))?\.md$",
     re.IGNORECASE,
 )
 
 # Code review: code-review-{epic}-{story}-{role_id}-{timestamp}.md
 # Examples: code-review-22-11-a-20260115T155525Z.md
 CODE_REVIEW_PATTERN = re.compile(
-    r"^code-review-(?P<epic>[a-z0-9-]+)-(?P<story>[a-z0-9]+)-(?P<role_id>[a-z])-"
+    r"^code-review-(?P<epic>[a-z0-9]+)-(?P<story>[a-z0-9]+)-(?P<role_id>[a-z])-"
     r"(?P<timestamp>[\dT_Z-]+)\.md$",
     re.IGNORECASE,
 )
 
 # Legacy code review: code-review-{epic}-{story}-{reviewer}-{timestamp}.md
 # Examples: code-review-1-4-master-20251209-233000.md, code-review-20-4-validator_g-20260107_1738.md
-# Note: story is digits only in legacy format; reviewer uses non-greedy to avoid capturing timestamp
+# Note: sub-story suffix is single letter + optional roman numeral (e.g., 3a, 3a-ii)
 LEGACY_REVIEW_PATTERN = re.compile(
-    r"^code-review-(?P<epic>[a-z0-9-]+)-(?P<story>\d+)-(?P<reviewer>[a-z0-9_-]+?)-"
+    r"^code-review-(?P<epic>[a-z0-9]+)-(?P<story>\d+(?:[a-z](?:-[ivx]{2,})*)?)-(?P<reviewer>[a-z0-9_-]+?)-"
     r"(?P<timestamp>\d[\dT_Z-]+)\.md$",
     re.IGNORECASE,
 )
@@ -74,14 +74,14 @@ LEGACY_REVIEW_PATTERN = re.compile(
 # New validation: validation-{epic}-{story}-{role_id}-{timestamp}.md
 # Examples: validation-22-11-a-20260115T155525Z.md
 NEW_VALIDATION_PATTERN = re.compile(
-    r"^validation-(?P<epic>[a-z0-9-]+)-(?P<story>[a-z0-9]+)-(?P<role_id>[a-z])-"
+    r"^validation-(?P<epic>[a-z0-9]+)-(?P<story>[a-z0-9]+)-(?P<role_id>[a-z])-"
     r"(?P<timestamp>[\dT_Z-]*)\.md$",
     re.IGNORECASE,
 )
 
 # Legacy validation: story-validation-{epic}-{story}-{reviewer}-{timestamp}.md
 LEGACY_VALIDATION_PATTERN = re.compile(
-    r"^story-validation-(?P<epic>[a-z0-9-]+)-(?P<story>\d+)-(?P<reviewer>[a-z0-9_]+)-"
+    r"^story-validation-(?P<epic>[a-z0-9]+)-(?P<story>\d+(?:[a-z](?:-[ivx]{2,})*)?)-(?P<reviewer>[a-z0-9_]+)-"
     r"(?P<timestamp>[\dT_-]+)\.md$",
     re.IGNORECASE,
 )
@@ -239,8 +239,9 @@ def _normalize_story_key(story_key: str) -> str:
         'testarch-1'
 
     """
-    # Match epic-story pattern at start
-    match = re.match(r"^([a-z0-9-]+?)-(\d+)", story_key, re.IGNORECASE)
+    # Match epic-story pattern at start (sub-story: single letter + optional roman numeral)
+    # The letter suffix and roman numerals are grouped: 3a, 3a-ii — never 3-ii alone
+    match = re.match(r"^([a-z0-9-]+?)-(\d+(?:[a-z](?:-[ivx]{2,})*)?)", story_key, re.IGNORECASE)
     if match:
         return f"{match.group(1).lower()}-{match.group(2)}"
     return story_key.lower()

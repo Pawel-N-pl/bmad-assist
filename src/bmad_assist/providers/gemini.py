@@ -734,11 +734,29 @@ class GeminiProvider(BaseProvider):
                     command=tuple(command),
                 )
 
-                # Retry only on transient failures (empty stderr, general error status)
-                is_transient = not stderr_content.strip() and exit_status == ExitStatus.ERROR
+                # Retry on transient failures:
+                # 1. Empty stderr with general error status (generic transient)
+                # 2. HTTP 429 rate limit errors (explicit rate limiting)
+                stderr_lower = stderr_content.lower()
+                is_rate_limited = (
+                    "status 429" in stderr_lower
+                    or "rate limit" in stderr_lower
+                    or "resource exhausted" in stderr_lower
+                )
+                is_transient = (
+                    not stderr_content.strip() and exit_status == ExitStatus.ERROR
+                ) or is_rate_limited
 
                 if is_transient and attempt < MAX_RETRIES - 1:
                     last_error = error
+                    if is_rate_limited:
+                        # Extra backoff for rate limits (30s base, doubling)
+                        rate_delay = min(30.0 * (2 ** attempt), 120.0)
+                        logger.warning(
+                            "Gemini rate limited (429), backing off %.0fs before retry",
+                            rate_delay,
+                        )
+                        time.sleep(rate_delay)
                     continue  # Retry
 
                 # Not retryable or out of retries - raise the error

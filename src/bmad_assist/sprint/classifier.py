@@ -61,7 +61,7 @@ _EPIC_META_PATTERN = re.compile(r"^epic-([a-z0-9][a-z0-9-]*)$")
 
 # Epic story: {epic_id}-{story_num}-{slug} where epic_id can be string or numeric
 # Requires at least: alphanumeric epic id, numeric story number, alphanumeric slug
-_EPIC_STORY_PATTERN = re.compile(r"^([a-z0-9][a-z0-9-]*)-(\d+)-([a-z0-9][a-z0-9-]*)$")
+_EPIC_STORY_PATTERN = re.compile(r"^([a-z0-9][a-z0-9-]*)-(\d+(?:[a-z](?:-[ivx]{2,})*)?)-([a-z0-9][a-z0-9-]*)$")
 
 
 def classify_entry(

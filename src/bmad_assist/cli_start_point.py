@@ -8,6 +8,7 @@ This module handles --epic and --story flag processing, including:
 """
 
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -129,9 +130,9 @@ def _handle_story_specified(
         typer.Exit: If story not found or cancelled.
 
     """
-    # Validate story_id is numeric
-    if not story_id.isdigit():
-        _error(f"Story number must be numeric, got: {story_id}")
+    # Validate story_id is a valid story number (e.g., "3", "3a", "3a-ii")
+    if not re.match(r"^\d+[a-z]*(?:-[a-z0-9]+)*$", story_id):
+        _error(f"Invalid story number format, got: {story_id}")
         raise typer.Exit(code=EXIT_CONFIG_ERROR)
 
     # User specified both epic and story

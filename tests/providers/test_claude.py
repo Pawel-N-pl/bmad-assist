@@ -530,7 +530,7 @@ class TestClaudeSubprocessProviderErrors:
     def test_invoke_timeout_error_includes_truncated_prompt(
         self, provider: ClaudeSubprocessProvider, accelerated_time
     ) -> None:
-        """Test AC8: Timeout error includes prompt (truncated if > 100 chars)."""
+        """Test AC8: Timeout error includes prompt_chars count, not content."""
         long_prompt = "x" * 150
 
         with patch("bmad_assist.providers.claude.Popen") as mock:
@@ -540,16 +540,15 @@ class TestClaudeSubprocessProviderErrors:
                 provider.invoke(long_prompt, timeout=1)
 
             error_msg = str(exc_info.value)
-            # Should be truncated
-            assert "x" * 100 in error_msg
-            assert "..." in error_msg
-            # Should NOT contain full prompt
-            assert "x" * 150 not in error_msg
+            # Should NOT contain prompt content (Fix #5)
+            assert "x" * 100 not in error_msg
+            # Should contain prompt char count
+            assert "prompt_chars=150" in error_msg
 
     def test_invoke_timeout_error_short_prompt_not_truncated(
         self, provider: ClaudeSubprocessProvider, accelerated_time
     ) -> None:
-        """Test AC8: Short prompts are not truncated in timeout error."""
+        """Test AC8: Short prompts also show char count, not content."""
         short_prompt = "Hello world"
 
         with patch("bmad_assist.providers.claude.Popen") as mock:
@@ -559,8 +558,8 @@ class TestClaudeSubprocessProviderErrors:
                 provider.invoke(short_prompt, timeout=1)
 
             error_msg = str(exc_info.value)
-            assert "Hello world" in error_msg
-            assert "..." not in error_msg
+            assert "Hello world" not in error_msg
+            assert "prompt_chars=11" in error_msg
 
     def test_invoke_timeout_kills_process(
         self, provider: ClaudeSubprocessProvider, accelerated_time

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from bmad_assist.bmad.parser import EpicDocument, EpicStory
 from bmad_assist.bmad.state_reader import (
     ProjectState,
     _apply_default_status,
@@ -37,7 +38,6 @@ from bmad_assist.bmad.state_reader import (
     _story_sort_key,
     read_project_state,
 )
-from bmad_assist.bmad.parser import EpicDocument, EpicStory
 
 
 class TestDiscoverEpicFiles:
@@ -1080,33 +1080,43 @@ class TestHelperFunctions:
 
     def test_story_sort_key(self) -> None:
         """Test _story_sort_key generates correct sort keys."""
-        # Numeric epic ID: (0, epic_num, story_num)
         story = EpicStory(number="2.3", title="Test")
         key = _story_sort_key(story)
-        assert key == (0, 2, 3)
+        assert key == (0, 2, (3, "", []))
 
     def test_story_sort_key_string_epic(self) -> None:
         """Test _story_sort_key handles string epic IDs."""
-        # String epic ID: (1, epic_id, story_num)
         story = EpicStory(number="testarch.1", title="Test")
         key = _story_sort_key(story)
-        assert key == (1, "testarch", 1)
+        assert key == (1, "testarch", (1, "", []))
 
     def test_story_sort_key_invalid_format(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test _story_sort_key handles invalid format gracefully."""
         story = EpicStory(number="invalid", title="Test")
         with caplog.at_level(logging.WARNING):
             key = _story_sort_key(story)
-        assert key == (0, 0, 0)
+        assert key == (0, 0, (0, "", []))
         assert "Invalid story number format" in caplog.text
 
-    def test_story_sort_key_non_numeric(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Test _story_sort_key handles non-numeric story numbers gracefully."""
-        story = EpicStory(number="2.a", title="Test")
-        with caplog.at_level(logging.WARNING):
-            key = _story_sort_key(story)
-        assert key == (0, 0, 0)
-        assert "Non-numeric story number" in caplog.text
+    def test_story_sort_key_substory(self) -> None:
+        """Test _story_sort_key handles sub-stories like 3a, 3a-ii."""
+        story_3 = EpicStory(number="10.3", title="Base")
+        story_3a = EpicStory(number="10.3a", title="Sub A")
+        story_3a_ii = EpicStory(number="10.3a-ii", title="Sub A-II")
+        story_3b = EpicStory(number="10.3b", title="Sub B")
+        story_4 = EpicStory(number="10.4", title="Next")
+
+        keys = [_story_sort_key(s) for s in [story_3, story_3a, story_3a_ii, story_3b, story_4]]
+        # Verify natural ordering: 3 < 3a < 3a-ii < 3b < 4
+        assert keys == sorted(keys)
+
+    def test_story_sort_key_letter_suffix(self) -> None:
+        """Test _story_sort_key handles letter suffixes like 4b, 4c."""
+        story_a = EpicStory(number="2.a", title="Test")
+        key = _story_sort_key(story_a)
+        # "a" has no leading digits, so base_num=0
+        assert key[0] == 0
+        assert key[1] == 2
 
     def test_flatten_stories_warns_on_duplicates(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test _flatten_stories logs warning for duplicate stories."""
@@ -1152,6 +1162,16 @@ class TestHelperFunctions:
         assert _parse_sprint_status_key("1-1-project-init") == "1.1"
         assert _parse_sprint_status_key("2-3-state-reader") == "2.3"
         assert _parse_sprint_status_key("12-15-large-numbers") == "12.15"
+
+    def test_parse_sprint_status_key_substories(self) -> None:
+        """Test _parse_sprint_status_key with sub-story keys."""
+        assert _parse_sprint_status_key("10-3a-implement-command-registry") == "10.3a"
+        assert _parse_sprint_status_key("10-3a-ii-implement-tab-completion") == "10.3a-ii"
+        assert _parse_sprint_status_key("10-3a-iii-implement-slash-commands") == "10.3a-iii"
+        assert _parse_sprint_status_key("10-3b-implement-chat-pane") == "10.3b"
+        assert _parse_sprint_status_key("2-3b-implement-securememfile") == "2.3b"
+        assert _parse_sprint_status_key("8-2c-implement-scheduler") == "8.2c"
+        assert _parse_sprint_status_key("1-5a-initialize-testing") == "1.5a"
 
     def test_parse_sprint_status_key_skips_epic_keys(self) -> None:
         """Test _parse_sprint_status_key skips epic keys."""

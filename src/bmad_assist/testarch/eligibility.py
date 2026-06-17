@@ -329,7 +329,7 @@ class ATDDEligibilityDetector:
             result = provider.invoke(
                 prompt,
                 model=config.providers.helper.model,
-                timeout=60,
+                timeout=config.providers.helper.timeout,
                 disable_tools=True,
                 no_cache=True,
             )

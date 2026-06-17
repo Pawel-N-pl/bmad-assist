@@ -138,6 +138,7 @@ def extract_report(
     markers: ReportMarkers,
     *,
     stop_at_markers: list[str] | None = None,
+    termination_reason: str | None = None,
 ) -> str:
     r"""Extract report content from LLM output.
 
@@ -194,11 +195,20 @@ def extract_report(
         return content
 
     # Stage 3: Last resort - return stripped original
-    logger.warning(
-        "Could not extract structured %s report, using raw content (%d chars)",
-        markers.name,
-        len(raw_output.strip()),
-    )
+    if termination_reason and "guard" in termination_reason.lower():
+        logger.warning(
+            "ToolCallGuard terminated %s phase before report markers could be "
+            "emitted — output likely incomplete (%d chars, reason: %s)",
+            markers.name,
+            len(raw_output.strip()),
+            termination_reason,
+        )
+    else:
+        logger.warning(
+            "Could not extract structured %s report, using raw content (%d chars)",
+            markers.name,
+            len(raw_output.strip()),
+        )
     return raw_output.strip()
 
 

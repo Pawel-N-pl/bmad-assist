@@ -690,3 +690,223 @@ class TestPhaseEventIntegration:
             model="opus",
         )
         assert event.termination_metadata is None
+
+
+# ---------------------------------------------------------------------------
+# Elevated per-file cap for budget-trimmed files (Fix #6)
+# ---------------------------------------------------------------------------
+
+
+class TestGuardElevatedFileCap:
+    """Files in elevated_file_paths get a higher per-file interaction cap.
+
+    Trimmed files were dropped from the prompt context, so the model must
+    read them via tool calls. A flat cap punishes that legitimate use.
+    """
+
+    def test_elevated_file_uses_higher_cap(self) -> None:
+        """A file in elevated_file_paths can exceed the base cap."""
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=3,
+            max_calls_per_minute=100,
+            elevated_file_paths={"/src/big.py"},
+            max_interactions_per_file_elevated=6,
+        )
+        # 6 reads on big.py — would exceed base cap of 3, must succeed
+        # because big.py is in the elevated set.
+        for i in range(6):
+            v = guard.check(*_make_read("/src/big.py"))
+            assert v.allowed, f"Call {i+1} on elevated file should be allowed"
+        # 7th call exceeds elevated cap — must fail
+        v = guard.check(*_make_read("/src/big.py"))
+        assert not v.allowed
+        assert "elevated" in v.reason
+        assert "would_be_7/6" in v.reason
+
+    def test_non_elevated_file_uses_base_cap(self) -> None:
+        """Non-elevated files still hit the base cap."""
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=2,
+            max_calls_per_minute=100,
+            elevated_file_paths={"/src/elevated.py"},
+            max_interactions_per_file_elevated=10,
+        )
+        guard.check(*_make_read("/src/normal.py"))
+        guard.check(*_make_read("/src/normal.py"))
+        v = guard.check(*_make_read("/src/normal.py"))
+        assert not v.allowed
+        assert "base" in v.reason
+        assert "would_be_3/2" in v.reason
+
+    def test_auto_elevated_cap_is_double_base(self) -> None:
+        """When max_interactions_per_file_elevated is None, default = 2x base."""
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=4,
+            max_calls_per_minute=100,
+            elevated_file_paths={"/src/auto.py"},
+            # max_interactions_per_file_elevated NOT specified
+        )
+        assert guard.max_interactions_per_file_elevated == 8
+        for _ in range(8):
+            assert guard.check(*_make_read("/src/auto.py")).allowed
+        v = guard.check(*_make_read("/src/auto.py"))
+        assert not v.allowed
+        assert "would_be_9/8" in v.reason
+
+    def test_explicit_elevated_below_base_is_clamped_up(self) -> None:
+        """Elevated cap can't be lower than base — clamped up at construction."""
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=10,
+            max_calls_per_minute=100,
+            elevated_file_paths={"/x.py"},
+            max_interactions_per_file_elevated=2,  # absurdly low
+        )
+        # Should be silently clamped to base (10), never below.
+        assert guard.max_interactions_per_file_elevated == 10
+
+    def test_empty_elevated_set_does_not_log_elevation(self) -> None:
+        """No elevated paths → constructor logs the legacy single-cap message."""
+        # Just make sure construction succeeds and uses base cap.
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=3,
+            max_calls_per_minute=100,
+            elevated_file_paths=set(),
+        )
+        assert guard.elevated_file_paths == set()
+        # Default elevated cap still computed but unused.
+        assert guard.max_interactions_per_file_elevated == 6
+
+    def test_elevated_paths_normalized_to_realpath(self) -> None:
+        """Elevated paths are normalized via realpath at construction.
+
+        Ensures lookups match whatever path the file tools pass in (which
+        the guard also normalizes the same way).
+        """
+        import os
+
+        guard = ToolCallGuard(
+            max_total_calls=100,
+            max_interactions_per_file=2,
+            max_calls_per_minute=100,
+            # Pass relative-style path with redundant components
+            elevated_file_paths={"/src/./../src/foo.py"},
+        )
+        # Realpath resolves to /src/foo.py
+        assert os.path.realpath("/src/foo.py") in guard.elevated_file_paths
+
+    def test_elevated_cap_validation_rejects_zero(self) -> None:
+        """max_interactions_per_file_elevated < 1 raises."""
+        with pytest.raises(ValueError, match="elevated"):
+            ToolCallGuard(
+                max_total_calls=100,
+                max_interactions_per_file=5,
+                max_calls_per_minute=100,
+                elevated_file_paths={"/x.py"},
+                max_interactions_per_file_elevated=0,
+            )
+
+
+class TestToolGuardConfigDefaults:
+    """ToolGuardConfig defaults include the new elevated-cap field."""
+
+    def test_default_max_interactions_per_file_is_40(self) -> None:
+        """Default file cap is 40 (matches code, not stale "15" docstring)."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig()
+        assert cfg.max_interactions_per_file == 40
+
+    def test_default_trimmed_cap_is_none_meaning_auto(self) -> None:
+        """trimmed cap default is None (interpreted as 2x base via helper)."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig()
+        assert cfg.max_interactions_per_file_trimmed is None
+        assert cfg.get_elevated_file_cap() == 80  # 2x default 40
+
+    def test_explicit_trimmed_cap_used(self) -> None:
+        """Explicit trimmed cap is returned by helper."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig(max_interactions_per_file_trimmed=120)
+        assert cfg.get_elevated_file_cap() == 120
+
+
+class TestToolGuardConfigPerPhaseBudget:
+    """ToolGuardConfig.get_max_total_calls honors per-phase overrides."""
+
+    def test_no_override_returns_global_default(self) -> None:
+        """No per_phase config → global max_total_calls applies."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig()
+        assert cfg.get_max_total_calls("dev_story") == 300  # default
+        assert cfg.get_max_total_calls("code_review") == 300
+
+    def test_explicit_phase_override_used(self) -> None:
+        """Per-phase override replaces global for that phase only."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig(
+            max_total_calls=300,
+            max_total_calls_per_phase={"dev_story": 600, "create_story": 400},
+        )
+        assert cfg.get_max_total_calls("dev_story") == 600
+        assert cfg.get_max_total_calls("create_story") == 400
+        # Other phases still use global default
+        assert cfg.get_max_total_calls("code_review") == 300
+        assert cfg.get_max_total_calls("validate_story") == 300
+
+    def test_hyphen_normalized_to_underscore(self) -> None:
+        """``dev-story`` and ``dev_story`` are treated as the same phase."""
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig(
+            max_total_calls_per_phase={"dev_story": 800},
+        )
+        assert cfg.get_max_total_calls("dev-story") == 800
+        assert cfg.get_max_total_calls("dev_story") == 800
+
+    def test_zero_or_negative_override_falls_back_to_default(self) -> None:
+        """Misconfigured 0 or negative → fall back to global default.
+
+        Protects the run from a yaml typo that would otherwise crash the
+        guard constructor (which requires max_total_calls >= 1).
+        """
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig(
+            max_total_calls=300,
+            max_total_calls_per_phase={"dev_story": 0, "atdd": -5},
+        )
+        assert cfg.get_max_total_calls("dev_story") == 300
+        assert cfg.get_max_total_calls("atdd") == 300
+
+    def test_per_phase_budget_flows_through_to_guard_construction(
+        self,
+    ) -> None:
+        """ToolCallGuard constructed with the per-phase resolved value.
+
+        Regression guard for base.py wiring: phase-aware caller uses
+        ``get_max_total_calls(phase)`` not the raw ``max_total_calls``.
+        """
+        from bmad_assist.core.config.models.features import ToolGuardConfig
+
+        cfg = ToolGuardConfig(
+            max_total_calls=300,
+            max_total_calls_per_phase={"dev_story": 700},
+        )
+        # Simulate what base.py does
+        dev_story_cap = cfg.get_max_total_calls("dev_story")
+        review_cap = cfg.get_max_total_calls("code_review")
+
+        dev_guard = ToolCallGuard(max_total_calls=dev_story_cap)
+        review_guard = ToolCallGuard(max_total_calls=review_cap)
+
+        assert dev_guard.max_total_calls == 700
+        assert review_guard.max_total_calls == 300

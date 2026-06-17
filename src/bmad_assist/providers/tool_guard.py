@@ -5,8 +5,15 @@ and terminates sessions when runaway behavior is detected.
 
 Three detection mechanisms:
 1. Hard budget cap on total tool calls (default: 300)
-2. Per-file interaction cap — read+write+edit combined (default: 15)
+2. Per-file interaction cap — read+write+edit combined (default: 40,
+   elevated to 2x for files that were budget-trimmed out of the prompt
+   context — see ``elevated_file_paths`` below)
 3. Sliding-window per-minute rate cap (default: 90/min)
+
+The elevated per-file cap exists because budget-trimmed files don't appear
+in the prompt context — the model must read them via tool calls. A flat
+cap punishes legitimate use of tools to recover information the prompt
+trimmed away.
 
 Thread safety: check() and get_stats() are protected by an internal lock,
 safe for concurrent calls from stream-reader and main threads.
@@ -98,8 +105,16 @@ class ToolCallGuard:
 
     Args:
         max_total_calls: Hard cap on total tool calls (any type).
-        max_interactions_per_file: Max combined read+write+edit per file path.
+        max_interactions_per_file: Max combined read+write+edit per file path
+            for files that were already in the prompt context.
         max_calls_per_minute: Sliding-window rate cap.
+        elevated_file_paths: Optional set of normalized (realpath) file paths
+            that get an elevated per-file cap. Use for files that were
+            budget-trimmed out of the prompt context — the model must read
+            them via tool calls and a flat cap punishes that legitimate use.
+            Empty set means "no elevated paths".
+        max_interactions_per_file_elevated: Per-file cap for paths in
+            elevated_file_paths. None = auto: 2 * max_interactions_per_file.
         _clock: Injectable clock function for deterministic testing.
 
     """
@@ -107,8 +122,10 @@ class ToolCallGuard:
     def __init__(  # noqa: D107
         self,
         max_total_calls: int = 300,
-        max_interactions_per_file: int = 15,
+        max_interactions_per_file: int = 40,
         max_calls_per_minute: int = 90,
+        elevated_file_paths: set[str] | None = None,
+        max_interactions_per_file_elevated: int | None = None,
         _clock: Callable[[], float] | None = None,
     ) -> None:
         if max_total_calls < 1:
@@ -123,6 +140,23 @@ class ToolCallGuard:
         self.max_total_calls = max_total_calls
         self.max_interactions_per_file = max_interactions_per_file
         self.max_calls_per_minute = max_calls_per_minute
+        # Normalize elevated paths to realpath at construction time so the
+        # per-call lookup is just a set membership check (fast path).
+        self.elevated_file_paths: set[str] = {
+            os.path.realpath(p) for p in (elevated_file_paths or set())
+        }
+        # Resolve elevated cap (auto: 2x base, but never below base).
+        if max_interactions_per_file_elevated is not None:
+            if max_interactions_per_file_elevated < 1:
+                raise ValueError(
+                    "max_interactions_per_file_elevated must be >= 1, got "
+                    f"{max_interactions_per_file_elevated}"
+                )
+            self.max_interactions_per_file_elevated = max(
+                max_interactions_per_file_elevated, max_interactions_per_file
+            )
+        else:
+            self.max_interactions_per_file_elevated = max_interactions_per_file * 2
         self._clock = _clock or time.monotonic
         self._lock = threading.Lock()
 
@@ -135,12 +169,23 @@ class ToolCallGuard:
         self._terminated: bool = False
         self._terminated_reason: str | None = None
 
-        logger.info(
-            "ToolCallGuard active: budget=%d, file_cap=%d, rate=%d/min",
-            max_total_calls,
-            max_interactions_per_file,
-            max_calls_per_minute,
-        )
+        if self.elevated_file_paths:
+            logger.info(
+                "ToolCallGuard active: budget=%d, file_cap=%d, "
+                "elevated_file_cap=%d (for %d trimmed files), rate=%d/min",
+                max_total_calls,
+                max_interactions_per_file,
+                self.max_interactions_per_file_elevated,
+                len(self.elevated_file_paths),
+                max_calls_per_minute,
+            )
+        else:
+            logger.info(
+                "ToolCallGuard active: budget=%d, file_cap=%d, rate=%d/min",
+                max_total_calls,
+                max_interactions_per_file,
+                max_calls_per_minute,
+            )
 
     @property
     def is_triggered(self) -> bool:
@@ -184,14 +229,24 @@ class ToolCallGuard:
             return GuardVerdict(allowed=False, reason=reason)
 
         # --- Check per-file interaction cap ---
+        # Files that were budget-trimmed out of the prompt context get an
+        # elevated cap (the model has to read them via tools, so a flat
+        # base cap punishes legitimate use). Lookup uses realpath-normalized
+        # paths populated at construction time.
         file_path = self._extract_file_path(tool_name, tool_input)
         if file_path is not None:
             current_count = self._file_interactions.get(file_path, 0)
             would_be_file = current_count + 1
-            if would_be_file > self.max_interactions_per_file:
+            if file_path in self.elevated_file_paths:
+                effective_cap = self.max_interactions_per_file_elevated
+                cap_label = "elevated"
+            else:
+                effective_cap = self.max_interactions_per_file
+                cap_label = "base"
+            if would_be_file > effective_cap:
                 reason = (
                     f"file_interaction_cap:{file_path}"
-                    f"(would_be_{would_be_file}/{self.max_interactions_per_file})"
+                    f"(would_be_{would_be_file}/{effective_cap}:{cap_label})"
                 )
                 self._terminated = True
                 self._terminated_reason = reason

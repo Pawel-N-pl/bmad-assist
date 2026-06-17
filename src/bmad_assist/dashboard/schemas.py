@@ -85,7 +85,7 @@ class WorkflowStatusData(BaseModel):
     """
 
     current_epic: int | str = Field(...)
-    current_story: str = Field(..., pattern=r"^[\w-]+\.\d+$")
+    current_story: str = Field(..., pattern=r"^[\w-]+\.[\w]+(?:-[\w]+)*$")
     current_phase: Literal[
         "CREATE_STORY",
         "VALIDATE_STORY",
@@ -155,7 +155,7 @@ class StoryStatusData(BaseModel):
     """
 
     epic_num: int | str = Field(...)
-    story_num: int = Field(..., ge=1)
+    story_num: int | str = Field(...)
     story_id: str = Field(..., pattern=r"^[\w-]+-\d+-[\w-]+$")
     status: Literal["backlog", "ready-for-dev", "in-progress", "review", "done"]
     previous_status: Literal["backlog", "ready-for-dev", "in-progress", "review", "done"] | None = (
@@ -211,7 +211,7 @@ class StoryTransitionData(BaseModel):
 
     action: Literal["started", "completed"]
     epic_num: int | str = Field(...)
-    story_num: int = Field(..., ge=1)
+    story_num: int | str = Field(...)
     story_id: str = Field(..., pattern=r"^[\w-]+-\d+-[\w-]+$")
     story_title: str = Field(..., min_length=1)
 
@@ -384,7 +384,7 @@ def create_story_status(
     run_id: str,
     sequence_id: int,
     epic_num: int | str,
-    story_num: int,
+    story_num: int | str,
     story_id: str,
     status: str,
     previous_status: str | None = None,
@@ -424,7 +424,7 @@ def create_story_transition(
     sequence_id: int,
     action: str,
     epic_num: int | str,
-    story_num: int,
+    story_num: int | str,
     story_id: str,
     story_title: str,
 ) -> StoryTransitionEvent:

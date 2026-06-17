@@ -1801,3 +1801,202 @@ class TestCompressionPipelineIntegration:
             # Standard custom fields should also be present
             assert saved_record.custom.get("phase") == "code-review-synthesis"
             assert saved_record.custom.get("reviewer_count") == 2  # from cached_reviews fixture
+
+
+# =============================================================================
+# Retry on short synthesis output (model-off-rails recovery)
+# =============================================================================
+#
+# Observed failure mode: LLM emits long preamble OUTSIDE the START/END
+# markers, then emits markers with empty content between them. Extraction
+# correctly returns ~5 chars (between empty markers). Previous behavior
+# failed the phase immediately. New behavior: retry once with a
+# reinforcement note in the prompt, only fail if retry also comes up empty.
+
+
+# Small mock output: START/END markers with nothing meaningful between them —
+# models the actual failure mode seen in production runs.
+_MOCK_EMPTY_MARKERS_OUTPUT = (
+    "Let me verify which iroh API surface is available.\n"
+    "Now I have enough context. Let me apply all the targeted fixes.\n\n"
+    "<!-- CODE_REVIEW_SYNTHESIS_START -->\n"
+    "\n"
+    "<!-- CODE_REVIEW_SYNTHESIS_END -->\n\n"
+    "**Fix 1:** Implement transport/status.rs ...\n"
+    "**Fix 2:** Update the misleading banner ...\n"
+)
+
+
+class TestCodeReviewSynthesisRetryOnShortOutput:
+    """Handler retries once when extraction produces sub-minimum output."""
+
+    def test_first_attempt_succeeds_no_retry(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+        state_for_synthesis: State,
+        cached_reviews: str,
+    ) -> None:
+        """Healthy first attempt → invoke_provider called once."""
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+        with (
+            patch.object(handler, "render_prompt") as mock_render,
+            patch.object(handler, "invoke_provider") as mock_invoke,
+            patch("bmad_assist.core.debug_logger.save_prompt"),
+        ):
+            mock_render.return_value = "<compiled>test</compiled>"
+            mock_invoke.return_value = ProviderResult(
+                stdout=_MOCK_SYNTHESIS_OUTPUT,
+                stderr="",
+                exit_code=0,
+                duration_ms=5000,
+                model="opus-4",
+                command=("claude", "--print"),
+            )
+
+            result = handler.execute(state_for_synthesis)
+
+        assert result.success
+        assert mock_invoke.call_count == 1
+
+    def test_short_first_attempt_retries_once_and_succeeds(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+        state_for_synthesis: State,
+        cached_reviews: str,
+    ) -> None:
+        """Empty-markers first attempt → retry → healthy second attempt."""
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+        short_result = ProviderResult(
+            stdout=_MOCK_EMPTY_MARKERS_OUTPUT,
+            stderr="",
+            exit_code=0,
+            duration_ms=3000,
+            model="opus-4",
+            command=("claude", "--print"),
+        )
+        healthy_result = ProviderResult(
+            stdout=_MOCK_SYNTHESIS_OUTPUT,
+            stderr="",
+            exit_code=0,
+            duration_ms=5000,
+            model="opus-4",
+            command=("claude", "--print"),
+        )
+
+        with (
+            patch.object(handler, "render_prompt") as mock_render,
+            patch.object(handler, "invoke_provider") as mock_invoke,
+            patch("bmad_assist.core.debug_logger.save_prompt"),
+        ):
+            mock_render.return_value = "<compiled>test</compiled>"
+            mock_invoke.side_effect = [short_result, healthy_result]
+
+            result = handler.execute(state_for_synthesis)
+
+        assert result.success
+        assert mock_invoke.call_count == 2
+        # Second invocation carries the reinforcement note.
+        second_prompt = mock_invoke.call_args_list[1].args[0]
+        assert "IMPORTANT" in second_prompt
+        assert "INSIDE" in second_prompt
+        # First invocation did NOT carry the reinforcement note.
+        first_prompt = mock_invoke.call_args_list[0].args[0]
+        assert "IMPORTANT" not in first_prompt or "INSIDE" not in first_prompt.upper()
+
+    def test_both_attempts_short_fails_with_marker_diagnostics(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+        state_for_synthesis: State,
+        cached_reviews: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Short output after retry → fail with marker-position diagnostics."""
+        import logging as _logging
+
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+        short_result = ProviderResult(
+            stdout=_MOCK_EMPTY_MARKERS_OUTPUT,
+            stderr="",
+            exit_code=0,
+            duration_ms=3000,
+            model="opus-4",
+            command=("claude", "--print"),
+        )
+
+        with (
+            patch.object(handler, "render_prompt") as mock_render,
+            patch.object(handler, "invoke_provider") as mock_invoke,
+            patch("bmad_assist.core.debug_logger.save_prompt"),
+            caplog.at_level(
+                _logging.ERROR,
+                logger="bmad_assist.core.loop.handlers.code_review_synthesis",
+            ),
+        ):
+            mock_render.return_value = "<compiled>test</compiled>"
+            mock_invoke.side_effect = [short_result, short_result]
+
+            result = handler.execute(state_for_synthesis)
+
+        assert not result.success
+        assert mock_invoke.call_count == 2
+        # Error surfaces the marker diagnostics (START@, END@, content between).
+        error_logs = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+        assert any("Markers:" in msg for msg in error_logs)
+        assert any("content between=" in msg for msg in error_logs)
+        # Error message mentions retry count.
+        assert "2 attempts" in (result.error or "")
+
+    def test_first_attempt_exit_code_failure_no_retry(
+        self,
+        synthesis_config: Config,
+        project_with_story: Path,
+        state_for_synthesis: State,
+        cached_reviews: str,
+    ) -> None:
+        """Provider-level failure (exit_code != 0) → no retry, fail fast."""
+        from bmad_assist.core.loop.handlers.code_review_synthesis import (
+            CodeReviewSynthesisHandler,
+        )
+
+        handler = CodeReviewSynthesisHandler(synthesis_config, project_with_story)
+
+        crash_result = ProviderResult(
+            stdout="",
+            stderr="API error",
+            exit_code=1,
+            duration_ms=500,
+            model="opus-4",
+            command=("claude", "--print"),
+        )
+
+        with (
+            patch.object(handler, "render_prompt") as mock_render,
+            patch.object(handler, "invoke_provider") as mock_invoke,
+            patch("bmad_assist.core.debug_logger.save_prompt"),
+        ):
+            mock_render.return_value = "<compiled>test</compiled>"
+            mock_invoke.return_value = crash_result
+
+            result = handler.execute(state_for_synthesis)
+
+        # Single attempt — provider errors aren't "short output" retryable.
+        assert not result.success
+        assert mock_invoke.call_count == 1

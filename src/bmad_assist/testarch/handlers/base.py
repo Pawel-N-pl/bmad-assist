@@ -24,12 +24,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from bmad_assist.core.config.loaders import get_phase_timeout
-from bmad_assist.core.exceptions import CompilerError
+from bmad_assist.core.config.loaders import get_phase_retries, get_phase_timeout
+from bmad_assist.core.exceptions import CompilerError, ProviderTimeoutError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.handlers.base import BaseHandler
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths
+from bmad_assist.core.retry import invoke_with_timeout_retry
 from bmad_assist.core.state import State
 from bmad_assist.providers.base import ProviderResult
 
@@ -568,12 +569,90 @@ class TestarchBaseHandler(BaseHandler):
 
         return compile_workflow(workflow_name, context)
 
+    def _resolve_testarch_fallback(
+        self, primary_provider_name: str
+    ) -> tuple[Callable[..., ProviderResult] | None, str | None, str | None]:
+        """Pick a sensible fallback callable for testarch provider invocations.
+
+        Testarch phases (ATDD, test_review, trace, NFR assess, etc.) run
+        heavy workflows that can hang — especially when pointed at remote
+        endpoints via opencode. Before this helper existed, a single
+        timeout killed the entire phase with no recovery path. This
+        resolves a fallback chain that mirrors the main loop handler:
+
+        1. ``claude`` primary → ``claude-subprocess`` fallback. Same
+           model family, different launch path, preserves the existing
+           SDK-init-timeout fallback behavior.
+        2. Any other primary → the configured ``providers.helper`` if
+           present AND its provider differs from the primary. Helper is
+           typically a fast model (haiku); ``invoke_with_timeout_retry``
+           auto-scales the fallback timeout to 1.5× the primary, so
+           ATDD's 1800s primary → 2700s helper timeout, plenty even
+           for a slower model.
+        3. Otherwise ``None`` — no fallback, retries alone (which still
+           helps for transient timeouts).
+
+        Args:
+            primary_provider_name: ``provider_name`` of the master
+                provider for this phase.
+
+        Returns:
+            Tuple of ``(fallback_invoke_fn, fallback_model, fallback_display_model)``.
+            All three are None when no fallback is configured.
+
+        """
+        # Case 1: claude → claude-subprocess (legacy behavior)
+        if primary_provider_name == "claude":
+            from bmad_assist.providers.claude import ClaudeSubprocessProvider
+
+            subprocess_provider = ClaudeSubprocessProvider()
+            # Subprocess uses the same model as the primary — caller
+            # already passes model via kwargs, so no override needed.
+            return subprocess_provider.invoke, None, None
+
+        # Case 2: helper fallback (if configured and different provider).
+        # We require helper.provider to be a non-empty string — this both
+        # guards against misconfigured Pydantic models AND keeps legacy
+        # testarch integration tests (which use bare MagicMock for the
+        # providers section) from picking up a phantom helper fallback.
+        helper = getattr(self.config.providers, "helper", None)
+        helper_provider_name = getattr(helper, "provider", None) if helper is not None else None
+        helper_model_value = getattr(helper, "model", None) if helper is not None else None
+        if (
+            helper is not None
+            and isinstance(helper_provider_name, str)
+            and helper_provider_name
+            and helper_provider_name != primary_provider_name
+            and isinstance(helper_model_value, str)
+            and helper_model_value
+        ):
+            from bmad_assist.providers import get_provider as _get_provider
+
+            helper_provider = _get_provider(helper_provider_name)
+            helper_display = getattr(helper, "display_model", None) or helper_model_value
+            logger.debug(
+                "Testarch fallback configured: primary=%s → helper=%s/%s",
+                primary_provider_name,
+                helper_provider_name,
+                helper_display,
+            )
+            return helper_provider.invoke, helper_model_value, helper_display
+
+        # Case 3: no fallback
+        return None, None, None
+
     def _invoke_workflow(
         self,
         compiled: CompiledWorkflow,
         timeout: int | None = None,
     ) -> ProviderResult | PhaseResult:
         """Invoke master provider with compiled workflow.
+
+        Uses ``invoke_with_timeout_retry`` to honor the configured
+        per-phase retry count and fall back to a secondary provider on
+        timeout exhaustion. Previously called ``provider.invoke()``
+        directly, which meant a single 30-minute hang on e.g. opencode
+        / glm-5.1 killed the entire phase with no recovery path.
 
         Args:
             compiled: Compiled workflow.
@@ -588,22 +667,88 @@ class TestarchBaseHandler(BaseHandler):
         from bmad_assist.providers import get_provider
 
         try:
-            provider_name = self.config.providers.master.provider
+            master = self.config.providers.master
+            provider_name = master.provider
             provider = get_provider(provider_name)
-            model = self.config.providers.master.model
+            model = master.model
+            display_model = getattr(master, "display_model", None) or model
 
             # Default timeout from config if not provided
             timeout_val = timeout or getattr(self.config, "timeout", 120)
 
-            return provider.invoke(
-                prompt=compiled.context,
-                model=model,
-                timeout=timeout_val,
-                cwd=self.project_path,
+            # Resolve retry count for this phase (matches main-loop behavior).
+            # None = no retry (legacy default); 0 = infinite; N = N retries.
+            timeout_retries = get_phase_retries(self.config, self.phase_name)
+
+            # Resolve fallback chain (claude-subprocess or helper provider).
+            fallback_invoke_fn, fallback_model, fallback_display_model = (
+                self._resolve_testarch_fallback(provider_name)
+            )
+
+            # Build invoke kwargs. When the fallback is the helper
+            # provider (different from primary), its model and
+            # display_model differ too — invoke_with_timeout_retry
+            # passes one **kwargs dict to both primary and fallback,
+            # so we bake the fallback model into a fb_kwargs override
+            # here via a lambda wrapper rather than letting the primary
+            # model leak into the fallback call.
+            primary_kwargs: dict[str, Any] = {
+                "prompt": compiled.context,
+                "model": model,
+                "display_model": display_model,
+                "timeout": timeout_val,
+                "cwd": self.project_path,
+            }
+
+            if (
+                fallback_invoke_fn is not None
+                and fallback_model is not None
+                and fallback_model != model
+            ):
+                # Helper fallback with its own model — wrap to rewrite
+                # model + display_model when called.
+                _fb = fallback_invoke_fn
+                _fb_model = fallback_model
+                _fb_display = fallback_display_model
+
+                def _fallback_with_helper_model(**kwargs: Any) -> ProviderResult:
+                    overridden = {
+                        **kwargs,
+                        "model": _fb_model,
+                        "display_model": _fb_display,
+                    }
+                    logger.info(
+                        "Testarch fallback: invoking helper provider "
+                        "with model=%s (primary model=%s timed out)",
+                        _fb_display,
+                        model,
+                    )
+                    return _fb(**overridden)
+
+                fallback_invoke_fn = _fallback_with_helper_model
+
+            return invoke_with_timeout_retry(
+                provider.invoke,
+                timeout_retries=timeout_retries,
+                phase_name=self.phase_name,
+                fallback_invoke_fn=fallback_invoke_fn,
+                fallback_timeout_retries=timeout_retries,
+                **primary_kwargs,
             )
         except CompilerError as e:
             logger.error("Compiler error: %s", e)
             return PhaseResult.fail(f"Compiler error: {e}")
+        except ProviderTimeoutError as e:
+            # All retries and fallback exhausted — bubble up as a
+            # failure so the loop can record the error and move on.
+            logger.error(
+                "Testarch provider timeout in %s (retries + fallback exhausted): %s",
+                self.phase_name,
+                str(e)[:200],
+            )
+            return PhaseResult.fail(
+                f"Provider timeout in {self.phase_name}: {str(e)[:200]}"
+            )
         except Exception as e:
             logger.error("Provider invocation failed: %s", e)
             return PhaseResult.fail(f"Provider invocation failed: {e}")

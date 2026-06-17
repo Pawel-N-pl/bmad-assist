@@ -85,7 +85,7 @@ def _analyze_output(output: str) -> OutputAnalysis:
 def create_master_record(
     workflow_id: str,
     epic_num: EpicId,
-    story_num: int,
+    story_num: int | str,
     story_title: str,
     provider: str,
     model: str,
@@ -160,7 +160,7 @@ def create_master_record(
 def save_master_timing(
     workflow_id: str,
     epic_num: EpicId,
-    story_num: int,
+    story_num: int | str,
     story_title: str,
     provider: str,
     model: str,

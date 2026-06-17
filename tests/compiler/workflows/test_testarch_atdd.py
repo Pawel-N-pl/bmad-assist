@@ -333,9 +333,9 @@ instructions: "{installed_path}/instructions.md"
             "story_num": "99",
         }
 
-        # Should log warning for missing story (not error - story is optional context)
-        with caplog.at_level(logging.WARNING):
+        # Should log debug message for missing story (not error - story is optional context)
+        with caplog.at_level(logging.DEBUG):
             compile_workflow("testarch-atdd", context)
 
-        # Check warning was logged
+        # Check debug message was logged
         assert "Story file not found" in caplog.text or "99-99" in caplog.text

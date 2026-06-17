@@ -25,6 +25,7 @@ __all__ = [
     "get_timestamp",
     "get_run_prompts_dir",
     "init_run_prompts_dir",
+    "get_current_run_dir",
     "get_original_cwd",
 ]
 
@@ -79,6 +80,23 @@ def _get_run_dir() -> Path | None:
 
     """
     return getattr(_run_context, "prompts_dir", None)
+
+
+def get_current_run_dir() -> Path | None:
+    """Public accessor for the current run-scoped prompts directory.
+
+    Returns the directory initialized by init_run_prompts_dir() for the
+    active bmad-assist run, or None if no run is active (e.g. unit tests,
+    ad-hoc provider invocations outside the loop).
+
+    Used by providers to write per-run diagnostic files (SDK stderr dumps,
+    debug artifacts) alongside the saved prompts.
+
+    Returns:
+        Path to the current run-scoped dir, or None if not initialized.
+
+    """
+    return _get_run_dir()
 
 
 def _get_prompt_counter() -> int:

@@ -137,8 +137,8 @@ class TestarchTriModalCompiler:
         if story_num is not None:
             story_path = self._find_story_file(context, epic_num, story_num)
             if story_path is None:
-                logger.warning(
-                    "Story file not found for %s-%s-*.md (non-blocking)",
+                logger.debug(
+                    "Story file not found for %s-%s-*.md (expected during epic setup)",
                     epic_num,
                     story_num,
                 )

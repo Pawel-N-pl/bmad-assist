@@ -1214,6 +1214,7 @@ class TestProviderInvocation:
         mock_helper_config = MagicMock()
         mock_helper_config.providers.helper.provider = "claude"
         mock_helper_config.providers.helper.model = "haiku"
+        mock_helper_config.providers.helper.timeout = 120
 
         with (
             patch(
@@ -1230,7 +1231,7 @@ class TestProviderInvocation:
         # Verify invoke parameters
         invoke_call = mock_provider.invoke.call_args
         assert invoke_call.kwargs["model"] == "haiku"
-        assert invoke_call.kwargs["timeout"] == 60
+        assert invoke_call.kwargs["timeout"] == 120
         assert invoke_call.kwargs["disable_tools"] is True
         assert invoke_call.kwargs["no_cache"] is True
 
@@ -1262,6 +1263,7 @@ class TestCombinedReasoning:
         mock_helper_config = MagicMock()
         mock_helper_config.providers.helper.provider = "claude"
         mock_helper_config.providers.helper.model = "haiku"
+        mock_helper_config.providers.helper.timeout = 120
 
         with (
             patch("bmad_assist.providers.registry.get_provider", return_value=mock_provider),
