@@ -18,6 +18,7 @@ has write permission to modify the story file.
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,13 @@ from bmad_assist.compiler.types import CompilerContext
 from bmad_assist.core.exceptions import ConfigError
 from bmad_assist.core.io import get_original_cwd
 from bmad_assist.core.loop.handlers.base import BaseHandler, check_for_edit_failures
+from bmad_assist.core.loop.synthesis_contract import (
+    ExtractionQuality,
+    FailureClass,
+    SynthesisDecision,
+    extract_story_patches,
+    make_synthesis_decision,
+)
 from bmad_assist.core.loop.types import PhaseResult
 from bmad_assist.core.paths import get_paths
 from bmad_assist.core.state import State
@@ -46,6 +54,179 @@ from bmad_assist.validation.validation_metrics import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Regex patterns for layered resolution extraction in validate_story_synthesis.
+# (Same logic as code_review_synthesis but applied to validation synthesis output.)
+_HEADER_RESOLUTION_RE = re.compile(
+    r"^\s*resolution\s*:\s*(resolved|rework|halt)\s*$", re.IGNORECASE | re.MULTILINE
+)
+_SEMANTIC_RESOLVED_RE = re.compile(
+    r"no remaining critical|all critical issues (have been )?fixed|"
+    r"all issues (have been )?addressed|validation passed",
+    re.IGNORECASE,
+)
+_SEMANTIC_REWORK_RE = re.compile(
+    r"remaining critical issue|recommend rework|requires? rework|needs? rework|"
+    r"critical issues? remain|validation failed",
+    re.IGNORECASE,
+)
+
+
+def _extract_validation_resolution(
+    stdout: str,
+) -> tuple[dict[str, Any] | None, ExtractionQuality]:
+    """Extract resolution from validation synthesis output using layered strategy.
+
+    Layer 1: bare "resolution: X" key-value line (validation synthesis has no markers).
+    Layer 2: semantic keyword signals.
+
+    Returns:
+        (parsed_dict_or_None, ExtractionQuality)
+    """
+    res_match = _HEADER_RESOLUTION_RE.search(stdout)
+    if res_match:
+        resolution_str = res_match.group(1).lower()
+        logger.info(
+            "Validation synthesis resolution extracted via header: %s", resolution_str
+        )
+        return {"resolution": resolution_str}, ExtractionQuality.DEGRADED
+
+    if _SEMANTIC_REWORK_RE.search(stdout):
+        logger.info("Validation synthesis resolution inferred via semantic fallback: rework")
+        return {"resolution": "rework"}, ExtractionQuality.DEGRADED
+
+    if _SEMANTIC_RESOLVED_RE.search(stdout):
+        logger.info("Validation synthesis resolution inferred via semantic fallback: resolved")
+        return {"resolution": "resolved"}, ExtractionQuality.DEGRADED
+
+    logger.warning(
+        "Validation synthesis: all extraction layers failed "
+        "(stdout_len=%d, preview=%.200s)",
+        len(stdout),
+        stdout[:200] if stdout else "(empty)",
+    )
+    return None, ExtractionQuality.FAILED
+
+
+def _apply_story_patches(story_path: Path, stdout: str) -> int:
+    """Apply STORY_PATCH blocks from LLM stdout to the story file in a single write.
+
+    Extraction uses extract_story_patches() from synthesis_contract.
+    Replacement uses heading-boundary scan (finds heading → next same/higher heading).
+    Fails closed on ambiguity: if any heading is missing or duplicated, no patches
+    are applied and 0 is returned (caller treats this as extraction failure).
+
+    Args:
+        story_path: Absolute path to the story Markdown file.
+        stdout: Raw LLM output containing STORY_PATCH_START/END blocks.
+
+    Returns:
+        Number of patches applied (0 = nothing written).
+    """
+    patches = extract_story_patches(stdout)
+    if not patches:
+        return 0
+
+    try:
+        content = story_path.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.error("Cannot read story file for patch application: %s", e)
+        return 0
+
+    lines = content.splitlines(keepends=True)
+
+    def _heading_level(line: str) -> int:
+        """Return Markdown heading level (1-6) or 0 if not a heading."""
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            return 0
+        count = len(stripped) - len(stripped.lstrip("#"))
+        if count > 6:
+            return 0
+        if len(stripped) > count and stripped[count] not in (" ", "\t"):
+            return 0
+        return count
+
+    def _find_heading_bounds(target_heading: str) -> tuple[int, int] | None:
+        """Find (start_line_idx, end_line_idx_exclusive) for a heading section.
+
+        Returns None if heading not found or is ambiguous (found more than once).
+        """
+        target_normalized = target_heading.lower().strip()
+        found_indices: list[int] = []
+        for idx, line in enumerate(lines):
+            stripped = line.strip().lower()
+            if stripped == target_normalized:
+                found_indices.append(idx)
+
+        if len(found_indices) == 0:
+            logger.warning(
+                "Patch heading not found in story file: %r", target_heading
+            )
+            return None
+        if len(found_indices) > 1:
+            logger.warning(
+                "Patch heading is ambiguous (appears %d times): %r",
+                len(found_indices),
+                target_heading,
+            )
+            return None
+
+        start_idx = found_indices[0]
+        start_level = _heading_level(lines[start_idx])
+        if start_level == 0:
+            logger.warning(
+                "Found heading text but line is not a Markdown heading: %r",
+                lines[start_idx].rstrip(),
+            )
+            return None
+
+        # Find end: next line with heading level <= start_level, or EOF
+        end_idx = len(lines)
+        for idx in range(start_idx + 1, len(lines)):
+            lvl = _heading_level(lines[idx])
+            if lvl > 0 and lvl <= start_level:
+                end_idx = idx
+                break
+
+        return start_idx, end_idx
+
+    # Validate ALL patches before touching the file (fail-closed)
+    bounds: list[tuple[int, int]] = []
+    for patch in patches:
+        result = _find_heading_bounds(patch.heading)
+        if result is None:
+            logger.error(
+                "Patch application aborted: cannot resolve heading %r — "
+                "no patches applied to preserve story integrity",
+                patch.heading,
+            )
+            return 0
+        bounds.append(result)
+
+    # Apply patches in reverse order so earlier line numbers stay valid
+    working_lines = list(lines)
+    patch_replacement_pairs = list(zip(patches, bounds))
+    patch_replacement_pairs.sort(key=lambda x: x[1][0], reverse=True)
+
+    for patch, (start_idx, end_idx) in patch_replacement_pairs:
+        replacement_lines = [
+            line if line.endswith("\n") else line + "\n"
+            for line in patch.content.splitlines()
+        ]
+        # Ensure trailing newline separation
+        if replacement_lines and not replacement_lines[-1].endswith("\n"):
+            replacement_lines[-1] += "\n"
+        working_lines[start_idx:end_idx] = replacement_lines
+
+    merged = "".join(working_lines)
+    story_path.write_text(merged, encoding="utf-8")
+    logger.info(
+        "Applied %d story patch(es) to %s in a single write",
+        len(patches),
+        story_path.name,
+    )
+    return len(patches)
 
 
 class ValidateStorySynthesisHandler(BaseHandler):
@@ -432,14 +613,45 @@ class ValidateStorySynthesisHandler(BaseHandler):
             # Record start time for benchmarking
             start_time = datetime.now(UTC)
 
-            # Invoke Master LLM
-            result = self.invoke_provider(prompt)
+            # Invoke Master LLM with Read-only tools (one-write patch model:
+            # story changes are expressed as STORY_PATCH blocks in stdout, not
+            # direct edits, so Edit/Write are excluded to prevent ToolCallGuard
+            # triggering on repeated same-file edits)
+            result = self.invoke_provider(prompt, allowed_tools=["Read", "Bash"])
 
             # Record end time for benchmarking
             end_time = datetime.now(UTC)
 
+            # Derive evidence verdict for SynthesisDecision fallback
+            evidence_verdict: str = (
+                evidence_score_data.get("verdict", "UNKNOWN")
+                if evidence_score_data
+                else "UNKNOWN"
+            )
+
             # Check for errors
             if result.exit_code != 0:
+                # Classify ToolCallGuard terminations as RETRYABLE
+                is_guard_termination = bool(
+                    result.termination_reason
+                    and result.termination_reason.startswith("guard:")
+                )
+                if is_guard_termination:
+                    logger.warning(
+                        "Validation synthesis terminated by ToolCallGuard: %s — "
+                        "classifying as RETRYABLE",
+                        result.termination_reason,
+                    )
+                    return PhaseResult.ok(
+                        {
+                            "response": result.stdout or "",
+                            "model": result.model,
+                            "duration_ms": result.duration_ms,
+                            "resolution": "halt",
+                            "extraction_quality": ExtractionQuality.FAILED.value,
+                            "failure_class": FailureClass.RETRYABLE.value,
+                        }
+                    )
                 error_msg = result.stderr or f"Master LLM exited with code {result.exit_code}"
                 logger.warning(
                     "Synthesis failed: exit_code=%d, stderr=%s",
@@ -456,6 +668,23 @@ class ValidateStorySynthesisHandler(BaseHandler):
 
                 # Story 22.4 AC5: Check for Edit tool failures (best-effort logging)
                 check_for_edit_failures(result.stdout, target_hint="story file")
+
+                # Apply one-write patch model: extract STORY_PATCH blocks from LLM output
+                # and apply them in a single write to the story file.
+                story_path = self._get_story_path(state)
+                if story_path is not None and story_path.exists():
+                    patch_count = _apply_story_patches(story_path, result.stdout)
+                    if patch_count == 0 and not result.stdout:
+                        logger.warning(
+                            "No story patches found in synthesis output and output is empty"
+                        )
+                    elif patch_count == 0:
+                        logger.info(
+                            "No STORY_PATCH blocks found in synthesis output "
+                            "(LLM may have used direct edits or produced no story updates)"
+                        )
+                    else:
+                        logger.info("Applied %d story patch(es) via one-write model", patch_count)
 
                 # Extract synthesis report using priority-based extraction
                 # 1. Markers, 2. Summary header, 3. Full content
@@ -540,11 +769,29 @@ class ValidateStorySynthesisHandler(BaseHandler):
                     validator_count=len(validators_used),
                 )
 
+                # Extract synthesis resolution via layered strategy
+                res_parsed, res_quality = _extract_validation_resolution(result.stdout)
+                synthesis_decision: SynthesisDecision = make_synthesis_decision(
+                    res_parsed, res_quality, evidence_verdict, evidence_score_data
+                )
+                logger.info(
+                    "Validation synthesis decision: resolution=%s quality=%s",
+                    synthesis_decision.resolution.value,
+                    synthesis_decision.extraction_quality.value,
+                )
+
                 phase_result = PhaseResult.ok(
                     {
                         "response": result.stdout,
                         "model": result.model,
                         "duration_ms": result.duration_ms,
+                        "resolution": synthesis_decision.resolution.value,
+                        "extraction_quality": synthesis_decision.extraction_quality.value,
+                        "failure_class": (
+                            synthesis_decision.failure_class.value
+                            if synthesis_decision.failure_class
+                            else None
+                        ),
                     }
                 )
 
@@ -557,6 +804,32 @@ class ValidateStorySynthesisHandler(BaseHandler):
         except Exception as e:
             logger.error("Synthesis handler failed: %s", e, exc_info=True)
             return PhaseResult.fail(f"Synthesis failed: {e}")
+
+    def _get_story_path(self, state: State) -> Path | None:
+        """Return the absolute path to the current story Markdown file, or None."""
+        from bmad_assist.core.paths import get_paths
+
+        paths = get_paths()
+        stories_dir = paths.implementation_artifacts
+        if state.current_story is None:
+            return None
+        story_slug = state.current_story.replace(".", "-")
+        # Convention: story-{epic}-{story}.md
+        candidates = list(stories_dir.glob(f"story-{story_slug}.md"))
+        if not candidates:
+            # Broader search
+            candidates = list(stories_dir.glob(f"*{story_slug}*.md"))
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            logger.warning(
+                "Multiple story files matched %r: %s — skipping patch application",
+                story_slug,
+                [str(p) for p in candidates[:3]],
+            )
+            return None
+        logger.warning("Story file not found for %r — skipping patch application", story_slug)
+        return None
 
     def _extract_deterministic_metrics(
         self,

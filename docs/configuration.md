@@ -308,7 +308,10 @@ loop:
 
   # Code review rework loop (optional)
   code_review_rework: true    # Re-run dev_story when review verdict is negative
-  max_rework_attempts: 2      # Max dev→review→fix cycles before moving on
+  max_rework_attempts: 2      # Max dev→review→fix cycles before moving on (1–5)
+
+  # Synthesis reliability (optional)
+  max_synthesis_retries: 1    # Max retries for retryable synthesis failures (0–3)
 ```
 
 ### Code Review Rework Loop
@@ -320,6 +323,21 @@ dev_story → code_review → code_review_synthesis
     ↑                            │
     └── (verdict negative) ──────┘
 ```
+
+### Synthesis Reliability and Retry
+
+Synthesis phases (`code_review_synthesis`, `validate_story_synthesis`) use layered extraction to parse LLM output. When extraction fails (e.g. ToolCallGuard termination, provider truncation), the runner classifies the failure and responds accordingly:
+
+| failure_class | extraction_quality | runner action |
+|---|---|---|
+| `retryable` | `failed` | Retry the synthesis phase (up to `max_synthesis_retries` times) |
+| `halt` | `failed` | GUARDIAN_HALT — manual review required |
+| `halt` | `strict`/`degraded` | GUARDIAN_HALT — contradictory evidence |
+| `None` | `strict`/`degraded` | Normal resolved/rework/halt decision |
+
+**`max_synthesis_retries`** (default `1`, range `0–3`): maximum bounded retries for `retryable` failures before the runner escalates to GUARDIAN_HALT. Set to `0` to halt immediately on any retryable failure.
+
+The extraction quality and failure class are persisted in `state.yaml` under `last_synthesis_extraction_quality` and `last_synthesis_failure_class` for debugging and clean resume.
 
 ## ToolCallGuard
 

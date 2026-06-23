@@ -1344,21 +1344,168 @@ def _run_loop_body(
             # Determine what to do next based on current phase
             current_phase = state.current_phase
 
+            # Handle VALIDATE_STORY_SYNTHESIS RETRYABLE outcomes (ToolCallGuard, truncation)
+            if current_phase == Phase.VALIDATE_STORY_SYNTHESIS and result.success:
+                vss_failure_class = (
+                    result.outputs.get("failure_class") if result.outputs else None
+                )
+                vss_extraction_quality = (
+                    result.outputs.get("extraction_quality") if result.outputs else None
+                )
+                if vss_failure_class == "retryable":
+                    retry_count = state.synthesis_retry_count
+                    max_retries = loop_config.max_synthesis_retries
+                    if retry_count < max_retries:
+                        retry_attempt = retry_count + 1
+                        logger.warning(
+                            "Validation synthesis RETRYABLE (quality=%s, attempt %d/%d) "
+                            "— retrying VALIDATE_STORY_SYNTHESIS",
+                            vss_extraction_quality,
+                            retry_attempt,
+                            max_retries,
+                        )
+                        now = datetime.now(UTC).replace(tzinfo=None)
+                        state = state.model_copy(
+                            update={
+                                "current_phase": Phase.VALIDATE_STORY_SYNTHESIS,
+                                "synthesis_retry_count": retry_attempt,
+                                "last_synthesis_extraction_quality": vss_extraction_quality,
+                                "last_synthesis_failure_class": vss_failure_class,
+                                "updated_at": now,
+                            }
+                        )
+                        save_state(state, state_path)
+                        continue
+                    else:
+                        logger.error(
+                            "Validation synthesis RETRYABLE failure exhausted max retries "
+                            "(%d) — halting",
+                            max_retries,
+                        )
+                        state = state.model_copy(
+                            update={
+                                "last_synthesis_extraction_quality": vss_extraction_quality,
+                                "last_synthesis_failure_class": vss_failure_class,
+                            }
+                        )
+                        save_state(state, state_path)
+                        _dispatch_event(
+                            "queue_blocked",
+                            project_path,
+                            state,
+                            reason="synthesis_halt",
+                            waiting_tasks=0,
+                        )
+                        return LoopExitReason.GUARDIAN_HALT
+
             # AC3: CODE_REVIEW_SYNTHESIS success → handle story completion
             # CRITICAL: This check MUST happen before get_next_phase() because story completion
             # determines whether we advance to RETROSPECTIVE (epic complete) or next story.
             if current_phase == Phase.CODE_REVIEW_SYNTHESIS and result.success:
-                # Rework loop: If verdict requires rework and feature is enabled, loop back to DEV_STORY
+                # Synthesis-authoritative resolution: branch on resolution (preferred)
+                # or fall back to raw verdict for backward compatibility.
+                resolution = result.outputs.get("resolution") if result.outputs else None
                 verdict = result.outputs.get("verdict", "UNKNOWN") if result.outputs else "UNKNOWN"
-                rework_verdicts = {"REJECT", "MAJOR_REWORK"}
-                if (
-                    verdict in rework_verdicts
+                synthesis_report_path = (
+                    result.outputs.get("synthesis_report_path")
+                    if result.outputs
+                    else None
+                )
+                extraction_quality = (
+                    result.outputs.get("extraction_quality") if result.outputs else None
+                )
+                failure_class = result.outputs.get("failure_class") if result.outputs else None
+
+                # Persist synthesis decision metadata for debugging and resume
+                synthesis_state_update = {
+                    "last_synthesis_resolution": resolution,
+                    "last_synthesis_verdict": verdict,
+                    "last_synthesis_report_path": synthesis_report_path,
+                    "last_synthesis_story": state.current_story,
+                    "last_synthesis_extraction_quality": extraction_quality,
+                    "last_synthesis_failure_class": failure_class,
+                }
+
+                # Handle RETRYABLE failures (ToolCallGuard or provider truncation)
+                if failure_class == "retryable":
+                    retry_count = state.synthesis_retry_count
+                    max_retries = loop_config.max_synthesis_retries
+                    if retry_count < max_retries:
+                        retry_attempt = retry_count + 1
+                        logger.warning(
+                            "Synthesis classified as RETRYABLE (quality=%s, attempt %d/%d) "
+                            "— retrying %s",
+                            extraction_quality,
+                            retry_attempt,
+                            max_retries,
+                            current_phase.value,
+                        )
+                        now = datetime.now(UTC).replace(tzinfo=None)
+                        state = state.model_copy(
+                            update={
+                                "current_phase": current_phase,
+                                "synthesis_retry_count": retry_attempt,
+                                **synthesis_state_update,
+                                "updated_at": now,
+                            }
+                        )
+                        save_state(state, state_path)
+                        continue
+                    else:
+                        logger.error(
+                            "Synthesis RETRYABLE failure exhausted max retries (%d) — halting",
+                            max_retries,
+                        )
+                        state = state.model_copy(update=synthesis_state_update)
+                        save_state(state, state_path)
+                        _dispatch_event(
+                            "queue_blocked",
+                            project_path,
+                            state,
+                            reason="synthesis_halt",
+                            waiting_tasks=0,
+                        )
+                        return LoopExitReason.GUARDIAN_HALT
+
+                # Determine rework need from resolution (preferred) or verdict (fallback)
+                if resolution is not None:
+                    needs_rework = resolution == "rework"
+                    should_halt = resolution == "halt"
+                else:
+                    # Backward compatible: no resolution field, use verdict
+                    rework_verdicts = {"REJECT", "MAJOR_REWORK"}
+                    needs_rework = verdict in rework_verdicts
+                    should_halt = False
+
+                if should_halt:
+                    logger.warning(
+                        "Synthesis resolution is 'halt' — stopping loop for "
+                        "intervention (verdict=%s, quality=%s, attempt=%d)",
+                        verdict,
+                        extraction_quality,
+                        state.code_review_rework_count,
+                    )
+                    state = state.model_copy(update=synthesis_state_update)
+                    save_state(state, state_path)
+                    _dispatch_event(
+                        "queue_blocked",
+                        project_path,
+                        state,
+                        reason="synthesis_halt",
+                        waiting_tasks=0,
+                    )
+                    return LoopExitReason.GUARDIAN_HALT
+
+                elif (
+                    needs_rework
                     and loop_config.code_review_rework
                     and state.code_review_rework_count < loop_config.max_rework_attempts
                 ):
                     rework_attempt = state.code_review_rework_count + 1
                     logger.info(
-                        "Code review %s (attempt %d/%d), looping back to DEV_STORY",
+                        "Code review rework needed (resolution=%s, verdict=%s, "
+                        "attempt %d/%d), looping back to DEV_STORY",
+                        resolution or "n/a",
                         verdict,
                         rework_attempt,
                         loop_config.max_rework_attempts,
@@ -1368,14 +1515,17 @@ def _run_loop_body(
                         update={
                             "current_phase": Phase.DEV_STORY,
                             "code_review_rework_count": rework_attempt,
+                            **synthesis_state_update,
                             "updated_at": now,
                         }
                     )
                     save_state(state, state_path)
                     continue
-                elif verdict in rework_verdicts and loop_config.code_review_rework:
+                elif needs_rework and loop_config.code_review_rework:
                     logger.warning(
-                        "Code review %s but max rework attempts (%d) reached, continuing",
+                        "Code review needs rework (resolution=%s, verdict=%s) but "
+                        "max rework attempts (%d) reached, continuing",
+                        resolution or "n/a",
                         verdict,
                         loop_config.max_rework_attempts,
                     )

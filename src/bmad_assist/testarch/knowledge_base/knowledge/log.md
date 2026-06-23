@@ -21,6 +21,28 @@ The `log` utility provides:
 - **Multiple levels**: info, step, success, warning, error, debug
 - **Optional console**: Can disable console output but keep report logs
 
+## Important: Always Use Direct Import
+
+**Always use `log` as a direct import, never as a fixture.** The library ships a `log` fixture (`@seontechnologies/playwright-utils/log/fixtures`) that exposes `log` as a callable function `log({ message, level })` — this is **incompatible** with the `log.step()` / `log.info()` object API used everywhere.
+
+If `log` is included in `mergeTests`, destructuring `{ log }` from the test params gives you the fixture (callable function), which **shadows** the direct import and breaks all `log.step(...)` calls.
+
+```typescript
+// ✅ CORRECT: Direct import — works everywhere
+import { log } from '@seontechnologies/playwright-utils';
+
+test('example', async ({ apiRequest }) => {
+  await log.step('Making API call');  // Works
+});
+
+// ❌ WRONG: Fixture import — log.step is not a function
+test('broken', async ({ log }) => {
+  await log.step('This crashes');  // TypeError: log.step is not a function
+});
+```
+
+**Do NOT include `logFixture` in `mergeTests`.** The `log` utility is self-contained and doesn't need dependency injection like `apiRequest` (which needs Playwright's `request` context).
+
 ## Quick Start
 
 ```typescript
@@ -259,7 +281,8 @@ export const test = base.extend({
 **Implementation**:
 
 ```typescript
-import { test } from '@seontechnologies/playwright-utils/fixtures';
+import { log } from '@seontechnologies/playwright-utils';
+import { test } from '../support/merged-fixtures';
 
 // Helper to create safe token preview
 function createTokenPreview(token: string): string {

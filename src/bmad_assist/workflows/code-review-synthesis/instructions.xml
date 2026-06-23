@@ -217,6 +217,53 @@
 [Final test run output summary]
 - Tests passed: X
 - Tests failed: 0 (required for completion)
+
+## Metrics JSON
+[Machine-readable benchmarking block. MUST be valid JSON between these markers.
+ Include both top-level keys: "quality" and "consensus".]
+&lt;!-- METRICS_JSON_START --&gt;
+{
+  "quality": {
+    "actionable_ratio": 0.0,
+    "specificity_score": 0.0,
+    "evidence_quality": 0.0,
+    "follows_template": true,
+    "internal_consistency": 0.0
+  },
+  "consensus": {
+    "agreed_findings": 0,
+    "unique_findings": 0,
+    "disputed_findings": 0,
+    "missed_findings": 0,
+    "agreement_score": 0.0,
+    "false_positive_count": 0
+  }
+}
+&lt;!-- METRICS_JSON_END --&gt;
+
+## Resolution
+[Machine-readable resolution block — MUST appear BEFORE CODE_REVIEW_SYNTHESIS_END.
+ Count verified/fixed/remaining issues from your synthesis above.
+ - verified_critical: CRITICAL issues verified (not dismissed) across all reviewers
+ - verified_high: HIGH issues verified (not dismissed) across all reviewers
+ - fixed_critical: CRITICAL issues you applied fixes for in this round
+ - fixed_high: HIGH issues you applied fixes for in this round
+ - remaining_critical: verified_critical minus fixed_critical (>= 0)
+ - remaining_high: verified_high minus fixed_high (>= 0)
+ Determine resolution:
+ - "resolved" if remaining_critical == 0 AND remaining_high == 0
+ - "rework" if remaining_critical > 0 OR remaining_high > 0
+ - "halt" if you could not reliably determine issue counts
+ Do NOT omit any fields.]
+&lt;!-- SYNTHESIS_RESOLUTION_START --&gt;
+resolution: {resolved|rework|halt}
+verified_critical: {N}
+verified_high: {N}
+fixed_critical: {N}
+fixed_high: {N}
+remaining_critical: {N}
+remaining_high: {N}
+&lt;!-- SYNTHESIS_RESOLUTION_END --&gt;
 &lt;!-- CODE_REVIEW_SYNTHESIS_END --&gt;
     </output-format>
 

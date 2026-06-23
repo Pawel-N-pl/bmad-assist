@@ -222,6 +222,51 @@ See [Providers Reference](providers.md#provider-fallback-chains) for details.
 
 ---
 
+## Synthesis Extraction Failures
+
+**Symptoms:**
+- Loop exits with `GUARDIAN_HALT` after a synthesis phase
+- Logs show `extraction_quality=failed` or `extraction_quality=degraded`
+- `state.yaml` shows `last_synthesis_failure_class: halt`
+
+### Degraded extraction (extraction_quality: degraded)
+
+The LLM omitted the HTML-comment resolution markers but the runner recovered via section-header or semantic keyword fallback. The loop continues normally. If this happens frequently, the synthesis workflow prompt may need adjustment.
+
+### Failed extraction with ToolCallGuard termination (failure_class: retryable)
+
+**Cause:** ToolCallGuard interrupted the synthesis LLM call before it could produce structured output.
+
+**Runner behavior:** Retries the synthesis phase automatically, up to `max_synthesis_retries` (default 1). After exhausting retries, exits GUARDIAN_HALT.
+
+**Solutions:**
+1. Increase `max_synthesis_retries` in `bmad-assist.yaml` (range 0–3)
+2. Check ToolCallGuard thresholds — a very large story file may legitimately require more tool calls
+3. Resume the run: `bmad-assist run --project ./my-project` — the runner will retry the failed synthesis phase
+
+### Failed extraction with contradictory evidence (failure_class: halt)
+
+**Cause:** The LLM output could not be parsed AND there was insufficient pre-synthesis evidence to make a reliable rework/resolve decision, OR the LLM claimed resolved with zero reported fixes but the evidence score showed pre-existing critical issues.
+
+**Solutions:**
+1. Check `state.yaml` for `last_synthesis_resolution`, `last_synthesis_extraction_quality`, and `last_synthesis_failure_class`
+2. Review the synthesis workflow output log for the affected story
+3. Manually inspect the story file for the LLM's actual changes
+4. Resume the run after confirming the story state is correct — the loop will re-run synthesis
+
+### Inspecting synthesis state after halt
+
+```bash
+# Check synthesis fields in state.yaml
+grep "last_synthesis" .bmad-assist/state.yaml
+
+# Fields persisted after each synthesis:
+#   last_synthesis_resolution:         resolved | rework | halt
+#   last_synthesis_extraction_quality: strict | degraded | failed
+#   last_synthesis_failure_class:      retryable | halt | (null for clean runs)
+#   synthesis_retry_count:             number of retries attempted this story
+```
+
 ## Debug Mode
 
 For detailed troubleshooting:
